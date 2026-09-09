@@ -1,59 +1,152 @@
-# Migration notes
+# migrates.md — django-trusts-zero 2.0 package-path split
 
-## 2026-09-09: S5 leftover-only Content diagnostic (kernel companion)
+This file is the mechanical checklist for relocating the historical
+concrete Trusts implementation from `django-trusts` / `trusts` into
+`django-trusts-zero` / `trusts.zero`.
 
-Companion to django-trusts kernel S5 (`trusts.E006`/`trusts.E007`/`trusts.E008`).
-When `KernelConfig` is installed, Zero no longer registers the combined
-`check_context_registry` / `check_trustee_registry` walkers. Those generic
-adapter re-walks and Trustee freeze diagnostics belong to the kernel.
+Implemented revision: **noun-independent-kernel-r3 Step 3 (Zero package)**.
+Does **not** close [django-trusts#43](https://github.com/django-trusts/django-trusts/issues/43).
 
-Zero still owns unresolved legacy `Content` leftovers. With a kernel present,
-`check_unresolved_content_registrations()` registers that leftover-only walk
-exactly once. Combined `check_context_registry()` remains the no-kernel
-fallback and still includes leftovers plus adapters.
+Unrelated to Zero Trust network architecture.
 
-Paired kernel+Zero `manage.py check` therefore emits exactly one leftover
-`trusts.E006` for an unresolved `Content` declaration, and no duplicate
-generic adapter `E006`/`E007` rows from Zero.
+## Companion kernel
 
-This is not a Zero execution-wrapper migration and does not change request-time
-fail-closed behavior.
+This repository is authoritative for distribution `django-trusts-zero` **2.0.0.dev0**. Publishable metadata declares `django-trusts>=1.0.0.dev0` (1.x train; PyPI 0.10.x does not match). Unpinned `django-trusts` is incorrect. Do not put a git URL in Requires-Dist (it would fight a local companion wheel).
 
-## 2026-09-07: S4 create-under-scope (kernel overlay)
+| Item | Value |
+| --- | --- |
+| Authoritative Zero metadata | this repo `pyproject.toml` (`2.0.0.dev0` + `django-trusts>=1.0.0.dev0`) |
+| Paired kernel proof | [django-trusts#46](https://github.com/django-trusts/django-trusts/pull/46) @ [`68bb89c7199539d82868f908e2e8479cda39a85e`](https://github.com/django-trusts/django-trusts/commit/68bb89c7199539d82868f908e2e8479cda39a85e). Do not assume it has merged. |
+| Pre-split published master | [`624daa198d1922a43c775a814a3ff213cf5bd4d7`](https://github.com/django-trusts/django-trusts/commit/624daa198d1922a43c775a814a3ff213cf5bd4d7) (after [#45](https://github.com/django-trusts/django-trusts/pull/45)); overlay extra only |
+| What 624daa1 still contains | Concrete models, migrations, backend, `trusts.apps.AppConfig` with `label='trusts'`, Zero settings constants on `trusts/__init__.py` |
+| What #46 @ `68bb89c` ships | `pkgutil.extend_path` on `trusts/__init__.py`; `KernelConfig(name='trusts', label='trusts_kernel', default=False)` with **no** migrations; **no** in-tree `trusts/zero/**`; **no** `packaging/django-trusts-zero/` |
 
-`Trustee.create(...)` now accepts an explicit `scope=` argument so callers can
-create a `User` under a known parent without going through `add_user`. The
-runtime still requires a configured `scope_model`. A missing `scope=` value
-raises `TypeError` at the wrapper; an unknown `scope=` value raises
-`ObjectDoesNotExist` from `scope_model._default_manager.get(...)`.
+Any retained `packaging/django-trusts-zero/` mirror in the kernel checkout must match this repo or `scripts/verify-companion-pair.py` fails.
 
-The public wrapper does not grow `parent=` / `parent_id=` aliases, does not
-change the existing `add_user` path, and does not interpret `scope=` as a
-permission or group noun. Kernel S4 owns the same create-under-scope contract
-for `trusts.api.Trustee`.
+Until the kernel PR lands, install **only** `trusts.zero.apps.ZeroConfig` on `624daa1` (do not also install `'trusts'`). On #46 install `KernelConfig` then `ZeroConfig`. Kernel modules (`trusts.context`, `trusts.trustee`, `trusts.path`, `trusts.conditions`) remain importable from the `django-trusts` distribution.
 
-## 2026-09-07: S3 runtime + public Trustee surface
+Editable+editable next to either kernel SHA needs setuptools `editable_mode=compat` so kernel `trusts/__init__.py` stays the package owner.
 
-Zero now exposes a public `Trustee` namespace (`trusts.zero.Trustee`) with the
-same constructor and helper surface as the kernel `trusts.api.Trustee` wrapper.
-The previous `get_trustees(...)` helper remains as a compatibility alias.
+## Public changes (2.0 package path)
 
-Runtime changes:
+Stored schema and authorization **data** stay compatible. Public **imports and settings** change.
 
-- `content_type` / `permission` remain in the public constructor for one
-  release. Passing either kwarg logs a `RemovedInZero20Warning` and the values
-  are ignored.
-- `Trustee.has_perm` no longer treats Django `Permission` rows or
-  `user.has_perm(...)` as authorization success. Unknown or unpublished
-  operations fail closed.
-- Direct `Content` ORM authorization queries are no longer a supported
-  compatibility path. Request-time code should use `Trustee.has_perm(...)`.
+| Surface | Old (django-trusts 1.x / 0.x concrete) | New |
+| --- | --- | --- |
+| Distribution | `django-trusts` (kernel + concrete) | `django-trusts` (kernel) + `django-trusts-zero` |
+| `INSTALLED_APPS` | `'trusts'` | `'trusts.apps.KernelConfig'` (after kernel PR) then `'trusts.zero.apps.ZeroConfig'` |
+| Models | `from trusts.models import Trust, Content, Junction, Role` | `from trusts.zero.models import Trust, Content, Junction, Role` |
+| Backend | `'trusts.backends.TrustModelBackend'` | `'trusts.zero.backends.TrustModelBackend'` |
+| Settings constants | `from trusts import ENTITY_MODEL_NAME, ROOT_PK, …` | `from trusts.zero import ENTITY_MODEL_NAME, ROOT_PK, …` |
+| Management commands | still named `create_trust_root`, `grandfather_trust_group_permissions`, `update_roles_permissions` | same names, discovered via Zero’s app |
+| Django app label | `trusts` | **`trusts`** (unchanged) |
+| Migration names | `0001_initial`, `0002_trustgroup` | **unchanged** |
+| Tables | `trusts_trust`, `trusts_trustuserpermission`, `trusts_trust_groups`, `trusts_trustgrouppermission`, `trusts_role`, `trusts_rolepermission` | **unchanged** |
+| ContentType natural keys | `trusts \| trust` (and siblings) | **unchanged** |
 
-## 2026-09-06: First extracted Zero overlay
+Forbidden after the split:
 
-`django-trusts-zero` is the first extracted compatibility overlay. It keeps the
-legacy `Content` noun, the historical `trusts.zero` import path, and the
-Zero-era `Trustee` helpers that still talk to that noun.
+- bare `'trusts'` in `INSTALLED_APPS` (selects kernel `trusts/apps.py`)
+- bare `'trusts.zero'` as a substitute for the explicit class path in the 2.0 checklist
+- Zero shipping `trusts/__init__.py`
 
-The kernel no longer vendors this package. Install Zero independently when an
-existing project still needs the `Content` model during the migration window.
+## Migration identity (r3)
+
+Move `0001_initial.py` and `0002_trustgroup.py` to `trusts.zero.migrations` with **import-only** rewrites:
+
+```python
+from trusts.zero import (
+    ENTITY_MODEL_NAME, GROUP_MODEL_NAME, PERMISSION_MODEL_NAME,
+    DEFAULT_SETTLOR, ALLOW_NULL_SETTLOR, ROOT_PK,
+)
+from trusts.zero.management.commands.create_trust_root import create_root_trust
+from trusts.zero.models import ReadonlyFieldsMixin
+# bases=(ReadonlyFieldsMixin, models.Model)
+```
+
+Loader keys remain `('trusts', '0001_initial')` / `('trusts', '0002_trustgroup')` because `ZeroConfig.label = 'trusts'`. No `MIGRATION_MODULES`. No `0003`.
+
+Accepted deconstruction deltas (and only these):
+
+1. `CreateModel.bases` serializes `trusts.zero.models.ReadonlyFieldsMixin`
+2. `RunPython` callable module is `trusts.zero.management.commands.create_trust_root`
+
+Any other deconstruction delta is a failure. Schema-bearing ops (`to=`, `through=`, `db_table`, `database_operations=[]`, …) stay equivalent. Do not inline `'auth.Group'` in place of `GROUP_MODEL_NAME`.
+
+## Proofs this package runs
+
+1. **Fresh install** — `scripts/verify-fresh-install.py`: applied `{0001_initial, 0002_trustgroup}`; tables listed above; root row at `TRUSTS_ROOT_PK`; `makemigrations --check` quiet; already-current `migrate --plan` for `trusts` is empty.
+2. **Already-applied 1.x** — `scripts/verify-upgrade-current.py`: kernel migrate, swap to ZeroConfig, empty trusts plan, unchanged `COUNT(*)` and content-type natural keys.
+3. **Legacy 0001-only** — `scripts/verify-legacy-upgrade.py`: plan is exactly `[('trusts', '0002_trustgroup', False)]`; `0001` is not re-run; `0002` `database_operations=[]` so `trusts_trust_groups` rows are reused.
+4. **Install matrix** — `scripts/verify-install-matrix.py`: wheel+wheel **with dependency resolution**, editable+editable (kernel `extend_path` overlay if needed), uninstall/reinstall isolation; Zero RECORD never owns a core path.
+5. **Companion pair** — `scripts/verify-companion-pair.py`: this repo’s wheel + exact kernel #46 HEAD; one resolver-driven `pip install` of the Zero wheel from a local `--no-index --find-links` wheelhouse must pull the companion kernel (does not treat PyPI absence of 1.x as success); metadata drift vs a retained kernel mirror is a failure.
+
+Pre-split baseline and legacy DDL live in `scripts/legacy/trusts_0001_sqlite.sql` (copied from django-trusts so comparison remains possible if the kernel PR later drops in-tree concrete files).
+
+## Migration-bot checklist
+
+Search application code and settings for:
+
+```text
+INSTALLED_APPS.*trusts
+AUTHENTICATION_BACKENDS.*trusts.backends
+from trusts.models import
+from trusts.backends import
+from trusts.admin import
+from trusts.authorization import
+from trusts.query import
+from trusts.decorators import
+from trusts import ENTITY_MODEL_NAME
+from trusts import ROOT_PK
+from trusts import GROUP_MODEL_NAME
+from trusts import PERMISSION_MODEL_NAME
+from trusts import DEFAULT_SETTLOR
+from trusts import ALLOW_NULL_SETTLOR
+from trusts import get_entity_model
+from trusts import supported_entity_contract
+trusts.urls
+```
+
+Keep:
+
+```text
+from trusts.context import
+from trusts.trustee import
+from trusts.path import
+from trusts.conditions import
+```
+
+Replace concrete imports with `trusts.zero.*`. Replace `'trusts'` in `INSTALLED_APPS` with `'trusts.zero.apps.ZeroConfig'` (and `'trusts.apps.KernelConfig'` once the kernel PR is installed). Replace the backend string with `'trusts.zero.backends.TrustModelBackend'`.
+
+Then:
+
+1. `python -m django migrate --plan` — no Trusts operations on an already-current database.
+2. `python -m django makemigrations trusts --check` — quiet.
+3. Confirm `ContentType` natural keys `trusts | trust` (and siblings) and `COUNT(*)` on every Trusts table are unchanged.
+4. Confirm `pip uninstall django-trusts-zero` does not delete `trusts/__init__.py`.
+
+## Out of scope (this slice)
+
+- Recursive / ordered Windows helpers
+- Broadening the GH vocabulary proof
+- Closing django-trusts#43
+- Removing in-tree concrete code from django-trusts **master** (that wait is the coordinated kernel PR; do not merge one side without the other)
+
+# django-trusts#47 S5 companion: leftover Content check registration (2.0.0.dev0)
+
+Coordinated with kernel S5 ([django-trusts#52](https://github.com/django-trusts/django-trusts/pull/52)). Version remains **2.0.0.dev0**. Does **not** migrate Zero execution wrappers, start gh-permissions#1, resume #17, or close #47.
+
+## Decision
+
+When the companion kernel owns generic adapter re-walks (`KernelConfig.label == 'trusts_kernel'`), Zero registers **only** `check_unresolved_content_registrations` (`trusts.E006` leftover Content rows). It does **not** re-register generic Context/Trustee re-walks.
+
+The combined `check_context_registry` / `check_trustee_registry` (adapter re-walk plus leftovers) remain the no-kernel fallback.
+
+`manage.py check` on a normal kernel+Zero install therefore still emits leftover Content `trusts.E006` exactly once. Generic adapter `E006` / `E007` stay kernel-owned (no duplicate rows).
+
+## Migration-bot summary
+
+- [ ] Expect leftover Content `trusts.E006` from Zero when KernelConfig is installed.
+- [ ] Do not expect Zero to re-walk Context/Trustee adapters beside the kernel.
+- [ ] Leave package version at `2.0.0.dev0`.
+- [ ] Do not close django-trusts#47 from this PR.
