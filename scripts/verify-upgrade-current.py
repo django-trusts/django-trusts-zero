@@ -253,8 +253,8 @@ def main() -> int:
         env_base['PHASE1_SNAPSHOT'] = snapshot_line
         kernel_zero = kernel / 'trusts' / 'zero'
         if kernel_zero.is_dir() and (ROOT / 'trusts' / 'zero').is_dir():
-            # Companion kernel still vendors trusts/zero. Phase 2 must load
-            # THIS package, not the in-tree copy.
+            # If the kernel checkout still vendors trusts/zero, Phase 2 must
+            # load THIS package, not the in-tree copy. No-op when already gone.
             shutil.rmtree(kernel_zero)
         phase2 = subprocess.run(
             [sys.executable, '-P', '-c', PHASE2],

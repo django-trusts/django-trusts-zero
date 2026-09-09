@@ -55,7 +55,7 @@ def main() -> int:
     parser.add_argument(
         '--strip-in-tree-zero',
         action='store_true',
-        help='Delete trusts/zero from the kernel checkout (PR #46 still vendors it)',
+        help='Delete trusts/zero from the kernel checkout if still vendored',
     )
     args = parser.parse_args()
     kernel_root = args.kernel_root.resolve()

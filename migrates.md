@@ -16,10 +16,10 @@ This repository is authoritative for distribution `django-trusts-zero` **2.0.0.d
 | Item | Value |
 | --- | --- |
 | Authoritative Zero metadata | this repo `pyproject.toml` (`2.0.0.dev0` + `django-trusts>=1.0.0.dev0`) |
-| Paired kernel proof | [django-trusts#46](https://github.com/django-trusts/django-trusts/pull/46) @ [`60ec3c6499de1c67e27e461de8b80f1d91368c0b`](https://github.com/django-trusts/django-trusts/commit/60ec3c6499de1c67e27e461de8b80f1d91368c0b). Do not assume it has merged. |
+| Paired kernel proof | [django-trusts#46](https://github.com/django-trusts/django-trusts/pull/46) @ [`68bb89c7199539d82868f908e2e8479cda39a85e`](https://github.com/django-trusts/django-trusts/commit/68bb89c7199539d82868f908e2e8479cda39a85e). Do not assume it has merged. |
 | Pre-split published master | [`624daa198d1922a43c775a814a3ff213cf5bd4d7`](https://github.com/django-trusts/django-trusts/commit/624daa198d1922a43c775a814a3ff213cf5bd4d7) (after [#45](https://github.com/django-trusts/django-trusts/pull/45)); overlay extra only |
 | What 624daa1 still contains | Concrete models, migrations, backend, `trusts.apps.AppConfig` with `label='trusts'`, Zero settings constants on `trusts/__init__.py` |
-| What #46 adds | `pkgutil.extend_path` on `trusts/__init__.py`; `KernelConfig(name='trusts', label='trusts_kernel', default=False)` with **no** migrations; in-tree `trusts/zero/**` still vendored until the kernel merge revision drops it |
+| What #46 @ `68bb89c` ships | `pkgutil.extend_path` on `trusts/__init__.py`; `KernelConfig(name='trusts', label='trusts_kernel', default=False)` with **no** migrations; **no** in-tree `trusts/zero/**`; **no** `packaging/django-trusts-zero/` |
 
 Any retained `packaging/django-trusts-zero/` mirror in the kernel checkout must match this repo or `scripts/verify-companion-pair.py` fails.
 

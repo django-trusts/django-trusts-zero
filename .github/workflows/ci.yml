@@ -12,7 +12,7 @@ env:
   # Overlay-only extra job (pre-split published master). Not the paired proof.
   KERNEL_SHA: 624daa198d1922a43c775a814a3ff213cf5bd4d7
   # Coordinated companion. The pair job is the required cross-repo proof.
-  COMPANION_KERNEL_SHA: 60ec3c6499de1c67e27e461de8b80f1d91368c0b
+  COMPANION_KERNEL_SHA: 68bb89c7199539d82868f908e2e8479cda39a85e
 
 jobs:
   pair:
