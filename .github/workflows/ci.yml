@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  KERNEL_SHA: 624daa198d1922a43c775a814a3ff213cf5bd4d7
+
+jobs:
+  tests:
+    name: tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: django-trusts/django-trusts
+        ref: ${{ env.KERNEL_SHA }}
+        path: .deps/django-trusts
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install kernel then Zero
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install "Django>=6.1,<6.2" coverage virtualenv
+        python scripts/apply-kernel-namespace-overlay.py .deps/django-trusts
+        python -m pip install -e .deps/django-trusts
+        python -m pip install -e . --no-deps
+    - name: Zero tests
+      run: coverage run -m tests.runtests && coverage report
+    - name: Fresh install / already-current plan
+      run: python scripts/verify-fresh-install.py
+    - name: Legacy 0001-only upgrade
+      run: python scripts/verify-legacy-upgrade.py
+    - name: Already-applied 1.x kernel → Zero
+      run: python scripts/verify-upgrade-current.py
+
+  package:
+    name: package / install matrix
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: django-trusts/django-trusts
+        ref: ${{ env.KERNEL_SHA }}
+        path: .deps/django-trusts
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Build sdist and wheel
+      run: |
+        python -m pip install --upgrade pip build twine virtualenv
+        python -m build
+        twine check dist/*
+    - name: Install matrix (wheel+wheel, editable+editable, uninstall)
+      run: python scripts/verify-install-matrix.py --kernel .deps/django-trusts

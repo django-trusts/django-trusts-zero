@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "django-trusts-zero"
+version = "2.0.0.dev0"
+description = "Concrete Django authorization models carried forward from django-trusts 0.x (unrelated to Zero Trust network architecture)"
+readme = "README.md"
+license = "BSD-2-Clause"
+authors = [
+    { name = "Thomas Yip", email = "thomasleaf@gmail.com" },
+]
+requires-python = ">=3.12"
+dependencies = [
+    "Django>=6.1,<6.2",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Django",
+    "Framework :: Django :: 6.1",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries",
+]
+keywords = ["django", "authorization", "permissions", "organizations"]
+
+[project.urls]
+Homepage = "https://github.com/django-trusts/django-trusts-zero"
+Repository = "https://github.com/django-trusts/django-trusts-zero"
+Issues = "https://github.com/django-trusts/django-trusts-zero/issues"
+Kernel = "https://github.com/django-trusts/django-trusts"
+"Issue 43" = "https://github.com/django-trusts/django-trusts/issues/43"
+
+[project.optional-dependencies]
+test = [
+    "coverage>=7.0",
+    "virtualenv",
+]
+
+# django-trusts is required at import time (trusts.context / trustee / path).
+# It is not a Requires-Dist here: the 1.x kernel is not on PyPI at the
+# companion SHA, and a git URL would replace an editable or local kernel
+# wheel on `pip install -e .`. Pin: requirements.txt and CI KERNEL_SHA.
+# Explicit package list: this tree has no trusts/__init__.py (kernel-owned),
+# so setuptools find without namespaces would ship an empty wheel.
+[tool.setuptools]
+include-package-data = true
+zip-safe = false
+packages = [
+    "trusts.zero",
+    "trusts.zero.management",
+    "trusts.zero.management.commands",
+    "trusts.zero.migrations",
+]
+
+[tool.setuptools.package-data]
+"trusts.zero" = ["templates/**"]
