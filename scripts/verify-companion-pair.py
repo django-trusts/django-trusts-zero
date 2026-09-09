@@ -9,11 +9,12 @@ mirror must match or this script fails.
 Also proves:
 
 1. Zero wheel METADATA declares django-trusts>=1.0.0.dev0
-2. Empty venv + ``pip install zero.whl`` (dependency resolution) fails
-   without a 1.x kernel (PyPI 0.10.x does not satisfy ``>=1.0.0.dev0``)
-3. Empty venv + kernel wheel then Zero wheel resolves and imports
-4. wheel+wheel / editable+editable / uninstall via verify-install-matrix
-5. AppConfig, migration plan, and import checks against those artifacts
+2. Empty venv + one resolver-driven ``pip install`` of the Zero wheel
+   from a local wheelhouse (``--no-index --find-links``) pulls in the
+   companion kernel wheel. Does not preinstall the kernel, does not use
+   ``--no-deps``, and does not treat PyPI absence of 1.x as success.
+3. wheel+wheel / editable+editable / uninstall via verify-install-matrix
+4. AppConfig, migration plan, and import checks against those artifacts
    using THIS repository's ``trusts.zero`` (in-tree kernel Zero is stripped
    on a copy so it cannot shadow this package)
 """
@@ -21,6 +22,7 @@ Also proves:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -170,38 +172,95 @@ def make_venv(path: Path) -> Path:
     return py
 
 
+def pip_list_names(py: Path, env: dict) -> set[str]:
+    out = run(
+        [str(py), '-m', 'pip', 'list', '--format=json'],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    return {row['name'].lower() for row in json.loads(out.stdout)}
+
+
+def pip_show(py: Path, dist: str, env: dict) -> str:
+    out = run(
+        [str(py), '-m', 'pip', 'show', dist],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    return out.stdout
+
+
 def prove_empty_env_resolution(work: Path, kernel_wheel: Path, zero_wheel: Path) -> None:
-    print('=== empty-env dependency resolution ===')
-    fail_venv = work / 'venv-zero-only'
-    py = make_venv(fail_venv)
+    """Resolver-driven install; independent of whether 1.x is on PyPI.
+
+    Clean venv, neither dist installed. One ``pip install`` of the Zero
+    wheel with ``--no-index --find-links`` on both local dist directories
+    (kernel wheel + Zero wheel) plus Django wheels so the index is
+    complete. Do not preinstall the kernel. Do not ``--no-deps``.
+    """
+    print('=== resolver-driven install from local wheelhouse ===')
+    django_links = work / 'django-links'
+    django_links.mkdir()
+
+    py = make_venv(work / 'venv-resolved')
     env = os.environ.copy()
     env.pop('PYTHONPATH', None)
     env['PYTHONNOUSERSITE'] = '1'
-    failed = run(
-        [str(py), '-m', 'pip', 'install', str(zero_wheel)],
-        check=False,
+
+    run(
+        [str(py), '-m', 'pip', 'download', '-d', str(django_links),
+         '--only-binary=:all:', DJANGO_REQ],
+        check=True,
+        env=env,
+        cwd=str(work),
+    )
+
+    before = pip_list_names(py, env)
+    if 'django-trusts' in before or 'django-trusts-zero' in before:
+        raise SystemExit('clean venv already has django-trusts distributions: %s' % sorted(before))
+
+    kernel_links = str(kernel_wheel.parent)
+    zero_links = str(zero_wheel.parent)
+    installed = run(
+        [
+            str(py), '-m', 'pip', 'install',
+            '--no-index',
+            '--find-links', kernel_links,
+            '--find-links', zero_links,
+            '--find-links', str(django_links),
+            str(zero_wheel),
+        ],
+        check=True,
         env=env,
         cwd=str(work),
         capture_output=True,
         text=True,
     )
-    log = (failed.stdout or '') + (failed.stderr or '')
-    if failed.returncode == 0:
+    log = (installed.stdout or '') + (installed.stderr or '')
+    if kernel_wheel.name not in log:
         raise SystemExit(
-            'pip install Zero wheel succeeded without a 1.x kernel; '
-            'Requires-Dist is not enforcing django-trusts:\n%s' % log
+            'pip did not pull the companion kernel wheel %s:\n%s'
+            % (kernel_wheel.name, log)
         )
-    if 'django-trusts' not in log.lower():
-        raise SystemExit(
-            'pip install Zero wheel failed, but not because of django-trusts:\n%s'
-            % log
-        )
-    print('empty env without kernel: pip failed as required (rc=%s)' % failed.returncode)
+    if '--no-deps' in log:
+        raise SystemExit('resolver install must not use --no-deps:\n%s' % log)
 
-    ok_venv = work / 'venv-resolved'
-    py = make_venv(ok_venv)
-    run([str(py), '-m', 'pip', 'install', str(kernel_wheel)], check=True, env=env, cwd=str(work))
-    run([str(py), '-m', 'pip', 'install', str(zero_wheel)], check=True, env=env, cwd=str(work))
+    after = pip_list_names(py, env)
+    if 'django-trusts' not in after or 'django-trusts-zero' not in after:
+        raise SystemExit('expected both distributions after resolver install, got %s' % sorted(after))
+
+    kernel_show = pip_show(py, 'django-trusts', env)
+    zero_show = pip_show(py, 'django-trusts-zero', env)
+    if 'Version: 1.0.0.dev0' not in kernel_show:
+        raise SystemExit('companion kernel version missing:\n%s' % kernel_show)
+    if 'Version: 2.0.0.dev0' not in zero_show:
+        raise SystemExit('authoritative Zero version missing:\n%s' % zero_show)
+    print('resolver pulled', kernel_wheel.name, 'and', zero_wheel.name)
+
     run(
         [
             str(py), '-P', '-c',
@@ -225,7 +284,7 @@ def prove_empty_env_resolution(work: Path, kernel_wheel: Path, zero_wheel: Path)
         env=env,
         cwd=str(work),
     )
-    print('empty env with kernel wheel: Zero install resolved')
+    print('wheelhouse resolver install ok')
 
 
 def main() -> int:

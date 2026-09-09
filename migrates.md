@@ -79,7 +79,7 @@ Any other deconstruction delta is a failure. Schema-bearing ops (`to=`, `through
 2. **Already-applied 1.x** — `scripts/verify-upgrade-current.py`: kernel migrate, swap to ZeroConfig, empty trusts plan, unchanged `COUNT(*)` and content-type natural keys.
 3. **Legacy 0001-only** — `scripts/verify-legacy-upgrade.py`: plan is exactly `[('trusts', '0002_trustgroup', False)]`; `0001` is not re-run; `0002` `database_operations=[]` so `trusts_trust_groups` rows are reused.
 4. **Install matrix** — `scripts/verify-install-matrix.py`: wheel+wheel **with dependency resolution**, editable+editable (kernel `extend_path` overlay if needed), uninstall/reinstall isolation; Zero RECORD never owns a core path.
-5. **Companion pair** — `scripts/verify-companion-pair.py`: this repo’s wheel + exact kernel #46 HEAD; empty-env `pip install` of the Zero wheel must fail without a 1.x kernel; metadata drift vs a retained kernel mirror is a failure.
+5. **Companion pair** — `scripts/verify-companion-pair.py`: this repo’s wheel + exact kernel #46 HEAD; one resolver-driven `pip install` of the Zero wheel from a local `--no-index --find-links` wheelhouse must pull the companion kernel (does not treat PyPI absence of 1.x as success); metadata drift vs a retained kernel mirror is a failure.
 
 Pre-split baseline and legacy DDL live in `scripts/legacy/trusts_0001_sqlite.sql` (copied from django-trusts so comparison remains possible if the kernel PR later drops in-tree concrete files).
 

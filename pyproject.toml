@@ -50,8 +50,8 @@ test = [
 
 # django-trusts>=1.0.0.dev0 is required (kernel 1.x train). Unpinned
 # "django-trusts" resolves to PyPI 0.10.x. A git Requires-Dist would
-# replace a local companion wheel; CI installs the kernel wheel first
-# then this package with dependency resolution.
+# replace a local companion wheel. Pair CI proves resolution from a
+# local --no-index --find-links wheelhouse (kernel + Zero wheels).
 # Explicit package list: this tree has no trusts/__init__.py (kernel-owned),
 # so setuptools find without namespaces would ship an empty wheel.
 [tool.setuptools]
