@@ -5,9 +5,8 @@ Phase 1 uses the in-tree django-trusts concrete app (``INSTALLED_APPS=['trusts']
 when the kernel checkout still ships ``trusts/migrations``. Phase 2 reopens
 the same SQLite file with ``trusts.zero.apps.ZeroConfig``.
 
-Expects ``KERNEL_CHECKOUT`` or ``.deps/django-trusts`` at
-``624daa198d1922a43c775a814a3ff213cf5bd4d7`` (or a later kernel that still
-exposes historical migrations under the ``trusts`` label).
+Expects ``KERNEL_CHECKOUT`` or ``.deps/django-trusts``. Primary companion
+is django-trusts PR #46. Overlay vs ``624daa1`` is extra.
 """
 
 from __future__ import annotations
@@ -55,6 +54,10 @@ sys.meta_path[:] = [
 ]
 sys.path_hooks[:] = [h for h in sys.path_hooks if "__editable___django_trusts" not in repr(h)]
 sys.path.insert(0, str(kernel))
+zero_root = Path(os.environ.get("ZERO_CHECKOUT", "")).resolve() if os.environ.get("ZERO_CHECKOUT") else None
+if zero_root and zero_root.is_dir() and (zero_root / "trusts" / "zero").is_dir():
+    # Kernel merge revision may drop in-tree trusts/zero; load this package.
+    sys.path.append(str(zero_root))
 
 from django.conf import settings
 

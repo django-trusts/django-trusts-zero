@@ -16,19 +16,22 @@ This is Step 3 of [django-trusts#43](https://github.com/django-trusts/django-tru
 
 ## Install
 
+This package **requires** `django-trusts>=1.0.0.dev0` (kernel 1.x train). Unpinned `django-trusts` resolves to PyPI 0.10.x and does **not** satisfy that pin.
+
 ```text
 pip install django-trusts
 pip install django-trusts-zero
 ```
 
-Until a PyPI release, install from git. This revision is path-installable against:
+Until a 1.x kernel is on PyPI, install the companion kernel first (path, git, or local wheel), then this package **with dependency resolution** (do not `--no-deps`). Coordinated companion:
 
 ```text
-django-trusts master @ 624daa198d1922a43c775a814a3ff213cf5bd4d7   # after #45
-companion kernel PR #46 @ 60ec3c6499de1c67e27e461de8b80f1d91368c0b
+django-trusts PR #46 @ 60ec3c6499de1c67e27e461de8b80f1d91368c0b
 ```
 
-[#46](https://github.com/django-trusts/django-trusts/pull/46) adds `KernelConfig` + `pkgutil.extend_path` and keeps in-tree `trusts/zero/**` until both Drafts are reviewed. Do not assume it has merged. `requirements.txt` pins master `624daa1` so an unpinned `django-trusts` extra cannot resolve to PyPI 0.10.x.
+`requirements.txt` pins that SHA. Published master after [#45](https://github.com/django-trusts/django-trusts/pull/45) (`624daa198d1922a43c775a814a3ff213cf5bd4d7`) is still 1.0.0.dev0 and can satisfy the pin after `scripts/apply-kernel-namespace-overlay.py`, but it is **not** the paired proof.
+
+[#46](https://github.com/django-trusts/django-trusts/pull/46) adds `KernelConfig` + `pkgutil.extend_path`. Do not assume it has merged. This repository is authoritative for `django-trusts-zero` **2.0.0.dev0**; any retained `packaging/django-trusts-zero/` mirror in the kernel repo must match or `scripts/verify-companion-pair.py` fails.
 
 ```python
 INSTALLED_APPS = [
@@ -53,14 +56,11 @@ from trusts.trustee import Trustee
 ## Development
 
 ```text
-export KERNEL_CHECKOUT=/path/to/django-trusts   # 624daa1 or PR #46 @ 60ec3c6
+export KERNEL_CHECKOUT=/path/to/django-trusts   # PR #46 @ 60ec3c6
 python -m pip install -e "$KERNEL_CHECKOUT" --config-settings editable_mode=compat
-python -m pip install -e . --no-deps --config-settings editable_mode=compat
+python -m pip install -e . --config-settings editable_mode=compat
 python -m tests.runtests
-python scripts/verify-fresh-install.py
-python scripts/verify-legacy-upgrade.py
-python scripts/verify-upgrade-current.py
-python scripts/verify-install-matrix.py --kernel "$KERNEL_CHECKOUT"
+python scripts/verify-companion-pair.py --kernel "$KERNEL_CHECKOUT"
 ```
 
 Default setuptools editable mode turns `trusts` into a PEP 420 namespace (`trusts.__file__ is None`) and hides kernel `trusts/__init__.py`. Use `editable_mode=compat` as above. Wheel+wheel into the same `site-packages/trusts/` tree does not need the flag.

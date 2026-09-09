@@ -11,12 +11,17 @@ Unrelated to Zero Trust network architecture.
 
 ## Companion kernel
 
+This repository is authoritative for distribution `django-trusts-zero` **2.0.0.dev0**. Publishable metadata declares `django-trusts>=1.0.0.dev0` (1.x train; PyPI 0.10.x does not match). Unpinned `django-trusts` is incorrect. Do not put a git URL in Requires-Dist (it would fight a local companion wheel).
+
 | Item | Value |
 | --- | --- |
-| Kernel pin used to relocate and test | [`624daa198d1922a43c775a814a3ff213cf5bd4d7`](https://github.com/django-trusts/django-trusts/commit/624daa198d1922a43c775a814a3ff213cf5bd4d7) (master after [#45](https://github.com/django-trusts/django-trusts/pull/45)) |
-| Kernel Step 3 PR | [django-trusts#46](https://github.com/django-trusts/django-trusts/pull/46) Draft @ [`60ec3c6499de1c67e27e461de8b80f1d91368c0b`](https://github.com/django-trusts/django-trusts/commit/60ec3c6499de1c67e27e461de8b80f1d91368c0b). Do not assume it has merged. |
+| Authoritative Zero metadata | this repo `pyproject.toml` (`2.0.0.dev0` + `django-trusts>=1.0.0.dev0`) |
+| Paired kernel proof | [django-trusts#46](https://github.com/django-trusts/django-trusts/pull/46) @ [`60ec3c6499de1c67e27e461de8b80f1d91368c0b`](https://github.com/django-trusts/django-trusts/commit/60ec3c6499de1c67e27e461de8b80f1d91368c0b). Do not assume it has merged. |
+| Pre-split published master | [`624daa198d1922a43c775a814a3ff213cf5bd4d7`](https://github.com/django-trusts/django-trusts/commit/624daa198d1922a43c775a814a3ff213cf5bd4d7) (after [#45](https://github.com/django-trusts/django-trusts/pull/45)); overlay extra only |
 | What 624daa1 still contains | Concrete models, migrations, backend, `trusts.apps.AppConfig` with `label='trusts'`, Zero settings constants on `trusts/__init__.py` |
-| What #46 adds | `pkgutil.extend_path` on `trusts/__init__.py`; `KernelConfig(name='trusts', label='trusts_kernel', default=False)` with **no** migrations; in-tree `trusts/zero/**` still vendored until both Drafts merge |
+| What #46 adds | `pkgutil.extend_path` on `trusts/__init__.py`; `KernelConfig(name='trusts', label='trusts_kernel', default=False)` with **no** migrations; in-tree `trusts/zero/**` still vendored until the kernel merge revision drops it |
+
+Any retained `packaging/django-trusts-zero/` mirror in the kernel checkout must match this repo or `scripts/verify-companion-pair.py` fails.
 
 Until the kernel PR lands, install **only** `trusts.zero.apps.ZeroConfig` on `624daa1` (do not also install `'trusts'`). On #46 install `KernelConfig` then `ZeroConfig`. Kernel modules (`trusts.context`, `trusts.trustee`, `trusts.path`, `trusts.conditions`) remain importable from the `django-trusts` distribution.
 
@@ -73,7 +78,8 @@ Any other deconstruction delta is a failure. Schema-bearing ops (`to=`, `through
 1. **Fresh install** — `scripts/verify-fresh-install.py`: applied `{0001_initial, 0002_trustgroup}`; tables listed above; root row at `TRUSTS_ROOT_PK`; `makemigrations --check` quiet; already-current `migrate --plan` for `trusts` is empty.
 2. **Already-applied 1.x** — `scripts/verify-upgrade-current.py`: kernel migrate, swap to ZeroConfig, empty trusts plan, unchanged `COUNT(*)` and content-type natural keys.
 3. **Legacy 0001-only** — `scripts/verify-legacy-upgrade.py`: plan is exactly `[('trusts', '0002_trustgroup', False)]`; `0001` is not re-run; `0002` `database_operations=[]` so `trusts_trust_groups` rows are reused.
-4. **Install matrix** — `scripts/verify-install-matrix.py`: wheel+wheel, editable+editable (kernel `extend_path` overlay if needed), uninstall/reinstall isolation; Zero RECORD never owns a core path.
+4. **Install matrix** — `scripts/verify-install-matrix.py`: wheel+wheel **with dependency resolution**, editable+editable (kernel `extend_path` overlay if needed), uninstall/reinstall isolation; Zero RECORD never owns a core path.
+5. **Companion pair** — `scripts/verify-companion-pair.py`: this repo’s wheel + exact kernel #46 HEAD; empty-env `pip install` of the Zero wheel must fail without a 1.x kernel; metadata drift vs a retained kernel mirror is a failure.
 
 Pre-split baseline and legacy DDL live in `scripts/legacy/trusts_0001_sqlite.sql` (copied from django-trusts so comparison remains possible if the kernel PR later drops in-tree concrete files).
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fresh Zero install, empty re-migrate plan, and sqlmigrate table identity.
 
-Companion kernel (default): django-trusts @ 624daa198d1922a43c775a814a3ff213cf5bd4d7.
+Primary companion: django-trusts PR #46. Overlay vs 624daa1 is extra.
 """
 
 from __future__ import annotations

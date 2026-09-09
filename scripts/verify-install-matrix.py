@@ -5,9 +5,12 @@ Zero's wheel RECORD must never own kernel paths (especially
 ``trusts/__init__.py``). Uninstalling Zero must leave ``import trusts``
 working and must not delete kernel files.
 
+Installs the Zero wheel **with dependency resolution** after the local
+kernel wheel (``django-trusts>=1.0.0.dev0``). Do not use ``--no-deps``
+for the publishable proof.
+
 Kernel checkout defaults to ``KERNEL_CHECKOUT`` or ``.deps/django-trusts``.
-Companion kernel (post #45, pre Step 3 kernel PR):
-``624daa198d1922a43c775a814a3ff213cf5bd4d7``.
+Primary companion: django-trusts PR #46. Overlay vs ``624daa1`` is extra.
 """
 
 from __future__ import annotations
@@ -25,36 +28,48 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OVERLAY = ROOT / 'scripts' / 'apply-kernel-namespace-overlay.py'
 
-SETUP_DJANGO = r'''
-from django.conf import settings
-if not settings.configured:
-    settings.configure(
-        SECRET_KEY="zero-matrix",
-        USE_TZ=True,
-        INSTALLED_APPS=[
-            "django.contrib.contenttypes",
-            "django.contrib.auth",
-            "trusts.zero.apps.ZeroConfig",
-        ],
-        AUTHENTICATION_BACKENDS=["trusts.zero.backends.TrustModelBackend"],
-        DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
-    )
-import django
-django.setup()
-'''
 
-SETUP_DJANGO_KERNEL_ONLY = r'''
-from django.conf import settings
-if not settings.configured:
-    settings.configure(
-        SECRET_KEY="zero-matrix-kernel",
-        USE_TZ=True,
-        INSTALLED_APPS=["django.contrib.contenttypes", "django.contrib.auth", "trusts"],
-        DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
+def django_setup_snippet(kernel_root: Path, *, kernel_only: bool = False) -> str:
+    apps_py = kernel_root / 'trusts' / 'apps.py'
+    split = False
+    if apps_py.is_file():
+        text = apps_py.read_text()
+        split = "label = 'trusts_kernel'" in text or 'label = "trusts_kernel"' in text
+    if kernel_only:
+        extra = '"trusts.apps.KernelConfig"' if split else '"trusts"'
+        return (
+            'from django.conf import settings\n'
+            'if not settings.configured:\n'
+            '    settings.configure(\n'
+            '        SECRET_KEY="zero-matrix-kernel",\n'
+            '        USE_TZ=True,\n'
+            '        INSTALLED_APPS=["django.contrib.contenttypes", "django.contrib.auth", %s],\n'
+            '        DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},\n'
+            '    )\n'
+            'import django\n'
+            'django.setup()\n' % extra
+        )
+    apps = [
+        '"django.contrib.contenttypes"',
+        '"django.contrib.auth"',
+    ]
+    if split:
+        apps.append('"trusts.apps.KernelConfig"')
+    apps.append('"trusts.zero.apps.ZeroConfig"')
+    return (
+        'from django.conf import settings\n'
+        'if not settings.configured:\n'
+        '    settings.configure(\n'
+        '        SECRET_KEY="zero-matrix",\n'
+        '        USE_TZ=True,\n'
+        '        INSTALLED_APPS=[%s],\n'
+        '        AUTHENTICATION_BACKENDS=["trusts.zero.backends.TrustModelBackend"],\n'
+        '        DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},\n'
+        '    )\n'
+        'import django\n'
+        'django.setup()\n' % ', '.join(apps)
     )
-import django
-django.setup()
-'''
+
 
 KERNEL_OWNED_PATHS = (
     'trusts/__init__.py',
@@ -185,11 +200,14 @@ def prove_wheel_wheel(py_build: Path, kernel_root: Path, work: Path) -> None:
     kernel_wheel = build_wheel(py_build, kernel_root, work / 'dist-kernel')
     zero_wheel = build_wheel(py_build, ROOT, work / 'dist-zero')
     assert_zero_wheel_owns_only_zero(zero_wheel)
+    setup = django_setup_snippet(kernel_root)
+    setup_kernel = django_setup_snippet(kernel_root, kernel_only=True)
 
     venv_dir = work / 'venv-wheel'
     py = make_venv(venv_dir)
     run([str(py), '-m', 'pip', 'install', str(kernel_wheel)], check=True)
-    run([str(py), '-m', 'pip', 'install', '--no-deps', str(zero_wheel)], check=True)
+    # Dependency resolution: kernel 1.0.0.dev0 already installed satisfies Requires-Dist.
+    run([str(py), '-m', 'pip', 'install', str(zero_wheel)], check=True)
 
     site = site_packages_of(py)
     zero_info = find_dist_info(site, 'django_trusts_zero-')
@@ -210,7 +228,7 @@ def prove_wheel_wheel(py_build: Path, kernel_root: Path, work: Path) -> None:
 
     venv_eval(
         py,
-        SETUP_DJANGO
+        setup
         + 'import trusts, trusts.zero, trusts.context, trusts.trustee, trusts.path\n'
         'from trusts.zero.models import Trust\n'
         'from trusts.zero.backends import TrustModelBackend\n'
@@ -235,7 +253,7 @@ def prove_wheel_wheel(py_build: Path, kernel_root: Path, work: Path) -> None:
 
     venv_eval(
         py,
-        SETUP_DJANGO_KERNEL_ONLY
+        setup_kernel
         + 'import trusts, trusts.context\n'
         'import importlib.util\n'
         'spec = importlib.util.find_spec("trusts.zero")\n'
@@ -244,10 +262,10 @@ def prove_wheel_wheel(py_build: Path, kernel_root: Path, work: Path) -> None:
         cwd=work,
     )
 
-    run([str(py), '-m', 'pip', 'install', '--no-deps', str(zero_wheel)], check=True)
+    run([str(py), '-m', 'pip', 'install', str(zero_wheel)], check=True)
     venv_eval(
         py,
-        SETUP_DJANGO
+        setup
         + 'import trusts.zero\n'
         'from trusts.zero.models import Trust\n'
         'print("reinstall ok", Trust)',
@@ -280,14 +298,16 @@ def prove_editable_editable(py_build: Path, kernel_root: Path, work: Path) -> No
          '--config-settings', 'editable_mode=compat'],
         check=True,
     )
+    # Kernel 1.0.0.dev0 is already installed; resolution must accept it and
+    # must not fall back to --no-deps (that hid a missing Requires-Dist).
     run(
-        [str(py), '-m', 'pip', 'install', '--no-deps', '-e', str(ROOT),
+        [str(py), '-m', 'pip', 'install', '-e', str(ROOT),
          '--config-settings', 'editable_mode=compat'],
         check=True,
     )
     venv_eval(
         py,
-        SETUP_DJANGO
+        django_setup_snippet(kernel_root)
         + 'import trusts, trusts.zero, trusts.context\n'
         'from trusts.zero.models import Trust\n'
         'assert trusts.__file__, "kernel must own trusts/__init__.py, got namespace"\n'

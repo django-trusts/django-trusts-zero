@@ -50,3 +50,14 @@ class ZeroSourceLayoutTests(SimpleTestCase):
                 if 'from trusts.models' in stripped or stripped == 'import trusts.models':
                     offenders.append('%s: %s' % (path.relative_to(ROOT), stripped))
         self.assertEqual(offenders, [])
+
+
+class ZeroPublishMetadataTests(SimpleTestCase):
+    """This repository is authoritative for django-trusts-zero metadata."""
+
+    def test_pyproject_requires_kernel_1x_train(self):
+        text = (ROOT / 'pyproject.toml').read_text()
+        self.assertIn('name = "django-trusts-zero"', text)
+        self.assertIn('version = "2.0.0.dev0"', text)
+        self.assertIn('"django-trusts>=1.0.0.dev0"', text)
+        self.assertIn('"Django>=6.1,<6.2"', text)
