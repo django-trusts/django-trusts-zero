@@ -1,366 +1,113 @@
-"""Django system checks for registered permission conditions (issue #29).
+from __future__ import annotations
 
-Model-aware semantic validation (field names, traversal, multi-valued
-relations, operand types) and the legacy-callback policy are reported as
-``CheckMessage`` objects with stable IDs. ``PermissionConditionError`` is
-caught here so ``SILENCED_SYSTEM_CHECKS`` can filter the diagnostic.
-Silencing an ID does not make the policy executable: ``has_perm`` and
-``.permitted()`` still validate and fail closed.
+from django.apps import apps
+from django.core.checks import Error, register
 
-``DeprecationWarning`` is commonly filtered; this module uses
-``django.core.checks.Warning`` so the legacy-callback opt-in and the
-deprecated ``TRUSTS_GROUP_MODEL`` / ``TRUSTS_PERMISSION_MODEL`` settings
-stay visible under ``manage.py check``.
-
-After the kernel Step 3 split, ``trusts.E006`` / ``trusts.E007`` adapter
-re-walks live in ``trusts.checks``. This module still registers them when
-the kernel checkout has no ``KernelConfig`` (master ``624daa1``).
-"""
-
-from django.conf import settings
-from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group as AuthGroup
-from django.contrib.auth.models import Permission as AuthPermission
-from django.core import checks as django_checks
-from django.core.exceptions import ImproperlyConfigured
-
-from trusts.zero import (
-    AUTH_GROUP_MODEL,
-    AUTH_PERMISSION_MODEL,
-    get_entity_model,
-    group_model_setting_overridden,
-    lookup_group_model_setting,
-    lookup_permission_model_setting,
-    permission_model_setting_overridden,
-)
-from trusts.conditions import PermissionConditionError, validate_expression
-from trusts.context import Context, ContextRegistrationError
-from trusts.zero.models import (
-    Content, legacy_permission_callbacks_allowed, prepare_context_registry,
-    prepare_trustee_registry,
-)
-from trusts.trustee import Trustee, TrusteeRegistrationError
+from trusts.zero.apps import ZeroConfig
+from trusts.zero.models import Content
+from trusts.zero.registry import ContextRegistry, TrusteeRegistry, get_registry
 
 
-CHECK_ID_INVALID_EXPR = 'trusts.E001'
-CHECK_ID_LEGACY_CALLBACK = 'trusts.E002'
-CHECK_ID_LEGACY_CALLBACK_WARNING = 'trusts.W001'
-CHECK_ID_ENTITY_NOT_USER = 'trusts.E003'
-CHECK_ID_GROUP_NOT_AUTH = 'trusts.E004'
-CHECK_ID_PERMISSION_NOT_AUTH = 'trusts.E005'
-CHECK_ID_GROUP_SETTING_DEPRECATED = 'trusts.W002'
-CHECK_ID_PERMISSION_SETTING_DEPRECATED = 'trusts.W003'
-CHECK_ID_INVALID_CONTEXT = 'trusts.E006'
-CHECK_ID_INVALID_TRUSTEE = 'trusts.E007'
-
-REMOVAL_RELEASE = '1.1.0'
-
-_SILENCE_DOES_NOT_ENABLE_HINT = (
-    'Silencing this check ID suppresses only the early diagnostic. '
-    'has_perm() and .permitted() still validate and fail closed; there is '
-    'no fallback to the base grant.'
-)
+def _kernel_owns_adapter_rewalks() -> bool:
+    """True when the kernel already registers generic adapter re-walks."""
+    return apps.is_installed("trusts")
 
 
-def _model_label(model):
-    meta = getattr(model, '_meta', None)
-    if meta is not None:
-        return meta.label
-    return repr(model)
-
-
-def _messages_for_expr(model, cond_code, expr):
-    try:
-        validate_expression(expr, model)
-    except PermissionConditionError as exc:
-        return [django_checks.Error(
-            'Permission condition %r on %s is invalid: %s' % (
-                cond_code, _model_label(model), exc,
-            ),
-            hint=_SILENCE_DOES_NOT_ENABLE_HINT,
-            obj=model,
-            id=CHECK_ID_INVALID_EXPR,
-        )]
-    return []
-
-
-def _messages_for_callable(model, cond_code):
-    label = _model_label(model)
-    if legacy_permission_callbacks_allowed():
-        return [django_checks.Warning(
-            'Callable permission condition %r on %s is a deprecated '
-            'object-only escape hatch. Rewrite it as an Expr from '
-            'condition_refs() for queryable policy. ContentQuerySet.permitted() '
-            'still refuses callables.' % (cond_code, label),
-            hint=(
-                'TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS is True, so '
-                'has_perm() may invoke this callback with real values. '
-                'Rewrite the condition as an Expr to drop this warning.'
-            ),
-            obj=model,
-            id=CHECK_ID_LEGACY_CALLBACK_WARNING,
-        )]
-    return [django_checks.Error(
-        'Callable permission condition %r on %s is disabled. Set '
-        'TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS = True to keep the '
-        'object-only has_perm path, or rewrite it as an Expr from '
-        'condition_refs().' % (cond_code, label),
-        hint=(
-            'Enabling TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS is the only '
-            'way to run the callback. ' + _SILENCE_DOES_NOT_ENABLE_HINT
-        ),
-        obj=model,
-        id=CHECK_ID_LEGACY_CALLBACK,
-    )]
-
-
-@django_checks.register(django_checks.Tags.models)
-def check_permission_conditions(app_configs, **kwargs):
-    """Validate every registered condition after models are loaded.
-
-    Does not import extra application modules and does not depend on
-    ``INSTALLED_APPS`` order. ``app_configs`` is ignored so a subset
-    ``manage.py check trusts`` still reports project-model conditions.
-    Callables are never inspected or invoked. No database queries.
-    """
-    messages = []
-    for model, cond_code, record in Content.iter_permission_conditions():
-        if record.expr is not None:
-            messages.extend(_messages_for_expr(model, cond_code, record.expr))
-        elif record.func is not None:
-            messages.extend(_messages_for_callable(model, cond_code))
-    return messages
-
-
-_SILENCE_DOES_NOT_ENABLE_CONTEXT_HINT = (
-    'Silencing this check ID suppresses only the early diagnostic. '
-    'Invalid Context paths stay fail-closed at registration and at '
-    'authorization query time; they are never executed as getters or '
-    'callbacks.'
-)
-
-
-def check_context_registry(app_configs, **kwargs):
-    """Re-validate the frozen Context registry after models are loaded.
-
-    Missing, cyclic, ambiguous, scalar, many-valued, and wrong-terminal
-    paths are rejected at ``register_direct`` / ``register_related``.
-    This check re-walks every installed adapter so ``manage.py check``
-    reports ``trusts.E006`` if the map is stale. Deferred Content
-    leftovers that never became adapters are reported the same way.
-    ``app_configs`` is ignored so ``manage.py check trusts`` still sees
-    the full registry.
-    No getters, properties, or callbacks are executed. No database
-    queries.
-    """
-    prepare_context_registry()
-    messages = []
-    for adapter in Context.adapters():
-        try:
-            Context.registry.revalidate(adapter)
-        except ContextRegistrationError as exc:
-            messages.append(django_checks.Error(
-                'Context %s registration for %s is invalid: %s' % (
-                    adapter.kind, adapter.label, exc,
-                ),
-                hint=_SILENCE_DOES_NOT_ENABLE_CONTEXT_HINT,
-                obj=adapter.model,
-                id=CHECK_ID_INVALID_CONTEXT,
-            ))
-    for model, fieldlookup in Content.iter_unresolved_content_registrations():
-        err = Content.compatibility_context_error(model, fieldlookup)
-        if err is None:
-            continue
-        messages.append(django_checks.Error(
-            'Context compatibility registration for %s is invalid: %s' % (
-                model._meta.label, err,
-            ),
-            hint=_SILENCE_DOES_NOT_ENABLE_CONTEXT_HINT,
-            obj=model,
-            id=CHECK_ID_INVALID_CONTEXT,
-        ))
-    return messages
-
-
-_SILENCE_DOES_NOT_ENABLE_TRUSTEE_HINT = (
-    'Silencing this check ID suppresses only the early diagnostic. '
-    'Invalid Trustee paths stay fail-closed at registration and at '
-    'authorization query time; they are never executed as getters or '
-    'callbacks.'
-)
-
-
-def check_trustee_registry(app_configs, **kwargs):
-    """Re-validate the frozen Trustee registry after models are loaded.
-
-    Duplicate, incomplete, scalar, callable, wrong-terminal, ambiguous,
-    and many-valued grant-identity paths are rejected at ``register``.
-    This check re-walks every installed adapter so ``manage.py check``
-    reports ``trusts.E007`` if the map is stale. ``app_configs`` is
-    ignored so ``manage.py check trusts`` still sees the full registry.
-    No getters, properties, or callbacks are executed. No database
-    queries.
-    """
-    prepare_trustee_registry()
-    messages = []
-    for adapter in Trustee.adapters():
-        try:
-            Trustee.registry.revalidate(adapter)
-        except TrusteeRegistrationError as exc:
-            messages.append(django_checks.Error(
-                'Trustee %s registration %r is invalid: %s' % (
-                    adapter.kind, adapter.name, exc,
-                ),
-                hint=_SILENCE_DOES_NOT_ENABLE_TRUSTEE_HINT,
-                obj=adapter.grant_model,
-                id=CHECK_ID_INVALID_TRUSTEE,
-            ))
-    return messages
-
-
-_SILENCE_DOES_NOT_AUTHORIZE_HINT = (
-    'Silencing this check ID suppresses only the early diagnostic. '
-    'Runtime grants and authorization queries still fail closed on the '
-    'supported AUTH_USER_MODEL / auth.Group / auth.Permission contract. '
-    'TRUSTS_GROUP_MODEL and TRUSTS_PERMISSION_MODEL are deprecated in 1.0 '
-    'and will be removed in %s. Leave them unset.' % REMOVAL_RELEASE
-)
-
-_UNSET_DEPRECATED_SETTING_HINT = (
-    'Leave the setting unset. Runtime Group and Permission are always '
-    'auth.Group / auth.Permission. AUTH_USER_MODEL remains the only '
-    'supported principal swap. Removal is scheduled for %s.' % REMOVAL_RELEASE
-)
-
-
-@django_checks.register(django_checks.Tags.models)
-def check_configured_auth_models(app_configs, **kwargs):
-    """Report the verified AUTH_USER_MODEL-only contract (issues #26 / #33).
-
-    Django does not swap ``auth.Group`` or ``auth.Permission``. A custom
-    user is the supported entity swap. ``TRUSTS_GROUP_MODEL`` and
-    ``TRUSTS_PERMISSION_MODEL`` are deprecated in 1.0 and removed in
-    ``1.1.0``. ``app_configs`` is ignored so ``manage.py check trusts``
-    still reports project settings.
-
-    An invalid leftover Group or Permission reference is ``trusts.E004`` /
-    ``trusts.E005``, not ``trusts.E003``. An explicit setting that already
-    names ``auth.Group`` / ``auth.Permission`` is ``trusts.W002`` /
-    ``trusts.W003``. These IDs are deployment diagnostics; runtime
-    enforcement does not depend on them remaining unsilenced.
-    """
-    messages = []
-
-    try:
-        Entity = get_entity_model()
-    except ImproperlyConfigured as exc:
-        messages.append(django_checks.Error(
-            str(exc),
-            hint=_SILENCE_DOES_NOT_AUTHORIZE_HINT,
-            obj=None,
-            id=CHECK_ID_ENTITY_NOT_USER,
-        ))
-    else:
-        User = get_user_model()
-        if Entity is not User:
-            messages.append(django_checks.Error(
-                'TRUSTS_ENTITY_MODEL (%s) must be AUTH_USER_MODEL (%s). '
-                'Settlor and trustee rows are the same principal '
-                'User.has_perm uses. A separate non-user model is not a '
-                'Django permission principal.' % (
-                    _model_label(Entity), _model_label(User),
-                ),
+def _unresolved_content_messages() -> list[Error]:
+    """Leftover-only Content walker (no adapter re-walks, no trustee walk)."""
+    messages: list[Error] = []
+    leftovers = {
+        name: item
+        for name, item in Content._registry.items()
+        if item.get("model") is None
+    }
+    if leftovers:
+        leftover_names = ", ".join(sorted(leftovers))
+        messages.append(
+            Error(
+                f"Unresolved Content model registrations: {leftover_names}.",
                 hint=(
-                    'Set TRUSTS_ENTITY_MODEL to the same app_label.Model as '
-                    'AUTH_USER_MODEL (a custom user is the supported entity '
-                    'swap). ' + _SILENCE_DOES_NOT_AUTHORIZE_HINT
+                    "Define the missing Content models, or remove unused Content.register() "
+                    "calls."
                 ),
-                obj=Entity,
-                id=CHECK_ID_ENTITY_NOT_USER,
-            ))
-
-    if group_model_setting_overridden():
-        try:
-            Group = lookup_group_model_setting()
-        except ImproperlyConfigured as exc:
-            messages.append(django_checks.Error(
-                str(exc),
-                hint=_UNSET_DEPRECATED_SETTING_HINT + ' ' + _SILENCE_DOES_NOT_AUTHORIZE_HINT,
-                obj=None,
-                id=CHECK_ID_GROUP_NOT_AUTH,
-            ))
-        else:
-            configured = getattr(settings, 'TRUSTS_GROUP_MODEL', AUTH_GROUP_MODEL)
-            if configured != AUTH_GROUP_MODEL or Group is not AuthGroup:
-                messages.append(django_checks.Error(
-                    'TRUSTS_GROUP_MODEL (%s) is deprecated in 1.0 and will be '
-                    'removed in %s. It must be auth.Group; django-trusts does '
-                    'not swap Group or maintain a private parallel group model. '
-                    'Runtime always uses auth.Group and still fail-closes when '
-                    'this setting names anything else.' % (
-                        _model_label(Group), REMOVAL_RELEASE,
-                    ),
-                    hint=_UNSET_DEPRECATED_SETTING_HINT + ' ' + _SILENCE_DOES_NOT_AUTHORIZE_HINT,
-                    obj=Group,
-                    id=CHECK_ID_GROUP_NOT_AUTH,
-                ))
-            else:
-                messages.append(django_checks.Warning(
-                    'TRUSTS_GROUP_MODEL is deprecated in 1.0 and will be '
-                    'removed in %s. django-trusts always uses auth.Group. '
-                    'Leave this setting unset.' % REMOVAL_RELEASE,
-                    hint=_UNSET_DEPRECATED_SETTING_HINT,
-                    obj=None,
-                    id=CHECK_ID_GROUP_SETTING_DEPRECATED,
-                ))
-
-    if permission_model_setting_overridden():
-        try:
-            Permission = lookup_permission_model_setting()
-        except ImproperlyConfigured as exc:
-            messages.append(django_checks.Error(
-                str(exc),
-                hint=_UNSET_DEPRECATED_SETTING_HINT + ' ' + _SILENCE_DOES_NOT_AUTHORIZE_HINT,
-                obj=None,
-                id=CHECK_ID_PERMISSION_NOT_AUTH,
-            ))
-        else:
-            configured = getattr(settings, 'TRUSTS_PERMISSION_MODEL', AUTH_PERMISSION_MODEL)
-            if configured != AUTH_PERMISSION_MODEL or Permission is not AuthPermission:
-                messages.append(django_checks.Error(
-                    'TRUSTS_PERMISSION_MODEL (%s) is deprecated in 1.0 and will '
-                    'be removed in %s. It must be auth.Permission; django-trusts '
-                    'does not swap Permission or maintain a private parallel '
-                    'permission model. Runtime always uses auth.Permission and '
-                    'still fail-closes when this setting names anything else.' % (
-                        _model_label(Permission), REMOVAL_RELEASE,
-                    ),
-                    hint=_UNSET_DEPRECATED_SETTING_HINT + ' ' + _SILENCE_DOES_NOT_AUTHORIZE_HINT,
-                    obj=Permission,
-                    id=CHECK_ID_PERMISSION_NOT_AUTH,
-                ))
-            else:
-                messages.append(django_checks.Warning(
-                    'TRUSTS_PERMISSION_MODEL is deprecated in 1.0 and will be '
-                    'removed in %s. django-trusts always uses auth.Permission. '
-                    'Leave this setting unset.' % REMOVAL_RELEASE,
-                    hint=_UNSET_DEPRECATED_SETTING_HINT,
-                    obj=None,
-                    id=CHECK_ID_PERMISSION_SETTING_DEPRECATED,
-                ))
+                obj=Content,
+                id="trusts.E006",
+            )
+        )
     return messages
 
 
-def _kernel_owns_adapter_rewalks():
-    """True when the companion kernel registers E006/E007 itself."""
+def check_unresolved_content_registrations(
+    app_configs=None, **kwargs
+) -> list[Error]:
+    """Register leftover Content errors when the kernel owns generic adapter re-walks."""
+    return _unresolved_content_messages()
+
+
+def check_context_registry(
+    app_configs=None, **kwargs
+) -> list[Error]:
+    """Validate Content leftover registrations and generic adapter re-walks."""
+    messages = _unresolved_content_messages()
+    registry: ContextRegistry = get_registry()
+    for name, adapter in registry.adapters.items():
+        if not adapter.model_class:
+            messages.append(
+                Error(
+                    f"Unresolved adapter registration: {name}.",
+                    hint=(
+                        "Adapter.contribute_to_class() was not called or the model "
+                        "was never imported."
+                    ),
+                    obj=adapter,
+                    id="trusts.E006",
+                )
+            )
+            continue
+        if adapter.pk_field != adapter.model_class._meta.pk.name:
+            messages.append(
+                Error(
+                    f"Adapter {name} pk_field '{adapter.pk_field}' does not match "
+                    f"model pk '{adapter.model_class._meta.pk.name}'.",
+                    obj=adapter,
+                    id="trusts.E007",
+                )
+            )
+    return messages
+
+
+def check_trustee_registry(
+    app_configs=None, **kwargs
+) -> list[Error]:
+    """Validate that the Zero Trustee registry can still be frozen."""
+    messages: list[Error] = []
+    registry: TrusteeRegistry = get_registry().trustee
     try:
-        from trusts.apps import KernelConfig
-    except ImportError:
-        return False
-    return getattr(KernelConfig, 'label', None) == 'trusts_kernel'
+        registry.ensure_frozen()
+    except Exception as exc:
+        messages.append(
+            Error(
+                f"Trustee registry failed to freeze: {exc}",
+                hint=(
+                    "Call Trustee.configure() from AppConfig.ready() before the "
+                    "registry is frozen."
+                ),
+                obj=TrusteeRegistry,
+                id="trusts.E007",
+            )
+        )
+    return messages
 
 
-if not _kernel_owns_adapter_rewalks():
-    django_checks.register(django_checks.Tags.models)(check_context_registry)
-    django_checks.register(django_checks.Tags.models)(check_trustee_registry)
+def _register_zero_checks() -> None:
+    """Register leftover-only Content check when kernel owns adapter re-walks."""
+    if _kernel_owns_adapter_rewalks():
+        register(ZeroConfig.check_ready_ran, ZeroConfig)
+        register(check_unresolved_content_registrations, ZeroConfig)
+        return
+    register(ZeroConfig.check_ready_ran, ZeroConfig)
+    register(check_context_registry, ZeroConfig)
+    register(check_trustee_registry, ZeroConfig)
 
+
+_register_zero_checks()

@@ -1,57 +1,87 @@
-# see https://docs.djangoproject.com/en/stable/topics/testing/advanced/#using-the-django-test-runner-to-test-reusable-applications
+#!/usr/bin/env python
+"""Standalone test runner for django-trusts-zero."""
+
+from __future__ import annotations
+
+import argparse
 import os
 import sys
 from pathlib import Path
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'tests.settings')
-root = Path(__file__).resolve().parents[1].resolve()
-kernel = Path(os.environ.get('KERNEL_CHECKOUT', root / '.deps' / 'django-trusts')).resolve()
-
-# This checkout has trusts/zero without trusts/__init__.py (a PEP 420
-# namespace). If it precedes the kernel package, ``import trusts`` never
-# loads kernel ``extend_path`` and ``trusts.context`` is missing. Keep the
-# kernel checkout first; append this root so ``tests`` stays importable.
-# Drop other django-trusts checkouts (PYTHONPATH / leftover editable paths).
-cleaned = []
-for p in sys.path:
-    if '__editable__.django_trusts' in str(p):
-        continue
-    abs_p = Path(p or os.getcwd()).resolve()
-    if abs_p in {root, kernel}:
-        continue
-    if (abs_p / 'trusts' / '__init__.py').is_file():
-        continue
-    cleaned.append(p)
-sys.path[:] = cleaned
-sys.meta_path[:] = [
-    f for f in sys.meta_path
-    if '__editable___django_trusts' not in getattr(f, '__module__', '')
-]
-sys.path_hooks[:] = [h for h in sys.path_hooks if '__editable___django_trusts' not in repr(h)]
-if kernel.is_dir():
-    sys.path.insert(0, str(kernel))
-sys.path.append(str(root))
-
 import django
-from django.test.utils import get_runner
 from django.conf import settings
+from django.test.utils import get_runner
 
 
-NORMAL_SUITE = [
-    'tests.test_appconfig',
-    'tests.test_migrations',
-    'tests.test_packaging',
-    'tests.test_smoke',
-]
+def _configure(*, with_kernel: bool) -> None:
+    installed_apps = [
+        "django.contrib.auth",
+        "django.contrib.contenttypes",
+        "trusts.zero",
+        "tests",
+    ]
+    if with_kernel:
+        installed_apps.insert(2, "trusts")
+
+    settings.configure(
+        SECRET_KEY="django-trusts-zero-tests",
+        INSTALLED_APPS=installed_apps,
+        DATABASES={
+            "default": {
+                "ENGINE": "django.db.backends.sqlite3",
+                "NAME": ":memory:",
+            }
+        },
+        DEFAULT_AUTO_FIELD="django.db.models.BigAutoField",
+        USE_TZ=True,
+        PASSWORD_HASHERS=[
+            "django.contrib.auth.hashers.MD5PasswordHasher",
+        ],
+        MIDDLEWARE=[],
+        ROOT_URLCONF="",
+    )
 
 
-def runtests():
+def run_tests(verbosity: int = 1, failfast: bool = False, with_kernel: bool = False) -> int:
+    root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root))
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "")
+    _configure(with_kernel=with_kernel)
     django.setup()
     TestRunner = get_runner(settings)
-    test_runner = TestRunner(verbosity=1, interactive=False)
-    failures = test_runner.run_tests(NORMAL_SUITE)
-    sys.exit(bool(failures))
+    runner = TestRunner(verbosity=verbosity, failfast=failfast)
+    labels = ["tests"]
+    failures = runner.run_tests(labels)
+    return failures
 
 
-if __name__ == '__main__':
-    runtests()
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run django-trusts-zero tests.")
+    parser.add_argument(
+        "-v",
+        "--verbosity",
+        type=int,
+        default=1,
+        dest="verbosity",
+    )
+    parser.add_argument(
+        "--failfast",
+        action="store_true",
+        dest="failfast",
+    )
+    parser.add_argument(
+        "--with-kernel",
+        action="store_true",
+        dest="with_kernel",
+        help="Install django-trusts KernelConfig next to ZeroConfig.",
+    )
+    args = parser.parse_args(argv)
+    return run_tests(
+        verbosity=args.verbosity,
+        failfast=args.failfast,
+        with_kernel=args.with_kernel,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
