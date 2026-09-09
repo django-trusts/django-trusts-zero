@@ -1,0 +1,9 @@
+include LICENSE
+include README.md
+include requirements.txt
+include migrates.md
+include pyproject.toml
+recursive-include trusts/zero *
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude trusts/__init__.py

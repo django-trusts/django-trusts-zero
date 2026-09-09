@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # Overlay-only extra job (pre-split published master). Not the paired proof.
+  KERNEL_SHA: 624daa198d1922a43c775a814a3ff213cf5bd4d7
+  # Coordinated companion. The pair job is the required cross-repo proof.
+  COMPANION_KERNEL_SHA: 68bb89c7199539d82868f908e2e8479cda39a85e
+
+jobs:
+  pair:
+    name: pair with kernel PR #46
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: django-trusts/django-trusts
+        ref: ${{ env.COMPANION_KERNEL_SHA }}
+        path: .deps/django-trusts
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: This wheel + exact companion HEAD
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install "Django>=6.1,<6.2" coverage virtualenv build twine
+        python -m build
+        twine check dist/*
+        python scripts/verify-companion-pair.py --kernel .deps/django-trusts
+
+  tests-overlay:
+    name: overlay vs 624daa1 (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: django-trusts/django-trusts
+        ref: ${{ env.KERNEL_SHA }}
+        path: .deps/django-trusts
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Overlay kernel then Zero (with dependency resolution)
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install "Django>=6.1,<6.2" coverage virtualenv
+        python scripts/apply-kernel-namespace-overlay.py .deps/django-trusts
+        python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
+        python -m pip install -e . --config-settings editable_mode=compat
+    - name: Zero tests
+      run: coverage run -m tests.runtests && coverage report
+    - name: Fresh / legacy / already-current (overlay extra)
+      run: |
+        python scripts/verify-fresh-install.py
+        python scripts/verify-legacy-upgrade.py
+        python scripts/verify-upgrade-current.py
