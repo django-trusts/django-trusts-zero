@@ -266,17 +266,31 @@ def prove_editable_editable(py_build: Path, kernel_root: Path, work: Path) -> No
         kernel_copy,
         ignore=shutil.ignore_patterns('.git', '.venv', 'dist', 'build', '*.egg-info'),
     )
-    run([str(py_build), str(OVERLAY), str(kernel_copy)], check=True)
+    run(
+        [str(py_build), str(OVERLAY), '--strip-in-tree-zero', str(kernel_copy)],
+        check=True,
+    )
 
     venv_dir = work / 'venv-editable'
     py = make_venv(venv_dir)
-    run([str(py), '-m', 'pip', 'install', '-e', str(kernel_copy)], check=True)
-    run([str(py), '-m', 'pip', 'install', '--no-deps', '-e', str(ROOT)], check=True)
+    # compat: default strict editable turns trusts into a PEP 420 namespace
+    # (trusts.__file__ is None) and hides kernel trusts/__init__.py.
+    run(
+        [str(py), '-m', 'pip', 'install', '-e', str(kernel_copy),
+         '--config-settings', 'editable_mode=compat'],
+        check=True,
+    )
+    run(
+        [str(py), '-m', 'pip', 'install', '--no-deps', '-e', str(ROOT),
+         '--config-settings', 'editable_mode=compat'],
+        check=True,
+    )
     venv_eval(
         py,
         SETUP_DJANGO
         + 'import trusts, trusts.zero, trusts.context\n'
         'from trusts.zero.models import Trust\n'
+        'assert trusts.__file__, "kernel must own trusts/__init__.py, got namespace"\n'
         'print("editable+editable import ok", trusts.__file__, trusts.zero.__file__, Trust)\n'
         'assert "zero" in trusts.zero.__file__',
         cwd=work,

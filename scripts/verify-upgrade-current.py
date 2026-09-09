@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -39,23 +40,46 @@ from pathlib import Path
 
 kernel = Path(os.environ["KERNEL_CHECKOUT"]).resolve()
 db_path = Path(os.environ["ZERO_UPGRADE_DB"]).resolve()
-sys.path.insert(0, str(kernel))
 os.environ.pop("DJANGO_SETTINGS_MODULE", None)
+sys.path = [
+    p for p in sys.path
+    if "__editable__.django_trusts" not in str(p)
+    and (
+        Path(p or os.getcwd()).resolve() == kernel
+        or not (Path(p or os.getcwd()) / "trusts" / "__init__.py").is_file()
+    )
+]
+sys.meta_path[:] = [
+    f for f in sys.meta_path
+    if "__editable___django_trusts" not in getattr(f, "__module__", "")
+]
+sys.path_hooks[:] = [h for h in sys.path_hooks if "__editable___django_trusts" not in repr(h)]
+sys.path.insert(0, str(kernel))
 
 from django.conf import settings
+
+apps_py = (kernel / "trusts" / "apps.py").read_text() if (kernel / "trusts" / "apps.py").is_file() else ""
+split = "label = 'trusts_kernel'" in apps_py or 'label = "trusts_kernel"' in apps_py
+installed = [
+    "django.contrib.contenttypes",
+    "django.contrib.auth",
+    "django.contrib.sessions",
+    "django.contrib.admin",
+]
+backend = "trusts.backends.TrustModelBackend"
+if split:
+    installed.extend(["trusts.apps.KernelConfig", "trusts.zero.apps.ZeroConfig"])
+    backend = "trusts.zero.backends.TrustModelBackend"
+else:
+    installed.append("trusts")
+
 settings.configure(
     SECRET_KEY="kernel-phase1",
     USE_TZ=True,
     DEFAULT_AUTO_FIELD="django.db.models.AutoField",
     SILENCED_SYSTEM_CHECKS=["fields.W342"],
-    INSTALLED_APPS=[
-        "django.contrib.contenttypes",
-        "django.contrib.auth",
-        "django.contrib.sessions",
-        "django.contrib.admin",
-        "trusts",
-    ],
-    AUTHENTICATION_BACKENDS=["trusts.backends.TrustModelBackend"],
+    INSTALLED_APPS=installed,
+    AUTHENTICATION_BACKENDS=[backend],
     DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": str(db_path)}},
 )
 import django
@@ -96,9 +120,23 @@ from django.core.management.base import CommandError
 zero = Path(os.environ["ZERO_CHECKOUT"]).resolve()
 kernel = Path(os.environ["KERNEL_CHECKOUT"]).resolve()
 db_path = Path(os.environ["ZERO_UPGRADE_DB"]).resolve()
+os.environ.pop("DJANGO_SETTINGS_MODULE", None)
+keep = {kernel, zero}
+sys.path = [
+    p for p in sys.path
+    if "__editable__.django_trusts" not in str(p)
+    and (
+        Path(p or os.getcwd()).resolve() in keep
+        or not (Path(p or os.getcwd()) / "trusts" / "__init__.py").is_file()
+    )
+]
+sys.meta_path[:] = [
+    f for f in sys.meta_path
+    if "__editable___django_trusts" not in getattr(f, "__module__", "")
+]
+sys.path_hooks[:] = [h for h in sys.path_hooks if "__editable___django_trusts" not in repr(h)]
 sys.path.insert(0, str(kernel))
 sys.path.append(str(zero))
-os.environ.pop("DJANGO_SETTINGS_MODULE", None)
 
 from django.conf import settings
 
@@ -183,19 +221,23 @@ print(json.dumps({"applied": applied, "counts": counts, "plan": plan}))
 def main() -> int:
     os.environ.pop('DJANGO_SETTINGS_MODULE', None)
     kernel = Path(os.environ.get('KERNEL_CHECKOUT', ROOT / '.deps' / 'django-trusts')).resolve()
-    if not (kernel / 'trusts' / 'migrations' / '0001_initial.py').is_file():
+    legacy_0001 = kernel / 'trusts' / 'migrations' / '0001_initial.py'
+    split_0001 = kernel / 'trusts' / 'zero' / 'migrations' / '0001_initial.py'
+    if not legacy_0001.is_file() and not split_0001.is_file():
         print('skip kernel→Zero already-applied upgrade (kernel checkout has no historical migrations)')
         return 0
     env_base = os.environ.copy()
     env_base['KERNEL_CHECKOUT'] = str(kernel)
     env_base['ZERO_CHECKOUT'] = str(ROOT)
     env_base.pop('DJANGO_SETTINGS_MODULE', None)
+    env_base.pop('PYTHONPATH', None)
     with tempfile.TemporaryDirectory(prefix='django-trusts-zero-upgrade-current-') as tmp:
         db_path = Path(tmp) / 'current.sqlite3'
         env_base['ZERO_UPGRADE_DB'] = str(db_path)
         phase1 = subprocess.run(
-            [sys.executable, '-c', PHASE1],
+            [sys.executable, '-P', '-c', PHASE1],
             env=env_base,
+            cwd=tmp,
             capture_output=True,
             text=True,
         )
@@ -206,9 +248,15 @@ def main() -> int:
         snapshot_line = phase1.stdout.strip().splitlines()[-1]
         snapshot = json.loads(snapshot_line)
         env_base['PHASE1_SNAPSHOT'] = snapshot_line
+        kernel_zero = kernel / 'trusts' / 'zero'
+        if kernel_zero.is_dir() and (ROOT / 'trusts' / 'zero').is_dir():
+            # Companion kernel still vendors trusts/zero. Phase 2 must load
+            # THIS package, not the in-tree copy.
+            shutil.rmtree(kernel_zero)
         phase2 = subprocess.run(
-            [sys.executable, '-c', PHASE2],
+            [sys.executable, '-P', '-c', PHASE2],
             env=env_base,
+            cwd=tmp,
             capture_output=True,
             text=True,
         )

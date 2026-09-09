@@ -11,6 +11,10 @@ Silencing an ID does not make the policy executable: ``has_perm`` and
 ``django.core.checks.Warning`` so the legacy-callback opt-in and the
 deprecated ``TRUSTS_GROUP_MODEL`` / ``TRUSTS_PERMISSION_MODEL`` settings
 stay visible under ``manage.py check``.
+
+After the kernel Step 3 split, ``trusts.E006`` / ``trusts.E007`` adapter
+re-walks live in ``trusts.checks``. This module still registers them when
+the kernel checkout has no ``KernelConfig`` (master ``624daa1``).
 """
 
 from django.conf import settings
@@ -136,7 +140,6 @@ _SILENCE_DOES_NOT_ENABLE_CONTEXT_HINT = (
 )
 
 
-@django_checks.register(django_checks.Tags.models)
 def check_context_registry(app_configs, **kwargs):
     """Re-validate the frozen Context registry after models are loaded.
 
@@ -187,7 +190,6 @@ _SILENCE_DOES_NOT_ENABLE_TRUSTEE_HINT = (
 )
 
 
-@django_checks.register(django_checks.Tags.models)
 def check_trustee_registry(app_configs, **kwargs):
     """Re-validate the frozen Trustee registry after models are loaded.
 
@@ -347,3 +349,18 @@ def check_configured_auth_models(app_configs, **kwargs):
                     id=CHECK_ID_PERMISSION_SETTING_DEPRECATED,
                 ))
     return messages
+
+
+def _kernel_owns_adapter_rewalks():
+    """True when the companion kernel registers E006/E007 itself."""
+    try:
+        from trusts.apps import KernelConfig
+    except ImportError:
+        return False
+    return getattr(KernelConfig, 'label', None) == 'trusts_kernel'
+
+
+if not _kernel_owns_adapter_rewalks():
+    django_checks.register(django_checks.Tags.models)(check_context_registry)
+    django_checks.register(django_checks.Tags.models)(check_trustee_registry)
+

@@ -16,14 +16,27 @@ os.environ.pop('DJANGO_SETTINGS_MODULE', None)
 
 
 def _put_kernel_first():
-    kernel = Path(os.environ.get('KERNEL_CHECKOUT', ROOT / '.deps' / 'django-trusts'))
-    sys.path = [
-        p for p in sys.path
-        if os.path.abspath(p or os.getcwd()) not in {str(ROOT), str(kernel)}
+    kernel = Path(os.environ.get('KERNEL_CHECKOUT', ROOT / '.deps' / 'django-trusts')).resolve()
+    root = ROOT.resolve()
+    cleaned = []
+    for p in sys.path:
+        if '__editable__.django_trusts' in str(p):
+            continue
+        abs_p = Path(p or os.getcwd()).resolve()
+        if abs_p in {root, kernel}:
+            continue
+        if (abs_p / 'trusts' / '__init__.py').is_file():
+            continue
+        cleaned.append(p)
+    sys.path[:] = cleaned
+    sys.meta_path[:] = [
+        f for f in sys.meta_path
+        if '__editable___django_trusts' not in getattr(f, '__module__', '')
     ]
+    sys.path_hooks[:] = [h for h in sys.path_hooks if '__editable___django_trusts' not in repr(h)]
     if kernel.is_dir():
         sys.path.insert(0, str(kernel))
-    sys.path.append(str(ROOT))
+    sys.path.append(str(root))
 
 
 _put_kernel_first()

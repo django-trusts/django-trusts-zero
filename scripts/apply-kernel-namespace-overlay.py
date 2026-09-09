@@ -35,6 +35,16 @@ def apply(kernel_root: Path) -> bool:
     return True
 
 
+def strip_in_tree_zero(kernel_root: Path) -> bool:
+    """Remove companion-vendored ``trusts/zero`` so this package is not shadowed."""
+    zero = kernel_root / 'trusts' / 'zero'
+    if not zero.exists():
+        return False
+    import shutil
+    shutil.rmtree(zero)
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -42,8 +52,16 @@ def main() -> int:
         type=Path,
         help='Checkout of django-trusts (kernel)',
     )
+    parser.add_argument(
+        '--strip-in-tree-zero',
+        action='store_true',
+        help='Delete trusts/zero from the kernel checkout (PR #46 still vendors it)',
+    )
     args = parser.parse_args()
     kernel_root = args.kernel_root.resolve()
+    if args.strip_in_tree_zero:
+        stripped = strip_in_tree_zero(kernel_root)
+        print('in-tree trusts/zero', 'stripped' if stripped else 'absent')
     changed = apply(kernel_root)
     print('kernel namespace overlay', 'applied' if changed else 'already present')
     print('init', kernel_root / 'trusts' / '__init__.py')

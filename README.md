@@ -21,17 +21,18 @@ pip install django-trusts
 pip install django-trusts-zero
 ```
 
-Until a PyPI release, install from git. This revision is path-installable against the kernel at:
+Until a PyPI release, install from git. This revision is path-installable against:
 
 ```text
-django-trusts @ 624daa198d1922a43c775a814a3ff213cf5bd4d7
+django-trusts master @ 624daa198d1922a43c775a814a3ff213cf5bd4d7   # after #45
+companion kernel PR #46 @ 60ec3c6499de1c67e27e461de8b80f1d91368c0b
 ```
 
-that SHA is master after [#45](https://github.com/django-trusts/django-trusts/pull/45) (Step 2). The companion kernel Step 3 PR (KernelConfig + `pkgutil.extend_path`, concrete code remaining in-tree until both PRs are reviewed) is documented in `migrates.md`. Update the pin when that PR’s HEAD is known.
+[#46](https://github.com/django-trusts/django-trusts/pull/46) adds `KernelConfig` + `pkgutil.extend_path` and keeps in-tree `trusts/zero/**` until both Drafts are reviewed. Do not assume it has merged. `requirements.txt` pins master `624daa1` so an unpinned `django-trusts` extra cannot resolve to PyPI 0.10.x.
 
 ```python
 INSTALLED_APPS = [
-    'trusts.apps.KernelConfig',       # after the kernel Step 3 PR; omit on 624daa1
+    'trusts.apps.KernelConfig',       # after kernel PR #46; omit on 624daa1
     'trusts.zero.apps.ZeroConfig',    # required; label='trusts'
 ]
 
@@ -40,7 +41,7 @@ AUTHENTICATION_BACKENDS = (
 )
 ```
 
-On kernel `624daa1` the in-tree `trusts.apps.AppConfig` still uses `label='trusts'`. Do **not** install bare `'trusts'` alongside Zero — Django app labels would collide. Install only `trusts.zero.apps.ZeroConfig` until the kernel PR lands. Import kernel APIs (`trusts.context`, `trusts.trustee`, `trusts.path`) as modules either way.
+On kernel `624daa1` the in-tree `trusts.apps.AppConfig` still uses `label='trusts'`. Do **not** install bare `'trusts'` alongside Zero — Django app labels would collide. Install only `trusts.zero.apps.ZeroConfig` until #46 lands. Import kernel APIs (`trusts.context`, `trusts.trustee`, `trusts.path`) as modules either way.
 
 ```python
 from trusts.zero.models import Trust, Content, Junction, Role
@@ -52,9 +53,9 @@ from trusts.trustee import Trustee
 ## Development
 
 ```text
-export KERNEL_CHECKOUT=/path/to/django-trusts   # 624daa1 or later
-python -m pip install -e "$KERNEL_CHECKOUT"
-python -m pip install -e .
+export KERNEL_CHECKOUT=/path/to/django-trusts   # 624daa1 or PR #46 @ 60ec3c6
+python -m pip install -e "$KERNEL_CHECKOUT" --config-settings editable_mode=compat
+python -m pip install -e . --no-deps --config-settings editable_mode=compat
 python -m tests.runtests
 python scripts/verify-fresh-install.py
 python scripts/verify-legacy-upgrade.py
@@ -62,7 +63,9 @@ python scripts/verify-upgrade-current.py
 python scripts/verify-install-matrix.py --kernel "$KERNEL_CHECKOUT"
 ```
 
-Editable+editable installs need `pkgutil.extend_path` on the kernel package. `scripts/apply-kernel-namespace-overlay.py` inserts it when the companion kernel PR has not yet.
+Default setuptools editable mode turns `trusts` into a PEP 420 namespace (`trusts.__file__ is None`) and hides kernel `trusts/__init__.py`. Use `editable_mode=compat` as above. Wheel+wheel into the same `site-packages/trusts/` tree does not need the flag.
+
+Editable+editable also needs `pkgutil.extend_path` on the kernel package. `scripts/apply-kernel-namespace-overlay.py` inserts it on `624daa1`. On #46 it is already present; pass `--strip-in-tree-zero` so the kernel checkout’s remaining `trusts/zero/**` does not shadow this package.
 
 ## License
 

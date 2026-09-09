@@ -14,11 +14,13 @@ Unrelated to Zero Trust network architecture.
 | Item | Value |
 | --- | --- |
 | Kernel pin used to relocate and test | [`624daa198d1922a43c775a814a3ff213cf5bd4d7`](https://github.com/django-trusts/django-trusts/commit/624daa198d1922a43c775a814a3ff213cf5bd4d7) (master after [#45](https://github.com/django-trusts/django-trusts/pull/45)) |
-| Kernel Step 3 PR | *not published yet (no open PR / Step 3 branch on django-trusts as of this Zero PR). Do not assume it has landed. Update this row with the companion PR URL and HEAD when known. grokforthomas acknowledged the Step 3 baton in [comment 5599441244](https://github.com/django-trusts/django-trusts/issues/43#issuecomment-5599441244).* |
+| Kernel Step 3 PR | [django-trusts#46](https://github.com/django-trusts/django-trusts/pull/46) Draft @ [`60ec3c6499de1c67e27e461de8b80f1d91368c0b`](https://github.com/django-trusts/django-trusts/commit/60ec3c6499de1c67e27e461de8b80f1d91368c0b). Do not assume it has merged. |
 | What 624daa1 still contains | Concrete models, migrations, backend, `trusts.apps.AppConfig` with `label='trusts'`, Zero settings constants on `trusts/__init__.py` |
-| What Zero requires from a split kernel | `pkgutil.extend_path` on `trusts/__init__.py` (editable+editable); `KernelConfig(name='trusts', label='trusts_kernel', default=False)` with **no** migrations |
+| What #46 adds | `pkgutil.extend_path` on `trusts/__init__.py`; `KernelConfig(name='trusts', label='trusts_kernel', default=False)` with **no** migrations; in-tree `trusts/zero/**` still vendored until both Drafts merge |
 
-Until the kernel PR lands, install **only** `trusts.zero.apps.ZeroConfig` (do not also install `'trusts'`). Kernel modules (`trusts.context`, `trusts.trustee`, `trusts.path`, `trusts.conditions`) remain importable from the `django-trusts` distribution.
+Until the kernel PR lands, install **only** `trusts.zero.apps.ZeroConfig` on `624daa1` (do not also install `'trusts'`). On #46 install `KernelConfig` then `ZeroConfig`. Kernel modules (`trusts.context`, `trusts.trustee`, `trusts.path`, `trusts.conditions`) remain importable from the `django-trusts` distribution.
+
+Editable+editable next to either kernel SHA needs setuptools `editable_mode=compat` so kernel `trusts/__init__.py` stays the package owner.
 
 ## Public changes (2.0 package path)
 
