@@ -42,6 +42,7 @@ NORMAL_SUITE = [
     'tests.test_migrations',
     'tests.test_packaging',
     'tests.test_smoke',
+    'tests.test_s5_leftover_check',
 ]
 
 

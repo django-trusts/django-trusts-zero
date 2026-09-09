@@ -140,6 +140,35 @@ _SILENCE_DOES_NOT_ENABLE_CONTEXT_HINT = (
 )
 
 
+def _unresolved_content_messages():
+    """Leftover Content declarations that never became Context adapters."""
+    messages = []
+    for model, fieldlookup in Content.iter_unresolved_content_registrations():
+        err = Content.compatibility_context_error(model, fieldlookup)
+        if err is None:
+            continue
+        messages.append(django_checks.Error(
+            'Context compatibility registration for %s is invalid: %s' % (
+                model._meta.label, err,
+            ),
+            hint=_SILENCE_DOES_NOT_ENABLE_CONTEXT_HINT,
+            obj=model,
+            id=CHECK_ID_INVALID_CONTEXT,
+        ))
+    return messages
+
+
+def check_unresolved_content_registrations(app_configs, **kwargs):
+    """Report leftover Content registrations when the kernel owns E006 re-walks.
+
+    Does not re-walk Context adapters (kernel ``trusts.E006``).
+    ``app_configs`` is ignored. No getters, properties, callbacks, or
+    database queries.
+    """
+    prepare_context_registry()
+    return _unresolved_content_messages()
+
+
 def check_context_registry(app_configs, **kwargs):
     """Re-validate the frozen Context registry after models are loaded.
 
@@ -152,6 +181,10 @@ def check_context_registry(app_configs, **kwargs):
     the full registry.
     No getters, properties, or callbacks are executed. No database
     queries.
+
+    Registered only as the no-kernel fallback. When KernelConfig is
+    present, leftover Content diagnostics use
+    ``check_unresolved_content_registrations`` instead.
     """
     prepare_context_registry()
     messages = []
@@ -167,18 +200,7 @@ def check_context_registry(app_configs, **kwargs):
                 obj=adapter.model,
                 id=CHECK_ID_INVALID_CONTEXT,
             ))
-    for model, fieldlookup in Content.iter_unresolved_content_registrations():
-        err = Content.compatibility_context_error(model, fieldlookup)
-        if err is None:
-            continue
-        messages.append(django_checks.Error(
-            'Context compatibility registration for %s is invalid: %s' % (
-                model._meta.label, err,
-            ),
-            hint=_SILENCE_DOES_NOT_ENABLE_CONTEXT_HINT,
-            obj=model,
-            id=CHECK_ID_INVALID_CONTEXT,
-        ))
+    messages.extend(_unresolved_content_messages())
     return messages
 
 
@@ -360,7 +382,10 @@ def _kernel_owns_adapter_rewalks():
     return getattr(KernelConfig, 'label', None) == 'trusts_kernel'
 
 
-if not _kernel_owns_adapter_rewalks():
+if _kernel_owns_adapter_rewalks():
+    django_checks.register(django_checks.Tags.models)(
+        check_unresolved_content_registrations,
+    )
+else:
     django_checks.register(django_checks.Tags.models)(check_context_registry)
     django_checks.register(django_checks.Tags.models)(check_trustee_registry)
-

@@ -131,3 +131,22 @@ Then:
 - Broadening the GH vocabulary proof
 - Closing django-trusts#43
 - Removing in-tree concrete code from django-trusts **master** (that wait is the coordinated kernel PR; do not merge one side without the other)
+
+# django-trusts#47 S5 companion: leftover Content check registration (2.0.0.dev0)
+
+Coordinated with kernel S5 ([django-trusts#52](https://github.com/django-trusts/django-trusts/pull/52)). Version remains **2.0.0.dev0**. Does **not** migrate Zero execution wrappers, start gh-permissions#1, resume #17, or close #47.
+
+## Decision
+
+When the companion kernel owns generic adapter re-walks (`KernelConfig.label == 'trusts_kernel'`), Zero registers **only** `check_unresolved_content_registrations` (`trusts.E006` leftover Content rows). It does **not** re-register generic Context/Trustee re-walks.
+
+The combined `check_context_registry` / `check_trustee_registry` (adapter re-walk plus leftovers) remain the no-kernel fallback.
+
+`manage.py check` on a normal kernel+Zero install therefore still emits leftover Content `trusts.E006` exactly once. Generic adapter `E006` / `E007` stay kernel-owned (no duplicate rows).
+
+## Migration-bot summary
+
+- [ ] Expect leftover Content `trusts.E006` from Zero when KernelConfig is installed.
+- [ ] Do not expect Zero to re-walk Context/Trustee adapters beside the kernel.
+- [ ] Leave package version at `2.0.0.dev0`.
+- [ ] Do not close django-trusts#47 from this PR.
