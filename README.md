@@ -26,7 +26,7 @@ pip install django-trusts-zero
 Until a 1.x kernel is on PyPI, install the companion kernel first (path, git, or local wheel), then this package **with dependency resolution** (do not `--no-deps`). Coordinated companion:
 
 ```text
-django-trusts kernel companion @ 588e309949a63c6798a39dde0bc6173ccbe4fbda
+django-trusts kernel companion @ 7db653c0123516454fc7af1f9b32e31bec950d03
 ```
 
 `requirements.txt` pins that SHA (S1–S5 runtime / backend / decorators / admin / checks).
@@ -56,7 +56,7 @@ from trusts.trustee import Trustee
 ## Development
 
 ```text
-export KERNEL_CHECKOUT=/path/to/django-trusts   # companion @ 588e309
+export KERNEL_CHECKOUT=/path/to/django-trusts   # companion @ 7db653c
 python -m pip install -e "$KERNEL_CHECKOUT" --config-settings editable_mode=compat
 python -m pip install -e . --config-settings editable_mode=compat
 python -m tests.runtests

@@ -10,7 +10,7 @@ permissions:
 
 env:
   # Paired kernel: public require_configured_terminal companion (#53).
-  COMPANION_KERNEL_SHA: 588e309949a63c6798a39dde0bc6173ccbe4fbda
+  COMPANION_KERNEL_SHA: 7db653c0123516454fc7af1f9b32e31bec950d03
 
 jobs:
   pair:
