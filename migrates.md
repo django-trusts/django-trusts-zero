@@ -170,8 +170,13 @@ vanilla admin, and E001–E005 / W001–W003 / leftover Content E006.
 
 `require_configured_requester` / `require_configured_operation` stay on
 `trusts.zero.query` and keep raising **`AuthorizationPathError`**
-(kernel `AuthorizationConfigError` is translated).
+(kernel `AuthorizationConfigError` from public
+`require_configured_terminal` is translated).
 `trusts.zero.authorization.AuthorizationDenied` is the exact kernel class.
+
+`trust_grant_q(..., trust_fk=)` remains: empty prefix is scope-origin
+(`authorized_scope_q`); a non-empty prefix keeps
+`Trustee.grant_q(scope_from_row=trust_fk)`.
 
 Pre-S5 overlay (`624daa1`) cannot host this revision: S1 runtime symbols
 are required.

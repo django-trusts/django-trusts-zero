@@ -23,6 +23,7 @@ from trusts.runtime import (
     filter_authorized,
     is_authorized,
     principal_is_usable,
+    require_configured_terminal,
 )
 
 
@@ -97,8 +98,7 @@ def require_configured_requester(user):
 
     prepare_trustee_registry()
     try:
-        from trusts.runtime import _require_instance
-        return _require_instance(
+        return require_configured_terminal(
             user, Trustee.registry.requester_model(), 'requester',
         )
     except AuthorizationConfigError as exc:
@@ -116,8 +116,7 @@ def require_configured_operation(operation):
 
     prepare_trustee_registry()
     try:
-        from trusts.runtime import _require_instance
-        return _require_instance(
+        return require_configured_terminal(
             operation, Trustee.registry.operation_model(), 'operation',
         )
     except AuthorizationConfigError as exc:
@@ -212,24 +211,21 @@ def scope_pks_from_resource(obj, path):
 
 
 def trust_grant_q(user, permission, trust_fk=''):
-    """Q matching grants when the filtered row *is* the scope.
+    """Q matching grants on a Trust-origin or prefixed lookup.
 
-    ``trust_fk`` must be empty (scope-origin). Resource-origin Content
-    filters must use ``filter_zero_granted`` / ``filter_authorized``.
+    Empty ``trust_fk`` is scope-origin (the filtered row *is* the Trust
+    scope) and uses ``authorized_scope_q``. A non-empty prefix keeps the
+    historical ``Trustee.grant_q(scope_from_row=trust_fk)`` predicate so
+    existing callers are not an undocumented 2.0 break. New resource-origin
+    Content filters should use ``filter_zero_granted`` / ``filter_authorized``.
 
     Requester and operation must be instances of the configured
     terminals; raw PKs and same-PK collisions of the wrong model fail
     closed as ``AuthorizationPathError``.
     """
     from trusts.zero.models import Trust, prepare_trustee_registry
+    from trusts.trustee import Trustee
 
-    if trust_fk:
-        raise AuthorizationPathError(
-            'trust_grant_q is scope-origin; resource-origin Content '
-            'filters must use filter_zero_granted, not trust_fk=%r.' % (
-                trust_fk,
-            )
-        )
     require_configured_requester(user)
     require_configured_operation(permission)
     prepare_trustee_registry()
@@ -238,6 +234,10 @@ def trust_grant_q(user, permission, trust_fk=''):
     names = enabled_trustee_adapter_names()
     if not names:
         return Q(pk__in=[])
+    if trust_fk:
+        return Trustee.grant_q(
+            user, permission, scope_from_row=trust_fk, names=names,
+        )
     try:
         return authorized_scope_q(Trust, user, permission, names=names)
     except AuthorizationConfigError as exc:

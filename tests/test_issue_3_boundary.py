@@ -38,7 +38,9 @@ from trusts.zero.authorization import (
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.decorators import request_passes_test as zero_request_passes_test
 from trusts.zero.models import ContentQuerySet, Trust, TrustManager, TrustUserPermission
+from trusts.trustee import Trustee
 from trusts.zero.query import (
+    enabled_trustee_adapter_names,
     require_configured_operation,
     require_configured_requester,
     trust_grant_q,
@@ -192,6 +194,36 @@ class RequireConfiguredFacadeTests(Issue3FixtureMixin, TransactionTestCase):
     def test_trust_grant_q_rejects_wrong_operation(self):
         with self.assertRaises(AuthorizationPathError):
             trust_grant_q(self.user, self.user)
+        with self.assertRaises(AuthorizationPathError):
+            trust_grant_q(self.user, self.user, trust_fk='trust')
+
+    def test_trust_grant_q_nonempty_prefix_matches_trustee_grant_q(self):
+        names = enabled_trustee_adapter_names()
+        historical = Trustee.grant_q(
+            self.user, self.change, scope_from_row='trust', names=names,
+        )
+        facade = trust_grant_q(self.user, self.change, trust_fk='trust')
+        historical_pks = set(
+            Trust.objects.filter(historical).values_list('pk', flat=True)
+        )
+        facade_pks = set(
+            Trust.objects.filter(facade).values_list('pk', flat=True)
+        )
+        self.assertEqual(facade_pks, historical_pks)
+        self.assertIn(self.child.pk, facade_pks)
+        self.assertNotIn(self.org.pk, facade_pks)
+        identity_pks = set(
+            Trust.objects.filter(
+                trust_grant_q(self.user, self.change),
+            ).values_list('pk', flat=True)
+        )
+        self.assertIn(self.org.pk, identity_pks)
+        self.assertNotEqual(identity_pks, facade_pks)
+
+    def test_trust_grant_q_prefix_rejects_wrong_requester(self):
+        with self.assertRaises(AuthorizationPathError) as ctx:
+            trust_grant_q(self.org, self.change, trust_fk='trust')
+        self.assertIn('requester', str(ctx.exception))
 
     def test_permitted_rejects_raw_pk(self):
         with self.assertRaises(AuthorizationPathError):
@@ -289,7 +321,9 @@ class KernelConsumptionSourceTests(TestCase):
         self.assertIn('authorized_scope_q', source)
         self.assertNotIn('path.filter_granted', source)
         self.assertNotIn('path.row_is_granted', source)
-        self.assertNotIn('Trustee.grant_q', source)
+        self.assertNotIn('_require_instance', source)
+        self.assertIn('require_configured_terminal', source)
+        self.assertIn('Trustee.grant_q', source)
 
     def test_request_passes_test_is_kernel(self):
         self.assertIs(zero_request_passes_test, kernel_request_passes_test)
