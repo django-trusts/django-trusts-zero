@@ -16,7 +16,7 @@ This repository is authoritative for distribution `django-trusts-zero` **2.0.0.d
 | Item | Value |
 | --- | --- |
 | Authoritative Zero metadata | this repo `pyproject.toml` (`2.0.0.dev0` + `django-trusts>=1.0.0.dev0`) |
-| Paired kernel proof | [django-trusts#52](https://github.com/django-trusts/django-trusts/pull/52) S5 merge [`4d09045db0094cc40811af87c7783fa8f85acd90`](https://github.com/django-trusts/django-trusts/commit/4d09045db0094cc40811af87c7783fa8f85acd90). |
+| Paired kernel proof | [django-trusts#53](https://github.com/django-trusts/django-trusts/pull/53) public `require_configured_terminal` [`588e309949a63c6798a39dde0bc6173ccbe4fbda`](https://github.com/django-trusts/django-trusts/commit/588e309949a63c6798a39dde0bc6173ccbe4fbda) (on S5 merge [`4d09045`](https://github.com/django-trusts/django-trusts/commit/4d09045db0094cc40811af87c7783fa8f85acd90)). |
 | Pre-split published master | [`624daa198d1922a43c775a814a3ff213cf5bd4d7`](https://github.com/django-trusts/django-trusts/commit/624daa198d1922a43c775a814a3ff213cf5bd4d7) (after [#45](https://github.com/django-trusts/django-trusts/pull/45)); overlay extra only |
 | What 624daa1 still contains | Concrete models, migrations, backend, `trusts.apps.AppConfig` with `label='trusts'`, Zero settings constants on `trusts/__init__.py` |
 | What #46 @ `68bb89c` ships | `pkgutil.extend_path` on `trusts/__init__.py`; `KernelConfig(name='trusts', label='trusts_kernel', default=False)` with **no** migrations; **no** in-tree `trusts/zero/**`; **no** `packaging/django-trusts-zero/` |
@@ -155,7 +155,9 @@ The combined `check_context_registry` / `check_trustee_registry` (adapter re-wal
 
 Coordinated with kernel S1–S5 (runtime / `ObjectAuthorizationBackend` /
 `require_authorized` / authorized admin+CBVs / generic checks) at
-[`4d09045db0094cc40811af87c7783fa8f85acd90`](https://github.com/django-trusts/django-trusts/commit/4d09045db0094cc40811af87c7783fa8f85acd90).
+[`588e309949a63c6798a39dde0bc6173ccbe4fbda`](https://github.com/django-trusts/django-trusts/commit/588e309949a63c6798a39dde0bc6173ccbe4fbda)
+([django-trusts#53](https://github.com/django-trusts/django-trusts/pull/53); S5 merge
+[`4d09045`](https://github.com/django-trusts/django-trusts/commit/4d09045db0094cc40811af87c7783fa8f85acd90)).
 Version remains **2.0.0.dev0**. Does **not** change schema, migrations,
 app label, content types, or permission identities. Does **not** resume
 django-trusts#17 or start example#7.
@@ -183,7 +185,7 @@ are required.
 
 ## Migration-bot summary
 
-- [ ] Pair Zero with kernel S5 `4d09045` (or later reviewed master).
+- [ ] Pair Zero with kernel companion `588e309` ([django-trusts#53](https://github.com/django-trusts/django-trusts/pull/53)).
 - [ ] Keep calling `trusts.zero` façades; do not switch bool helpers to `require_*`.
 - [ ] Catch `AuthorizationDenied` from `trusts.zero.authorization` (kernel alias).
 - [ ] Leave package version at `2.0.0.dev0`.

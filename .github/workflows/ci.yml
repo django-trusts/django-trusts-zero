@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 env:
-  # Paired kernel: S5 merge (runtime / backend / decorators / admin / checks).
-  COMPANION_KERNEL_SHA: 4d09045db0094cc40811af87c7783fa8f85acd90
+  # Paired kernel: public require_configured_terminal companion (#53).
+  COMPANION_KERNEL_SHA: 588e309949a63c6798a39dde0bc6173ccbe4fbda
 
 jobs:
   pair:

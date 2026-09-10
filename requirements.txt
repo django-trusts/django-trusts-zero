@@ -2,4 +2,4 @@
 # django-trusts>=1.0.0.dev0 does not match PyPI 0.10.x. Until 1.x is
 # published, install a path/git kernel first or use the companion wheel.
 Django>=6.1,<6.2
-django-trusts @ git+https://github.com/django-trusts/django-trusts.git@4d09045db0094cc40811af87c7783fa8f85acd90
+django-trusts @ git+https://github.com/django-trusts/django-trusts.git@588e309949a63c6798a39dde0bc6173ccbe4fbda
