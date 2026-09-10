@@ -19,7 +19,16 @@ from trusts.context import (
     check_registration,
 )
 from trusts.trustee import Trustee, TrusteeMixin
-from trusts.zero.query import compose_zero_path, is_active_principal, trust_grant_q
+from trusts.path import AuthorizationPathError
+from trusts.runtime import (
+    AuthorizationConfigError,
+    filter_authorized,
+    filter_authorized_scope,
+)
+from trusts.zero.query import (
+    enabled_trustee_adapter_names,
+    is_active_principal,
+)
 from trusts.conditions import (
     Expr,
     PermissionConditionError,
@@ -233,9 +242,9 @@ class ContentQuerySet(models.QuerySet):
         raise ``PermissionConditionNotQueryable`` so they cannot
         over-grant.
 
-        The relational grant is the composed ``AuthorizationPath``
-        predicate (same seam as object-level ``has_perm``). Anonymous
-        principals stay empty; other non-requester values fail closed.
+        The relational grant is ``filter_authorized`` (same seam as
+        object-level ``has_perm``). Anonymous principals stay empty;
+        other non-requester values fail closed.
         """
         from trusts.zero.query import require_configured_requester
 
@@ -250,13 +259,16 @@ class ContentQuerySet(models.QuerySet):
         if not supported_entity_contract() or not supported_permission_contract():
             return self.none()
         permission = resolve_content_permission(self.model, perm)
-        path = compose_zero_path(self.model, permission)
-        if path is None:
+        names = enabled_trustee_adapter_names()
+        if not names:
             return self.none()
-        granted = path.grant_q(user, permission)
+        try:
+            qs = filter_authorized(self, user, permission, names=names)
+        except AuthorizationConfigError as exc:
+            raise AuthorizationPathError(str(exc)) from exc
         if condition_q is None:
-            return self.filter(granted).distinct()
-        return self.filter(granted & condition_q).distinct()
+            return qs.distinct()
+        return qs.filter(condition_q).distinct()
 
 
 class ContentManager(models.Manager):
@@ -380,7 +392,14 @@ class TrustManager(ContentManager):
             return self.none()
 
         permission = resolve_content_permission(content, perm_name)
-        qs = self.filter(trust_grant_q(user, permission), **kwargs)
+        names = enabled_trustee_adapter_names()
+        if not names:
+            return self.none()
+        base = self.filter(**kwargs) if kwargs else self
+        try:
+            qs = filter_authorized_scope(base, user, permission, names=names)
+        except AuthorizationConfigError as exc:
+            raise AuthorizationPathError(str(exc)) from exc
         if exclude_root and ROOT_PK is not None:
             qs = qs.exclude(pk=ROOT_PK)
         return qs.distinct()
