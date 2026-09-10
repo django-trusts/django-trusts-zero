@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 env:
-  # Paired kernel: public require_configured_terminal companion (#53).
-  COMPANION_KERNEL_SHA: 7db653c0123516454fc7af1f9b32e31bec950d03
+  # Paired kernel: merged #53 on master (public require_configured_terminal).
+  COMPANION_KERNEL_SHA: bfd55e23a9c7706271e3560c0ee1804023f1e69f
 
 jobs:
   pair:
