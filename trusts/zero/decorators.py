@@ -1,15 +1,10 @@
-from functools import wraps
-from urllib.parse import urlparse
 from operator import and_, or_
 
-from django.conf import settings
-from django.contrib.auth import REDIRECT_FIELD_NAME
-from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
-from django.shortcuts import resolve_url
 from django.contrib.contenttypes.models import ContentType
 from django.http import Http404
 
+from trusts.decorators import request_passes_test
 from trusts.zero import utils
 
 
@@ -89,36 +84,6 @@ class G(R):
 
 class O(R):
     pass
-
-
-def request_passes_test(test_func, login_url=None, redirect_field_name=REDIRECT_FIELD_NAME, *args, **kwargs):
-    '''
-    Decorator for views that checks that the user passes the given test,
-    redirecting to the log-in page if necessary. The test should be a callable
-    that takes the user object and returns True if the user passes.
-
-    Adapted from `django/contrib/auth/decorator.py`
-    '''
-
-    def decorator(view_func):
-        @wraps(view_func)
-        def _wrapped_view(request, *args, **kwargs):
-            if test_func(request, *args, **kwargs):
-                return view_func(request, *args, **kwargs)
-
-            path = request.build_absolute_uri()
-            resolved_login_url = resolve_url(login_url or settings.LOGIN_URL)
-            # If the login url is the same scheme and net location then just
-            # use the path as the "next" url.
-            login_scheme, login_netloc = urlparse(resolved_login_url)[:2]
-            current_scheme, current_netloc = urlparse(path)[:2]
-            if ((not login_scheme or login_scheme == current_scheme) and
-                    (not login_netloc or login_netloc == current_netloc)):
-                path = request.get_full_path()
-            return redirect_to_login(
-                path, resolved_login_url, redirect_field_name)
-        return _wrapped_view
-    return decorator
 
 
 def _collect_args(args, fieldlookups):

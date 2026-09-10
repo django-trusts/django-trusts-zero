@@ -18,16 +18,17 @@ administrative ``change`` on every trust that uses the group.
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ValidationError
 from django.db.models import Model
 
+from trusts.path import AuthorizationPathError
+from trusts.runtime import AuthorizationConfigError, AuthorizationDenied
 from trusts.zero import supported_entity_contract, supported_group_contract
-from trusts.zero.query import is_active_principal, trust_grant_q
+from trusts.zero.query import (
+    enabled_trustee_adapter_names,
+    is_active_principal,
+)
 from trusts.zero.models import Trust
-
-
-class AuthorizationDenied(PermissionDenied):
-    """Raised when a mutation is refused. Callers must not write after this."""
 
 
 def content_permission_code(model, action):
@@ -57,6 +58,7 @@ def has_trust_row_perm(user, trust, perm):
     ``has_perm`` when the object itself is a ``Trust``. Create-under-trust
     and trust-row administration use this check.
     """
+    from trusts.runtime import is_scope_authorized
     from trusts.zero.query import require_configured_requester
 
     if user is None or getattr(user, 'is_anonymous', False) or trust is None:
@@ -65,9 +67,13 @@ def has_trust_row_perm(user, trust, perm):
     if not is_active_principal(user):
         return False
     permission = Trust.objects.get_permission(perm) if isinstance(perm, str) else perm
-    return Trust.objects.filter(pk=trust.pk).filter(
-        trust_grant_q(user, permission)
-    ).exists()
+    names = enabled_trustee_adapter_names()
+    if not names:
+        return False
+    try:
+        return is_scope_authorized(user, permission, trust, names=names)
+    except AuthorizationConfigError as exc:
+        raise AuthorizationPathError(str(exc)) from exc
 
 
 def can_administer_trust(user, trust, via_content=None):

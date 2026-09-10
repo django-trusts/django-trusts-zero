@@ -43,6 +43,7 @@ NORMAL_SUITE = [
     'tests.test_packaging',
     'tests.test_smoke',
     'tests.test_s5_leftover_check',
+    'tests.test_issue_3_boundary',
 ]
 
 

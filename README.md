@@ -26,10 +26,10 @@ pip install django-trusts-zero
 Until a 1.x kernel is on PyPI, install the companion kernel first (path, git, or local wheel), then this package **with dependency resolution** (do not `--no-deps`). Coordinated companion:
 
 ```text
-django-trusts PR #46 @ 68bb89c7199539d82868f908e2e8479cda39a85e
+django-trusts kernel S5 @ 4d09045db0094cc40811af87c7783fa8f85acd90
 ```
 
-`requirements.txt` pins that SHA. Published master after [#45](https://github.com/django-trusts/django-trusts/pull/45) (`624daa198d1922a43c775a814a3ff213cf5bd4d7`) is still 1.0.0.dev0 and can satisfy the pin after `scripts/apply-kernel-namespace-overlay.py`, but it is **not** the paired proof.
+`requirements.txt` pins that SHA (S1–S5 runtime / backend / decorators / admin / checks).
 
 [#46](https://github.com/django-trusts/django-trusts/pull/46) adds `KernelConfig` + `pkgutil.extend_path`. Do not assume it has merged. This repository is authoritative for `django-trusts-zero` **2.0.0.dev0**; any retained `packaging/django-trusts-zero/` mirror in the kernel repo must match or `scripts/verify-companion-pair.py` fails.
 
@@ -56,7 +56,7 @@ from trusts.trustee import Trustee
 ## Development
 
 ```text
-export KERNEL_CHECKOUT=/path/to/django-trusts   # PR #46 @ 68bb89c
+export KERNEL_CHECKOUT=/path/to/django-trusts   # S5 @ 4d09045
 python -m pip install -e "$KERNEL_CHECKOUT" --config-settings editable_mode=compat
 python -m pip install -e . --config-settings editable_mode=compat
 python -m tests.runtests
@@ -65,7 +65,7 @@ python scripts/verify-companion-pair.py --kernel "$KERNEL_CHECKOUT"
 
 Default setuptools editable mode turns `trusts` into a PEP 420 namespace (`trusts.__file__ is None`) and hides kernel `trusts/__init__.py`. Use `editable_mode=compat` as above. Wheel+wheel into the same `site-packages/trusts/` tree does not need the flag.
 
-Editable+editable also needs `pkgutil.extend_path` on the kernel package. `scripts/apply-kernel-namespace-overlay.py` inserts it on `624daa1`. Companion #46 @ `68bb89c` already has `extend_path` and no longer vendors `trusts/zero/**`.
+Editable+editable also needs `pkgutil.extend_path` on the kernel package. Kernel S5 already ships `extend_path` and does not vendor `trusts/zero/**`.
 
 ## License
 

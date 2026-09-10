@@ -10,7 +10,7 @@ kernel wheel (``django-trusts>=1.0.0.dev0``). Do not use ``--no-deps``
 for the publishable proof.
 
 Kernel checkout defaults to ``KERNEL_CHECKOUT`` or ``.deps/django-trusts``.
-Primary companion: django-trusts PR #46. Overlay vs ``624daa1`` is extra.
+Primary companion: django-trusts kernel S5.
 """
 
 from __future__ import annotations
