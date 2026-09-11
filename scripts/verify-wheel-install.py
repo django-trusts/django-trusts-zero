@@ -47,6 +47,7 @@ ISOLATED_PROBE = r'''
 import sys
 from pathlib import Path
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 extracted = Path(%r)
 kept = []
@@ -61,10 +62,18 @@ for name in list(sys.modules):
         del sys.modules[name]
 if not settings.configured:
     settings.configure(SECRET_KEY="zero-wheel-isolated")
-from trusts.zero.apps import ZeroConfig
-assert ZeroConfig.name == "trusts.zero"
-assert ZeroConfig.label == "trusts"
-print("zero-wheel-import-ok")
+from trusts.zero import ROOT_PK, ENTITY_MODEL_NAME
+assert ROOT_PK == 1
+assert ENTITY_MODEL_NAME
+try:
+    from trusts.zero import apps as zero_apps
+except ImproperlyConfigured as exc:
+    text = str(exc)
+    assert "1.0.0.dev2" in text, text
+    assert "TrustsImplementationConfig" in text, text
+    print("zero-wheel-import-ok")
+else:
+    raise SystemExit("isolated ZeroConfig import must require Step I core")
 '''
 
 OVERLAY_PROBE = r'''
@@ -96,6 +105,8 @@ def main() -> int:
         raise SystemExit('Zero wheel ships trusts/__init__.py: %s' % init_hits)
     if not any(n.endswith('trusts/zero/apps.py') for n in names):
         raise SystemExit('Zero wheel missing trusts/zero/apps.py')
+    if not any(n.endswith('trusts/zero/backends.py') for n in names):
+        raise SystemExit('Zero wheel missing trusts/zero/backends.py')
     if not any(n.endswith('trusts/zero/migrations/0001_initial.py') for n in names):
         raise SystemExit('Zero wheel missing 0001_initial')
 

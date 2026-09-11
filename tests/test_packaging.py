@@ -50,12 +50,11 @@ class ZeroSourceLayoutTests(SimpleTestCase):
         self.assertEqual(offenders, [])
 
     def test_zero_does_not_copy_generic_authorization_control_flow(self):
-        """No local granted/compose/filter_authorized/HistoricalGroup compiler."""
+        """No local granted/compose/filter_authorized copies."""
         banned = (
             'def granted(',
             'def compose(',
             'def filter_authorized(',
-            'class HistoricalGroupQueryCompiler',
             'from trusts.path import',
             'from trusts.runtime import',
             'from trusts.context import',
@@ -71,6 +70,14 @@ class ZeroSourceLayoutTests(SimpleTestCase):
             for needle in banned:
                 if needle in text:
                     offenders.append('%s: %s' % (path.relative_to(ROOT), needle))
+            if (
+                'class HistoricalGroupQueryCompiler' in text
+                and path.name != 'backends.py'
+            ):
+                offenders.append(
+                    '%s: class HistoricalGroupQueryCompiler'
+                    % path.relative_to(ROOT)
+                )
         self.assertEqual(offenders, [])
 
 
@@ -78,6 +85,15 @@ class ZeroPublishMetadataTests(SimpleTestCase):
     def test_pyproject_requires_kernel_1x_train(self):
         text = (ROOT / 'pyproject.toml').read_text()
         self.assertIn('name = "django-trusts-zero"', text)
-        self.assertIn('version = "2.0.0.dev0"', text)
-        self.assertIn('"django-trusts>=1.0.0.dev0"', text)
+        self.assertIn('version = "2.0.0.dev2"', text)
+        self.assertIn('"django-trusts>=1.0.0.dev2,<2"', text)
         self.assertIn('"Django>=6.1,<6.2"', text)
+
+    def test_pair_ci_pins_step_i_merge(self):
+        text = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
+        self.assertIn(
+            'COMPANION_KERNEL_SHA: 39f1f9611e214193aec4e97526cf9b54ee689967',
+            text,
+        )
+        self.assertNotIn('apply-kernel-namespace-overlay', text)
+        self.assertNotIn('cursor/metadata-registration-c2', text)

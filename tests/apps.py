@@ -1,7 +1,7 @@
 from django.apps import AppConfig
 
-from trusts.core import Ref
-from trusts.apps import kernel_config
+from trusts.core import Ref, TrustsConfigurationError
+from trusts.zero.apps import CANONICAL_BACKEND
 
 
 class TestsConfig(AppConfig):
@@ -12,12 +12,15 @@ class TestsConfig(AppConfig):
     def ready(self):
         if getattr(self, 'apps', None) is None:
             return
+        from trusts.apps import implementation_for_path
+
         try:
-            kernel_config()
-        except LookupError:
+            owner = implementation_for_path(
+                CANONICAL_BACKEND, apps_registry=self.apps,
+            )
+        except TrustsConfigurationError:
             return
         if not self.apps.is_installed('trusts.zero'):
-            # ZeroConfig.name is trusts.zero; label is trusts.
             if not any(
                 type(cfg).__name__ == 'ZeroConfig'
                 for cfg in self.apps.get_app_configs()
@@ -27,7 +30,7 @@ class TestsConfig(AppConfig):
         from tests.models import Category, Ticket
         from trusts.zero.models import TrustUserPermission
 
-        registry = kernel_config().configured_backend().registry
+        registry = owner.configured_backend(CANONICAL_BACKEND).registry
         donated = getattr(self, '_zero_host_registry_id', None)
         if donated is registry:
             return

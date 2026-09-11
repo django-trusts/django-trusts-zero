@@ -1,70 +1,27 @@
-"""Neg-Z1-C1: installing ZeroConfig next to unpatched C1 is duplicate-label."""
+"""Startup-gate tests for Zero IIa.
 
-import os
-import subprocess
-import sys
-from pathlib import Path
+C1's duplicate-label clash is obsolete: Step I core already uses
+``label='trusts_core'``, so installing ``ZeroConfig`` (``label='trusts'``)
+does not collide. IIa's remaining startup gate is the old core backend
+path, which must fail rather than act as an alias.
+"""
 
-from django.test import SimpleTestCase
+from __future__ import annotations
 
-
-ROOT = Path(__file__).resolve().parents[1]
-KERNEL = Path(os.environ.get('KERNEL_CHECKOUT', ROOT / '.deps' / 'django-trusts')).resolve()
-
-
-PROBE = r'''
-import os, sys
-from pathlib import Path
-root = Path(%r).resolve()
-kernel = Path(%r).resolve()
-sys.path.insert(0, str(kernel))
-sys.path.append(str(root))
-os.environ["TRUSTS_ZERO_SKIP_C2_SHAPE"] = "1"
-from django.conf import settings
-settings.configure(
-    SECRET_KEY="neg-z1-c1",
-    USE_TZ=True,
-    DEFAULT_AUTO_FIELD="django.db.models.AutoField",
-    INSTALLED_APPS=[
-        "django.contrib.contenttypes",
-        "django.contrib.auth",
-        "trusts",
-        "trusts.zero.apps.ZeroConfig",
-    ],
-    DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
-)
-import django
+from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
-try:
-    django.setup()
-except ImproperlyConfigured as exc:
-    text = str(exc)
-    if "trusts" in text.lower() or "label" in text.lower() or "duplicate" in text.lower():
-        print("duplicate-label-gate", text)
-        raise SystemExit(0)
-    print("wrong ImproperlyConfigured", text)
-    raise SystemExit(2)
-print("populate-succeeded")
-raise SystemExit(1)
-'''
+from django.test import SimpleTestCase, override_settings
+
+from trusts.zero.apps import CANONICAL_BACKEND, LEGACY_CORE_BACKEND, ZeroConfig
 
 
-class DuplicateLabelGateTests(SimpleTestCase):
-    def test_c1_plus_zeroconfig_raises_improperly_configured(self):
-        env = os.environ.copy()
-        env['TRUSTS_ZERO_SKIP_C2_SHAPE'] = '1'
-        env.pop('DJANGO_SETTINGS_MODULE', None)
-        result = subprocess.run(
-            [sys.executable, '-c', PROBE % (str(ROOT), str(KERNEL))],
-            cwd=str(ROOT),
-            env=env,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(
-            result.returncode, 0,
-            'neg-Z1-C1 gate failed:\nstdout=%s\nstderr=%s' % (
-                result.stdout, result.stderr,
-            ),
-        )
-        self.assertIn('duplicate-label-gate', result.stdout)
+class OldBackendPathStartupTests(SimpleTestCase):
+    def test_legacy_core_backend_path_is_rejected(self):
+        config = apps.get_app_config('trusts')
+        with override_settings(AUTHENTICATION_BACKENDS=[LEGACY_CORE_BACKEND]):
+            with self.assertRaises(ImproperlyConfigured) as ctx:
+                ZeroConfig.ready(config)
+        message = str(ctx.exception)
+        self.assertIn(CANONICAL_BACKEND, message)
+        self.assertIn(LEGACY_CORE_BACKEND, message)
+        self.assertNotIn('duplicate', message.lower())
