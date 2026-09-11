@@ -1,21 +1,24 @@
 # django-trusts-zero
 
-Concrete Django authorization models and compatibility behavior carried
-forward from django-trusts 0.x, packaged as an optional implementation of
-the django-trusts relational authorization kernel. Unrelated to Zero Trust
-network architecture.
+`django-trusts-zero` is the concrete continuation of django-trusts 0.x.
+Use it when you want the historical Trust/Content models, stored
+identities, and migration path from that line.
 
-## IIa status
+The package name refers to this 0.x continuation. It is unrelated to
+Zero Trust networking.
 
-This tree is `django-trusts-zero==2.0.0.dev2` against merged core Step I
-`django-trusts==1.0.0.dev2`
-([django-trusts#109](https://github.com/django-trusts/django-trusts/pull/109)
-merge `39f1f9611e214193aec4e97526cf9b54ee689967`).
+## Install
 
-`trusts.zero.apps.ZeroConfig` is the implementation owner. Core is a
-Python dependency only: do **not** list `'trusts'` in `INSTALLED_APPS`.
+```bash
+pip install django-trusts-zero
+```
 
-Canonical imports and settings:
+`django-trusts` arrives automatically as a dependency. Do **not** add `'trusts'` to `INSTALLED_APPS`. Core is a Python library, not a Django app.
+
+## Configure
+
+These imports and settings match the project's verified test
+configuration:
 
 ```python
 from trusts.zero.models import Trust, Content, Junction, TrustUserPermission
@@ -32,10 +35,56 @@ AUTHENTICATION_BACKENDS = (
 )
 ```
 
-`Requires-Dist`: `django-trusts>=1.0.0.dev2,<2`.
+`ZeroConfig` keeps the historical Django app label `trusts`. Existing
+databases keep migration keys `0001_initial` and `0002_trustgroup`,
+plus the same tables, content types, and permissions.
 
-The old settings path `'trusts.backends.TrustModelBackend'` fails at
-startup with `ImproperlyConfigured`. Persisted Django app label, migration
-keys, tables, ContentTypes, and permissions stay `trusts`.
+## Models
 
-See `docs/source/index.rst` and `migrates.md`.
+- `Trust` — organization/scope tree, including the self-referential root
+- `Content` — abstract mixin for rows protected by a Trust
+- `Junction` — optional through-model when content is not itself a Trust
+- `TrustUserPermission`, `TrustGroup`, `TrustGroupPermission`, `Role` —
+  stored grants
+
+Object checks use Django's `user.has_perm(...)`. List filtering uses
+the historical codec:
+
+```python
+from trusts.zero.models import Trust
+
+Trust.objects.permitted('change', request.user)
+```
+
+That call is exercised by the project's smoke and codec tests.
+
+## Supported versions
+
+- Python 3.12, 3.13, and 3.14
+- Django 6.1
+- django-trusts 1.x, installed as a dependency
+
+## Known limitations
+
+- Callable permission conditions stay object-only. Queryset APIs
+  (`permitted`, `filter_by_user_content_perm`) refuse them so they
+  cannot silently over-grant.
+- `TRUSTS_GROUP_MODEL` and `TRUSTS_PERMISSION_MODEL` no longer swap
+  field targets.
+- Convenience writers such as `Content.grant` and
+  `Trust.associate_group` are gone. Create or delete
+  `TrustUserPermission` / `TrustGroupPermission` rows (and
+  `Trust.groups`) directly.
+- This is a development release of the 0.x continuation, not a
+  declared stable 1.0.
+
+## Migration and API
+
+- [migrates.md](migrates.md) — 0.x to `django-trusts-zero` checklist
+- [docs/source/index.rst](docs/source/index.rst) — API notes
+- [django-trusts](https://github.com/django-trusts/django-trusts) — core library
+- [Issues](https://github.com/django-trusts/django-trusts-zero/issues)
+
+Contributor and build history lives in [DEV.md](DEV.md).
+
+Licensed under the BSD 2-Clause License. Copyright BeeDesk, Inc.

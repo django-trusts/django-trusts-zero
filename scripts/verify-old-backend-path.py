@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""IIa: old core backend path must fail startup with ImproperlyConfigured."""
+"""Old core backend path must fail startup with ImproperlyConfigured."""
 
 from __future__ import annotations
 

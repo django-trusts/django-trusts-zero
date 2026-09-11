@@ -4,13 +4,12 @@ from django.core.exceptions import ImproperlyConfigured
 
 CANONICAL_BACKEND_PATH = 'trusts.zero.backends.TrustModelBackend'
 DEPRECATED_CORE_BACKEND_PATH = 'trusts.backends.TrustModelBackend'
-CORE_REQUIREMENT = 'django-trusts>=1.0.0.dev2,<2'
+CORE_REQUIREMENT = 'django-trusts>=1.0.0.dev3,<2'
 FLOOR_MESSAGE = (
-    'django-trusts-zero 2.0.0.dev2 requires %s '
+    'django-trusts-zero 1.0.0.dev0 requires %s '
     '(TrustsImplementationConfig and implementation_for_path / '
     'implementation_for_class). The installed django-trusts is below '
-    'the Step I floor. Upgrade django-trusts to 1.0.0.dev2 or later, '
-    'or stay on django-trusts-zero 2.0.0.dev0 / 2.0.0.dev1.'
+    'the supported core floor. Upgrade django-trusts to 1.0.0.dev3 or later.'
     % CORE_REQUIREMENT
 )
 
