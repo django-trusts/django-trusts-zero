@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "django-trusts-zero"
-version = "2.0.0.dev2"
+version = "1.0.0.dev0"
 description = "Concrete Django authorization models carried forward from django-trusts 0.x (unrelated to Zero Trust network architecture)"
 readme = "README.md"
 license = "BSD-2-Clause"
@@ -13,7 +13,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "django-trusts>=1.0.0.dev2,<2",
+    "django-trusts>=1.0.0.dev3,<2",
     "Django>=6.1,<6.2",
 ]
 classifiers = [
@@ -40,7 +40,7 @@ Homepage = "https://github.com/django-trusts/django-trusts-zero"
 Repository = "https://github.com/django-trusts/django-trusts-zero"
 Issues = "https://github.com/django-trusts/django-trusts-zero/issues"
 Kernel = "https://github.com/django-trusts/django-trusts"
-"Issue 9" = "https://github.com/django-trusts/django-trusts-zero/issues/9"
+"Issue 12" = "https://github.com/django-trusts/django-trusts-zero/issues/12"
 
 [project.optional-dependencies]
 test = [
@@ -48,10 +48,10 @@ test = [
     "virtualenv",
 ]
 
-# django-trusts>=1.0.0.dev2,<2 is required (Step I owner API floor). Unpinned
-# "django-trusts" resolves to PyPI 0.10.x. A git Requires-Dist would
-# replace a local companion wheel. Pair CI proves resolution from a
-# local --no-index --find-links wheelhouse (kernel + Zero wheels).
+# django-trusts>=1.0.0.dev3,<2 is required (final core-library floor).
+# Unpinned "django-trusts" resolves to PyPI 0.10.x. A git Requires-Dist
+# would replace a local companion wheel. Pair CI proves resolution from
+# a local --no-index --find-links wheelhouse (kernel + Zero wheels).
 # Explicit package list: this tree has no trusts/__init__.py (kernel-owned),
 # so setuptools find without namespaces would ship an empty wheel.
 [tool.setuptools]

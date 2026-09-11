@@ -85,16 +85,16 @@ class ZeroSourceLayoutTests(SimpleTestCase):
 
 
 class ZeroPublishMetadataTests(SimpleTestCase):
-    def test_pyproject_requires_step_i_floor(self):
+    def test_pyproject_requires_core_dev3_floor(self):
         text = (ROOT / 'pyproject.toml').read_text()
         self.assertIn('name = "django-trusts-zero"', text)
-        self.assertIn('version = "2.0.0.dev2"', text)
-        self.assertIn('"django-trusts>=1.0.0.dev2,<2"', text)
+        self.assertIn('version = "1.0.0.dev0"', text)
+        self.assertIn('"django-trusts>=1.0.0.dev3,<2"', text)
         self.assertIn('"Django>=6.1,<6.2"', text)
         req = (ROOT / 'requirements.txt').read_text()
-        self.assertIn('39f1f9611e214193aec4e97526cf9b54ee689967', req)
+        self.assertIn('11058641b533e0f8489598e0b1f5cbe5d42a81db', req)
         ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
         self.assertIn(
-            'COMPANION_KERNEL_SHA: 39f1f9611e214193aec4e97526cf9b54ee689967',
+            'COMPANION_KERNEL_SHA: 11058641b533e0f8489598e0b1f5cbe5d42a81db',
             ci,
         )
