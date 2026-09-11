@@ -98,9 +98,46 @@ def main() -> int:
         raise SystemExit('Zero wheel missing trusts/zero/apps.py')
     if not any(n.endswith('trusts/zero/backends.py') for n in names):
         raise SystemExit('Zero wheel missing trusts/zero/backends.py')
-    if not any('django_trusts_zero-2.0.0.dev2' in n for n in names):
-        if 'django_trusts_zero-2.0.0.dev2' not in wheel.name:
-            raise SystemExit('Zero wheel is not 2.0.0.dev2: %s' % wheel.name)
+    if not any('django_trusts_zero-1.0.0.dev0' in n for n in names):
+        if 'django_trusts_zero-1.0.0.dev0' not in wheel.name:
+            raise SystemExit('Zero wheel is not 1.0.0.dev0: %s' % wheel.name)
+    metadata = next(
+        (n for n in names if n.endswith('.dist-info/METADATA')),
+        None,
+    )
+    if metadata is None:
+        raise SystemExit('Zero wheel missing METADATA')
+    with zipfile.ZipFile(wheel) as zf:
+        meta = zf.read(metadata).decode('utf-8')
+    if 'Name: django-trusts-zero' not in meta:
+        raise SystemExit('wheel METADATA missing Name: django-trusts-zero')
+    if 'Version: 1.0.0.dev0' not in meta:
+        raise SystemExit('wheel METADATA is not Version: 1.0.0.dev0')
+    if 'Requires-Dist: django-trusts<2,>=1.0.0.dev3' not in meta and (
+        'Requires-Dist: django-trusts>=1.0.0.dev3,<2' not in meta
+    ):
+        raise SystemExit('wheel METADATA missing core floor django-trusts>=1.0.0.dev3,<2')
+    sdists = sorted((ROOT / 'dist').glob('django_trusts_zero-1.0.0.dev0.tar.gz'))
+    if sdists:
+        import tarfile
+
+        with tarfile.open(sdists[-1]) as tf:
+            pkg = next(
+                (
+                    m for m in tf.getmembers()
+                    if m.name.endswith('PKG-INFO')
+                ),
+                None,
+            )
+            if pkg is None:
+                raise SystemExit('sdist missing PKG-INFO')
+            info = tf.extractfile(pkg).read().decode('utf-8')
+        if 'Version: 1.0.0.dev0' not in info:
+            raise SystemExit('sdist PKG-INFO is not Version: 1.0.0.dev0')
+        if 'Requires-Dist: django-trusts<2,>=1.0.0.dev3' not in info and (
+            'Requires-Dist: django-trusts>=1.0.0.dev3,<2' not in info
+        ):
+            raise SystemExit('sdist PKG-INFO missing core floor')
     if not any(n.endswith('trusts/zero/migrations/0001_initial.py') for n in names):
         raise SystemExit('Zero wheel missing 0001_initial')
 
