@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fresh Zero install on the C2-shaped C1 pair: migrate, identity, --check."""
+"""Fresh Zero IIa install on Step I core: no kernel AppConfig, identity, --check."""
 
 from __future__ import annotations
 
@@ -54,7 +54,6 @@ CONTENT_TYPE_KEYS = (
 
 def configure(db_path: Path) -> None:
     from django.conf import settings
-    import importlib.util
 
     if settings.configured:
         raise SystemExit('Django already configured')
@@ -68,14 +67,12 @@ def configure(db_path: Path) -> None:
             'django.contrib.auth',
             'django.contrib.sessions',
             'django.contrib.admin',
-            'trusts',
             'trusts.zero.apps.ZeroConfig',
         ],
         AUTHENTICATION_BACKENDS=[
             'django.contrib.auth.backends.ModelBackend',
-            'trusts.backends.TrustModelBackend',
+            'trusts.zero.backends.TrustModelBackend',
         ],
-        MIGRATION_MODULES={'trusts_core': None},
         DATABASES={
             'default': {
                 'ENGINE': 'django.db.backends.sqlite3',
@@ -83,13 +80,6 @@ def configure(db_path: Path) -> None:
             }
         },
     )
-    spec = importlib.util.spec_from_file_location(
-        'zero_c2_shape', ROOT / 'tests' / 'c2_shape.py',
-    )
-    shape = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(shape)
-    shape.apply()
-    configure._shape = shape
 
 
 def _applied_trusts(connection) -> set[str]:
@@ -122,7 +112,6 @@ def main() -> int:
         from io import StringIO
 
         django.setup()
-        configure._shape.patch_runtime()
         call_command('migrate', verbosity=0, interactive=False)
 
         applied = _applied_trusts(connection)
@@ -141,12 +130,30 @@ def main() -> int:
         from trusts.zero.models import Trust
         from django.contrib.contenttypes.models import ContentType
         from django.apps import apps as django_apps
-        from trusts.apps import kernel_config
+        from trusts.apps import AppConfig as KernelAppConfig
+        from trusts.apps import implementation_configs, kernel_config
+        from trusts.zero.apps import ZeroConfig, zero_config
 
-        if django_apps.get_app_config('trusts').name != 'trusts.zero':
+        config = django_apps.get_app_config('trusts')
+        if type(config) is not ZeroConfig:
             raise SystemExit('get_app_config("trusts") is not ZeroConfig')
-        if kernel_config().label != 'trusts_core':
-            raise SystemExit('kernel_config().label is not trusts_core under C2 shape')
+        if config.name != 'trusts.zero' or config.label != 'trusts':
+            raise SystemExit('ZeroConfig identity drifted')
+        owners = implementation_configs()
+        if owners != (zero_config(),) or len(owners) != 1:
+            raise SystemExit('expected exactly one implementation owner, got %r' % (owners,))
+        kernelish = [
+            row for row in django_apps.get_app_configs()
+            if type(row) is KernelAppConfig
+        ]
+        if kernelish:
+            raise SystemExit('core AppConfig is installed: %r' % (kernelish,))
+        try:
+            kernel_config()
+        except LookupError:
+            pass
+        else:
+            raise SystemExit('kernel_config() succeeded without a core AppConfig')
 
         root = Trust.objects.get(pk=1)
         if root.trust_id != root.pk:
@@ -201,6 +208,7 @@ def main() -> int:
         print('root', root.pk, root.title)
         print('makemigrations --check quiet')
         print('already-current migrate --plan empty')
+        print('no core AppConfig; one ZeroConfig owner')
     return 0
 
 

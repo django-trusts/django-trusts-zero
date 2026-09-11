@@ -1,6 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import signals, Q, options
+from django.db.models import Model, signals, Q, options
 from django.conf import settings as django_settings
 from django.utils.translation import gettext_lazy as _
 
@@ -185,7 +185,8 @@ def django_permission_filter(qs, perm, user):
     """Zero Django-permission codec over ``AuthorizedQuerySet.authorized``.
 
     Does not OR handles, does not call ``granted`` / ``Exists`` /
-    ``.distinct()`` itself. Core owns that control flow.
+    ``.distinct()`` itself. ``ContentQuerySet.authorized`` sequences
+    Zero-owned handles.
     """
     condition_q = None
     if permission_has_condition(perm):
@@ -251,8 +252,9 @@ def register_zero_relations(registry):
     try:
         register_zero_group(registry, (Trust,))
     except TrustsConfigurationError:
-        # C1 public grammar cannot express TGP yet. Do not copy a
-        # private group compiler into Zero.
+        # Public register() grammar cannot express TGP user membership
+        # yet. Group list/object grants continue through Zero's
+        # HistoricalGroupQueryCompiler. Do not call kernel_config().
         pass
     registry._zero_z1_relation_ids = registry
 
@@ -272,11 +274,12 @@ def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kw
     Trust manager model (``add_trust``).
 
     When TGP records exist, the generic prefix projection is the whole
-    create-under-Trust filter. On C1, TGP cannot register, so group
-    parity uses the still-public C1 ``trust_grant_q`` (not copied).
+    create-under-Trust filter. When TGP cannot register, group parity
+    uses the public ``trust_grant_q`` (not copied). Handles come from
+    ``ZeroConfig``, never ``kernel_config()``.
     """
-    from trusts.apps import kernel_config
     from trusts.query import trust_grant_q
+    from trusts.zero.apps import zero_config
 
     reject_queryable_condition(
         perm_name, 'Trust.objects.filter_by_user_content_perm'
@@ -287,7 +290,7 @@ def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kw
         return manager.none()
     if not isinstance(content, type):
         content = content.__class__
-    handles = kernel_config().configured_handles()
+    handles = zero_config().configured_handles()
     if not any_plan_records(handles, content):
         return manager.none()
     content = getattr(content._meta, 'concrete_model', content)
@@ -322,10 +325,34 @@ class ContentQuerySet(AuthorizedQuerySet):
         over-grant.
 
         The entire Zero list algorithm is the Django-permission codec
-        ``django_permission_filter``; core ``.authorized`` sequences the
-        plan.
+        ``django_permission_filter``; ``.authorized`` sequences the
+        plan through Zero-owned handles.
         """
         return django_permission_filter(self, perm, user)
+
+    def authorized(self, user, permission, extra_q=None):
+        """Sequence grants on Zero's owner handles, not ``kernel_config()``.
+
+        Core ``AuthorizedQuerySet.authorized`` still consults the
+        transitional kernel store. IIa list execution must resolve
+        through ``ZeroConfig``.
+        """
+        from trusts.core import TrustsConfigurationError, granted
+        from trusts.zero.apps import zero_config
+
+        if not isinstance(permission, Model):
+            raise TrustsConfigurationError(
+                'permission must be a model instance, not %r.' % (permission,)
+            )
+        granted_q = granted(
+            zero_config().configured_handles(),
+            self, user, permission, kind='complete',
+        )
+        if granted_q is None:
+            return self.none()
+        if extra_q is not None:
+            granted_q = granted_q & extra_q
+        return self.filter(granted_q).distinct()
 
 
 class ContentManager(models.Manager.from_queryset(ContentQuerySet)):

@@ -1,10 +1,18 @@
-"""Zero AppConfig identity after C2-shape / real C2 pairing."""
+"""Zero AppConfig identity after Step IIa (no installed core AppConfig)."""
 
 from django.apps import apps
 from django.test import SimpleTestCase
 
-from trusts.apps import AppConfig as KernelAppConfig, kernel_config
-from trusts.zero.apps import ZeroConfig
+from trusts.apps import (
+    AppConfig as KernelAppConfig,
+    TrustsImplementationConfig,
+    implementation_configs,
+    implementation_for_class,
+    implementation_for_path,
+    kernel_config,
+)
+from trusts.zero.apps import CANONICAL_BACKEND_PATH, ZeroConfig, zero_config
+from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust
 
 
@@ -19,12 +27,32 @@ class ZeroAppConfigTests(SimpleTestCase):
             'django.db.models.AutoField',
         )
 
-    def test_kernel_config_is_class_identity_not_zero(self):
-        config = kernel_config()
-        self.assertIs(type(config), KernelAppConfig)
-        self.assertEqual(config.name, 'trusts')
-        self.assertEqual(config.label, 'trusts_core')
-        self.assertIsNot(config, apps.get_app_config('trusts'))
+    def test_zero_config_is_the_implementation_owner(self):
+        self.assertTrue(issubclass(ZeroConfig, TrustsImplementationConfig))
+        self.assertFalse(issubclass(KernelAppConfig, TrustsImplementationConfig))
+        owners = implementation_configs()
+        self.assertEqual(len(owners), 1)
+        self.assertIs(owners[0], zero_config())
+        self.assertIs(owners[0], apps.get_app_config('trusts'))
+        self.assertEqual(
+            owners[0].trusts_backend_paths, (CANONICAL_BACKEND_PATH,),
+        )
+        self.assertIs(
+            implementation_for_path(CANONICAL_BACKEND_PATH), owners[0],
+        )
+        self.assertIs(
+            implementation_for_class(TrustModelBackend), owners[0],
+        )
+
+    def test_no_installed_core_appconfig(self):
+        kernelish = [
+            config for config in apps.get_app_configs()
+            if type(config) is KernelAppConfig
+        ]
+        self.assertEqual(kernelish, [])
+        with self.assertRaises(LookupError) as ctx:
+            kernel_config()
+        self.assertIn('No installed Trusts kernel AppConfig', str(ctx.exception))
 
     def test_exactly_one_trust_model_under_historical_label(self):
         trusts = [m for m in apps.get_models() if m.__name__ == 'Trust']

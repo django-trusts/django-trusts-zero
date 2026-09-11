@@ -18,14 +18,13 @@ INSTALLED_APPS = (
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'trusts',
     'trusts.zero.apps.ZeroConfig',
     'tests.apps.TestsConfig',
 )
 
 AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend',
-    'trusts.backends.TrustModelBackend',
+    'trusts.zero.backends.TrustModelBackend',
 )
 
 MIDDLEWARE = (
@@ -59,9 +58,3 @@ DATABASES = {
 }
 
 ROOT_URLCONF = 'tests.urls'
-
-# C2-shape: kernel label is trusts_core. Hide leftover C1 migrations so
-# only ZeroConfig (label=trusts) owns trusts.0001_initial / 0002_trustgroup.
-MIGRATION_MODULES = {
-    'trusts_core': None,
-}
