@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # Merged C1 APIs (django-trusts#95 merge). Z1 must not merge alone against C1.
+  COMPANION_KERNEL_SHA: ffb02364a45f3a4bc2b9a3973de3612c37d785e9
+  # Optional future C2 branch/SHA. Empty means Z1-alone (C2-shape emulation).
+  COMPANION_C2_REF: ${{ vars.COMPANION_C2_REF || '' }}
+
+jobs:
+  tests:
+    name: tests vs C1 APIs (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: django-trusts/django-trusts
+        ref: ${{ env.COMPANION_KERNEL_SHA }}
+        path: .deps/django-trusts
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install C1 kernel then Zero
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install "Django>=6.1,<6.2" coverage virtualenv
+        python scripts/apply-kernel-namespace-overlay.py .deps/django-trusts
+        python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
+        python -m pip install -e . --config-settings editable_mode=compat
+    - name: Zero tests (C2-shape against C1 APIs)
+      run: coverage run -m tests.runtests && coverage report
+    - name: Fresh install + makemigrations --check
+      run: python scripts/verify-fresh-install.py
+    - name: Duplicate-label negative gate
+      run: python scripts/verify-neg-duplicate-label.py
+
+  pair-c2:
+    name: pair with future C2 branch
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Resolve C2 companion (skip when absent)
+      id: c2
+      run: |
+        REF="${COMPANION_C2_REF}"
+        if [ -z "$REF" ]; then
+          REF="$(git ls-remote --heads https://github.com/django-trusts/django-trusts.git 'cursor/metadata-registration-c2-*' | awk '{print $1}' | head -1)"
+        fi
+        if [ -z "$REF" ]; then
+          echo "present=false" >> "$GITHUB_OUTPUT"
+          echo "No C2 branch yet; Z1-alone is expected until paired C2."
+        else
+          echo "present=true" >> "$GITHUB_OUTPUT"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+        fi
+    - uses: actions/checkout@v4
+      if: steps.c2.outputs.present == 'true'
+      with:
+        repository: django-trusts/django-trusts
+        ref: ${{ steps.c2.outputs.ref }}
+        path: .deps/django-trusts
+    - name: Matrix B on real C2
+      if: steps.c2.outputs.present == 'true'
+      env:
+        TRUSTS_ZERO_SKIP_C2_SHAPE: "1"
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install "Django>=6.1,<6.2" coverage
+        python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
+        python -m pip install -e . --config-settings editable_mode=compat
+        coverage run -m tests.runtests
+        python scripts/verify-fresh-install.py
+    - name: Record skip
+      if: steps.c2.outputs.present != 'true'
+      run: echo "pair-c2 skipped; merge of Z1 still requires a later C2 pair."
+
+  package:
+    name: package / wheel
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: django-trusts/django-trusts
+        ref: ${{ env.COMPANION_KERNEL_SHA }}
+        path: .deps/django-trusts
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Build sdist and wheel
+      run: |
+        python -m pip install --upgrade pip build twine
+        python -m build
+        twine check dist/*
+    - name: Wheel RECORD isolation + import
+      run: python scripts/verify-wheel-install.py
