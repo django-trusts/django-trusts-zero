@@ -3,13 +3,12 @@
 from django.apps import apps
 from django.test import SimpleTestCase
 
+import trusts.apps as trusts_apps
 from trusts.apps import (
-    AppConfig as KernelAppConfig,
     TrustsImplementationConfig,
     implementation_configs,
     implementation_for_class,
     implementation_for_path,
-    kernel_config,
 )
 from trusts.zero.apps import CANONICAL_BACKEND_PATH, ZeroConfig, zero_config
 from trusts.zero.backends import TrustModelBackend
@@ -29,7 +28,8 @@ class ZeroAppConfigTests(SimpleTestCase):
 
     def test_zero_config_is_the_implementation_owner(self):
         self.assertTrue(issubclass(ZeroConfig, TrustsImplementationConfig))
-        self.assertFalse(issubclass(KernelAppConfig, TrustsImplementationConfig))
+        self.assertFalse(hasattr(trusts_apps, 'AppConfig'))
+        self.assertFalse(hasattr(trusts_apps, 'kernel_config'))
         owners = implementation_configs()
         self.assertEqual(len(owners), 1)
         self.assertIs(owners[0], zero_config())
@@ -45,14 +45,14 @@ class ZeroAppConfigTests(SimpleTestCase):
         )
 
     def test_no_installed_core_appconfig(self):
-        kernelish = [
-            config for config in apps.get_app_configs()
-            if type(config) is KernelAppConfig
-        ]
-        self.assertEqual(kernelish, [])
-        with self.assertRaises(LookupError) as ctx:
-            kernel_config()
-        self.assertIn('No installed Trusts kernel AppConfig', str(ctx.exception))
+        labels = {config.label for config in apps.get_app_configs()}
+        names = {config.name for config in apps.get_app_configs()}
+        self.assertNotIn('trusts_core', labels)
+        self.assertNotIn('trusts', names)
+        self.assertFalse(hasattr(trusts_apps, 'AppConfig'))
+        self.assertFalse(hasattr(trusts_apps, 'kernel_config'))
+        with self.assertRaises(LookupError):
+            apps.get_app_config('trusts_core')
 
     def test_exactly_one_trust_model_under_historical_label(self):
         trusts = [m for m in apps.get_models() if m.__name__ == 'Trust']
