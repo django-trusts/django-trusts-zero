@@ -1,7 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Model, signals, Q, options
-from django.conf import settings as django_settings
+from django.db.models import Model, Q, options
 from django.utils.translation import gettext_lazy as _
 
 from trusts.zero import (
@@ -12,18 +11,15 @@ from trusts.zero import (
 )
 from trusts import utils
 from trusts.core import (
-    ConditionLookup,
     TrustsConfigurationError,
     any_plan_records,
     filter_authorized_scopes,
 )
 from trusts.query import AuthorizedQuerySet, is_active_principal
 from trusts.conditions import (
-    Expr,
-    PermissionConditionError,
+    PermissionConditionNotQueryable,
     condition_refs,
-    compile_expression_q,
-    is_predicate,
+    permission_has_condition,
 )
 
 
@@ -31,21 +27,6 @@ options.DEFAULT_NAMES += ('roles', 'permission_conditions',
                           'content_roles', 'content_permission_conditions',
                           'auto_modeladmin',
     )
-
-
-class PermissionConditionNotQueryable(ValueError):
-    """Raised when a SQL list/create filter cannot compile a ``:condition``.
-
-    Only a registered ``Expr`` compiles into the tree ``has_perm``
-    evaluates. Callables stay object-only: ``permitted`` and
-    ``filter_by_user_content_perm`` refuse them so they cannot silently
-    over-grant the underlying permission.
-    """
-
-
-def permission_has_condition(perm):
-    """True when ``perm`` is a string with a ``:condition`` suffix."""
-    return isinstance(perm, str) and ':' in perm
 
 
 def reject_queryable_condition(perm, api_name):
@@ -59,74 +40,20 @@ def reject_queryable_condition(perm, api_name):
         )
 
 
-def _condition_code(perm):
-    if not isinstance(perm, str) or ':' not in perm:
-        return ''
-    if '.' in perm:
-        try:
-            return utils.parse_perm_code(perm)[3]
-        except ValueError:
-            pass
-    return perm.split(':', 1)[1]
-
-
-def legacy_permission_callbacks_allowed():
-    """True only when ``TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS`` is set.
-
-    Read at call time so ``override_settings`` works. Missing or False
-    means registered callables are a system-check error and runtime
-    fail-closed (the callback is never invoked).
-    """
-    return bool(getattr(
-        django_settings, 'TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS', False
-    ))
-
-
-class _ConditionRecord(object):
-    """Registered condition: an ``Expr`` tree or a legacy callable.
-
-    ``model`` is retained so a ``class_prepared`` registration can be
-    validated by the system check after all apps have loaded.
-    """
-
-    __slots__ = ('expr', 'func', 'model')
-
-    def __init__(self, expr=None, func=None, model=None):
-        self.expr = expr
-        self.func = func
-        self.model = model
-
-
 _u, _p, _o = condition_refs()
 
 
 def compile_registered_condition_q(model, perm, user):
-    """Compile a ``:condition`` suffix to ``Q``, or raise fail-closed.
+    """Compile a ``:condition`` suffix via the configured Zero handle.
 
-    Unregistered codes raise ``AttributeError`` (same as ``has_perm``).
-    Callables raise ``PermissionConditionNotQueryable`` without being
-    invoked. Registered ``Expr`` trees that are not valid V1 fail closed.
+    Records live on that handle's core registry. Unregistered codes
+    raise ``AttributeError`` (same as ``has_perm``). Callables raise
+    ``PermissionConditionNotQueryable`` without being invoked.
     """
-    cond = _condition_code(perm)
-    record = Content.get_permission_condition_record(model, cond)
-    if record is None:
-        raise AttributeError(
-            'Permission condition code "%s" is not associate with model "%s_%s"' % (
-                cond, model._meta.app_label, model._meta.model_name
-            )
-        )
-    if record.expr is None:
-        raise PermissionConditionNotQueryable(
-            'ContentQuerySet.permitted does not support permission '
-            'condition %r on %s. Register an Expr from condition_refs() '
-            'to compile a V1 declarative expression. Callables remain '
-            'object-only via has_perm; this queryset API refuses them so '
-            'the underlying grant cannot be returned without the '
-            'condition.' % (perm, model._meta.label)
-        )
-    return compile_expression_q(
-        record.expr, model, user, perm.split(':', 1)[0]
-    )
+    from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
+
+    registry = zero_config().configured_backend(CANONICAL_BACKEND_PATH).registry
+    return registry.compile_registered_condition_q(model, perm, user)
 
 
 def resolve_content_permission(model, perm):
@@ -169,16 +96,6 @@ def resolve_content_permission(model, perm):
         content_type__app_label=app_label.lower(),
         content_type__model=model_name,
     )
-
-
-class ContentConditionLookup(ConditionLookup):
-    """Zero-owned ``:condition`` overlay bound from ``ZeroConfig.ready()``."""
-
-    def record_for(self, model, cond_code):
-        return Content.get_permission_condition_record(model, cond_code)
-
-    def compile_q(self, model, perm_string, user):
-        return compile_registered_condition_q(model, perm_string, user)
 
 
 def django_permission_filter(qs, perm, user):
@@ -453,117 +370,16 @@ class ReadonlyFieldsMixin(object):
                         raise ValidationError('Field "%s" is readonly.' % 'trust')
 
 
-def _register_meta_permission_conditions(klass):
-    """Walk ``Meta.permission_conditions`` onto the condition registry."""
-    if hasattr(klass._meta, 'permission_conditions'):
-        for permcond, condition in klass._meta.permission_conditions:
-            Content.register_permission_condition(klass, permcond, condition)
-
-
-def _register_junction_content_permission_conditions(klass):
-    """Walk Junction ``Meta.content_permission_conditions``."""
-    if hasattr(klass._meta, 'content_permission_conditions'):
-        for permcond, condition in klass._meta.content_permission_conditions:
-            Content.register_permission_condition(klass, permcond, condition)
-
-
 class Content(ReadonlyFieldsMixin, models.Model):
     trust = models.ForeignKey('trusts.Trust', related_name='%(app_label)s_%(class)s_content',
                 default=ROOT_PK, null=False, blank=False, on_delete=models.CASCADE)
     objects = ContentManager()
-    _conditions = {}
 
     class Meta:
         abstract = True
         default_permissions = ('add', 'change', 'delete', 'read',)
         permission_conditions = ()
         auto_modeladmin = False
-
-    @staticmethod
-    def register_permission_condition(klass, cond_code, condition):
-        """Register a ``:cond_code`` condition on ``klass``.
-
-        Pass an ``Expr`` built from ``condition_refs()`` to opt into V1
-        compile/evaluate. Pass a callable to keep the historical
-        object-only ``has_perm`` path. Dispatch is by type: callables are
-        never invoked with symbolic ``Ref`` arguments.
-
-        Construction-time shape errors (bare non-predicate ``Expr``, a
-        value that is neither ``Expr`` nor callable) still raise here.
-        Model-aware semantic validation is reported by the registered
-        Django system check as ``CheckMessage``s, not raised from this
-        method, so ``SILENCED_SYSTEM_CHECKS`` can filter the diagnostic.
-        """
-        if isinstance(condition, Expr):
-            if not is_predicate(condition):
-                raise PermissionConditionError(
-                    'Registered expression must be a V1 comparison '
-                    '(==, != combined with & / |), not %r.' % (condition,)
-                )
-            record = _ConditionRecord(expr=condition, model=klass)
-        elif callable(condition):
-            record = _ConditionRecord(func=condition, model=klass)
-        else:
-            raise TypeError(
-                'register_permission_condition expected an Expr or a '
-                'callable, got %r.' % (type(condition).__name__,)
-            )
-        short_name = utils.get_short_model_name(klass)
-        if short_name not in Content._conditions:
-            Content._conditions[short_name] = {}
-        Content._conditions[short_name][cond_code] = record
-
-    @staticmethod
-    def register_content(klass):
-        """Register Meta ``permission_conditions`` for ``klass``.
-
-        Content-terminal declaration is an explicit AppConfig ``Ref``
-        contribution. This method does not publish a model→path map.
-        """
-        _register_meta_permission_conditions(klass)
-
-    @staticmethod
-    def get_permission_condition_record(klass, cond_code):
-        short_name = utils.get_short_model_name(klass)
-        if short_name in Content._conditions:
-            if cond_code in Content._conditions[short_name]:
-                return Content._conditions[short_name][cond_code]
-        return None
-
-    @staticmethod
-    def get_permission_condition_func(klass, cond_code):
-        record = Content.get_permission_condition_record(klass, cond_code)
-        if record is None:
-            return None
-        return record.func
-
-    @staticmethod
-    def iter_permission_conditions():
-        """Yield ``(model, cond_code, record)`` for every registration.
-
-        Used by the system check after model loading. Identity comes from
-        the record so ``class_prepared`` registrations remain validatable
-        without importing extra application modules.
-        """
-        for codes in Content._conditions.values():
-            for cond_code, record in codes.items():
-                yield record.model, cond_code, record
-
-
-def register_content_junction(sender, **kwargs):
-    """``class_prepared`` condition walk. Does not write a content map.
-
-    Connected before ``Trust`` so ``:own`` registers from this hook.
-    ``Junction`` is resolved at call time because it is defined later.
-    """
-    if sender._meta.proxy or sender._meta.abstract:
-        return
-    junction = globals().get('Junction')
-    if junction is not None and issubclass(sender, junction):
-        junction.register_junction(sender)
-    elif issubclass(sender, Content):
-        Content.register_content(sender)
-signals.class_prepared.connect(register_content_junction)
 
 
 class Trust(Content):
@@ -737,16 +553,6 @@ class Junction(ReadonlyFieldsMixin, models.Model):
         content_permission_conditions = ()
         unique_together = ('content', )
 
-    @staticmethod
-    def register_junction(klass, content_model=None):
-        """Register Junction ``content_permission_conditions`` only.
-
-        Content-terminal declaration is an explicit AppConfig ``Ref``
-        contribution. This method does not publish a model→path map.
-        ``content_model`` is unused and retained for call-site compatibility.
-        """
-        _register_junction_content_permission_conditions(klass)
-
     @classmethod
     def get_content_model(cls):
         # introspect for the content model class with the easy case
@@ -758,3 +564,46 @@ class Junction(ReadonlyFieldsMixin, models.Model):
     @classmethod
     def get_fieldlookup(cls):
         return '%s__content' % utils.get_short_model_name_lower(cls).replace('.', '_')
+
+
+def donate_content_permission_conditions(registry, model):
+    """Walk ``Meta.permission_conditions`` onto a core handle registry.
+
+    Model-specific collection only. Does not keep a Zero-owned store.
+    Abstract and proxy models are skipped.
+    """
+    if model._meta.proxy or model._meta.abstract:
+        return
+    conditions = getattr(model._meta, 'permission_conditions', ()) or ()
+    for cond_code, condition in conditions:
+        registry.register_permission_condition(model, cond_code, condition)
+
+
+def donate_junction_content_permission_conditions(registry, model):
+    """Walk Junction ``Meta.content_permission_conditions`` onto ``registry``."""
+    if model._meta.proxy or model._meta.abstract:
+        return
+    conditions = getattr(model._meta, 'content_permission_conditions', ()) or ()
+    for cond_code, condition in conditions:
+        registry.register_permission_condition(model, cond_code, condition)
+
+
+def donate_installed_permission_conditions(registry, apps_registry=None):
+    """Donate every installed Content/Junction Meta declaration.
+
+    Idempotent per registry instance so repeated ``ZeroConfig.ready()``
+    does not create a second source of truth. ``Trust:own``, Content
+    Meta, and Junction Meta each become one record on this handle.
+    """
+    from django.apps import apps as django_apps
+
+    donated = getattr(registry, '_zero_condition_donation_id', None)
+    if donated is registry:
+        return
+    apps = django_apps if apps_registry is None else apps_registry
+    for model in apps.get_models():
+        if issubclass(model, Junction):
+            donate_junction_content_permission_conditions(registry, model)
+        elif issubclass(model, Content):
+            donate_content_permission_conditions(registry, model)
+    registry._zero_condition_donation_id = registry
