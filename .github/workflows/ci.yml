@@ -110,7 +110,7 @@ jobs:
         python-version: "3.12"
     - name: Build sdist and wheel
       run: |
-        python -m pip install --upgrade pip build twine
+        python -m pip install --upgrade pip build twine "Django>=6.1,<6.2"
         python -m build
         twine check dist/*
     - name: Wheel RECORD isolation + import

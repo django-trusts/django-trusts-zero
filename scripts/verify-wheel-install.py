@@ -43,6 +43,47 @@ def _ensure_wheel() -> Path:
     return wheels[-1]
 
 
+ISOLATED_PROBE = r'''
+import sys
+from pathlib import Path
+from django.conf import settings
+
+extracted = Path(%r)
+kept = []
+for p in sys.path:
+    if Path(p, "trusts", "__init__.py").is_file():
+        continue
+    kept.append(p)
+sys.path[:] = kept
+sys.path.insert(0, str(extracted))
+for name in list(sys.modules):
+    if name == "trusts" or name.startswith("trusts."):
+        del sys.modules[name]
+if not settings.configured:
+    settings.configure(SECRET_KEY="zero-wheel-isolated")
+from trusts.zero.apps import ZeroConfig
+assert ZeroConfig.name == "trusts.zero"
+assert ZeroConfig.label == "trusts"
+print("zero-wheel-import-ok")
+'''
+
+OVERLAY_PROBE = r'''
+from django.conf import settings
+from pathlib import Path
+
+if not settings.configured:
+    settings.configure(SECRET_KEY="zero-wheel-overlay")
+import trusts
+from trusts.zero.apps import ZeroConfig
+assert ZeroConfig.label == "trusts"
+assert ZeroConfig.name == "trusts.zero"
+init = Path(trusts.__file__)
+assert init.name == "__init__.py"
+assert (init.parent / "zero" / "apps.py").is_file()
+print("zero-wheel-overlay-ok")
+'''
+
+
 def main() -> int:
     wheel = _ensure_wheel()
     with zipfile.ZipFile(wheel) as zf:
@@ -58,36 +99,28 @@ def main() -> int:
     if not any(n.endswith('trusts/zero/migrations/0001_initial.py') for n in names):
         raise SystemExit('Zero wheel missing 0001_initial')
 
+    try:
+        import django  # noqa: F401
+    except ImportError as exc:
+        raise SystemExit(
+            'verify-wheel-install requires Django on the interpreter '
+            '(package CI installs Django>=6.1,<6.2): %s' % exc
+        )
+
     kernel = Path(os.environ.get('KERNEL_CHECKOUT', ROOT / '.deps' / 'django-trusts'))
     tmp = Path(tempfile.mkdtemp(prefix='trusts-zero-wheel-'))
     try:
-        venv = tmp / 'venv'
-        subprocess.check_call([sys.executable, '-m', 'venv', str(venv)])
-        pip = venv / 'bin' / 'pip'
-        py = venv / 'bin' / 'python'
-        subprocess.check_call(
-            [str(pip), 'install', '-q', 'pip', 'Django>=6.1,<6.2'],
-        )
-
         extracted = tmp / 'extracted'
         extracted.mkdir()
         with zipfile.ZipFile(wheel) as zf:
             zf.extractall(extracted)
 
-        # Isolated PEP 420: Django only, no kernel on the path. The current
-        # interpreter may already have django-trusts installed; a venv plus
-        # PYTHONPATH=extracted is the probe that CI's package job needs.
-        probe = (
-            'from trusts.zero.apps import ZeroConfig\n'
-            'assert ZeroConfig.name == "trusts.zero"\n'
-            'assert ZeroConfig.label == "trusts"\n'
-            'print("zero-wheel-import-ok")\n'
-        )
+        # Isolated PEP 420: drop every path that owns trusts/__init__.py so a
+        # preinstalled kernel cannot shadow the wheel portion.
         env = os.environ.copy()
-        env['PYTHONPATH'] = str(extracted)
         env.pop('DJANGO_SETTINGS_MODULE', None)
         out = subprocess.check_output(
-            [str(py), '-c', probe],
+            [sys.executable, '-c', ISOLATED_PROBE % str(extracted)],
             env=env,
             cwd=str(tmp),
             text=True,
@@ -95,25 +128,35 @@ def main() -> int:
         if 'zero-wheel-import-ok' not in out:
             raise SystemExit('isolated wheel import probe failed: %r' % out)
 
-        # Real pip overlay: C1 still ships trusts/__init__.py, so installing
-        # the kernel then the Zero wheel places trusts/zero/ next to it.
+        # Real overlay: C1 still ships trusts/__init__.py. pip --target
+        # refuses to merge a second distribution into an existing trusts/
+        # directory; extracting the Zero wheel on top of the kernel install
+        # is the layout `pip install django-trusts && pip install
+        # django-trusts-zero` produces in site-packages.
         if kernel.is_dir():
-            subprocess.check_call([str(pip), 'install', '-q', str(kernel)])
+            site = tmp / 'overlay-site'
+            site.mkdir()
             subprocess.check_call(
-                [str(pip), 'install', '-q', '--no-deps', str(wheel)],
+                [
+                    sys.executable, '-m', 'pip', 'install', '-q',
+                    '--target', str(site), str(kernel),
+                ],
             )
-            overlay = (
-                'import trusts\n'
-                'from pathlib import Path\n'
-                'from trusts.zero.apps import ZeroConfig\n'
-                'assert ZeroConfig.label == "trusts"\n'
-                'assert ZeroConfig.name == "trusts.zero"\n'
-                'init = Path(trusts.__file__)\n'
-                'assert init.name == "__init__.py"\n'
-                'assert (init.parent / "zero" / "apps.py").is_file()\n'
-                'print("zero-wheel-overlay-ok")\n'
+            with zipfile.ZipFile(wheel) as zf:
+                zf.extractall(site)
+            if not (site / 'trusts' / 'zero' / 'apps.py').is_file():
+                raise SystemExit('overlay missing trusts/zero/apps.py')
+            if not (site / 'trusts' / '__init__.py').is_file():
+                raise SystemExit('overlay lost kernel trusts/__init__.py')
+            overlay_env = os.environ.copy()
+            overlay_env['PYTHONPATH'] = str(site)
+            overlay_env.pop('DJANGO_SETTINGS_MODULE', None)
+            out2 = subprocess.check_output(
+                [sys.executable, '-c', OVERLAY_PROBE],
+                env=overlay_env,
+                cwd=str(tmp),
+                text=True,
             )
-            out2 = subprocess.check_output([str(py), '-c', overlay], text=True)
             if 'zero-wheel-overlay-ok' not in out2:
                 raise SystemExit('overlay wheel import probe failed: %r' % out2)
         else:
