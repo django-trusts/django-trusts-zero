@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fresh Zero IIa install on Step I core: no kernel AppConfig, identity, --check."""
+"""Fresh Zero install on core 1.0.0.dev3: no kernel AppConfig, identity, --check."""
 
 from __future__ import annotations
 
@@ -130,8 +130,8 @@ def main() -> int:
         from trusts.zero.models import Trust
         from django.contrib.contenttypes.models import ContentType
         from django.apps import apps as django_apps
-        from trusts.apps import AppConfig as KernelAppConfig
-        from trusts.apps import implementation_configs, kernel_config
+        import trusts.apps as trusts_apps
+        from trusts.apps import implementation_configs
         from trusts.zero.apps import ZeroConfig, zero_config
 
         config = django_apps.get_app_config('trusts')
@@ -142,18 +142,11 @@ def main() -> int:
         owners = implementation_configs()
         if owners != (zero_config(),) or len(owners) != 1:
             raise SystemExit('expected exactly one implementation owner, got %r' % (owners,))
-        kernelish = [
-            row for row in django_apps.get_app_configs()
-            if type(row) is KernelAppConfig
-        ]
-        if kernelish:
-            raise SystemExit('core AppConfig is installed: %r' % (kernelish,))
-        try:
-            kernel_config()
-        except LookupError:
-            pass
-        else:
-            raise SystemExit('kernel_config() succeeded without a core AppConfig')
+        if hasattr(trusts_apps, 'AppConfig') or hasattr(trusts_apps, 'kernel_config'):
+            raise SystemExit('core still exposes AppConfig or kernel_config')
+        labels = {row.label for row in django_apps.get_app_configs()}
+        if 'trusts_core' in labels:
+            raise SystemExit('core AppConfig label trusts_core is installed')
 
         root = Trust.objects.get(pk=1)
         if root.trust_id != root.pk:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wheel/editable uninstall isolation for Zero IIa + Step I core."""
+"""Wheel/editable uninstall isolation for Zero + core 1.0.0.dev3."""
 
 from __future__ import annotations
 
@@ -85,8 +85,8 @@ def main() -> int:
         dist = tmp / 'dist'
         kernel_wheel, zero_wheel = _build_wheels(dist)
 
-        if '2.0.0.dev2' not in zero_wheel.name:
-            raise SystemExit('Zero wheel is not 2.0.0.dev2: %s' % zero_wheel.name)
+        if '1.0.0.dev0' not in zero_wheel.name:
+            raise SystemExit('Zero wheel is not 1.0.0.dev0: %s' % zero_wheel.name)
 
         venv = tmp / 'venv'
         _run([sys.executable, '-m', 'virtualenv', str(venv)])
