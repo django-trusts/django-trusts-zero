@@ -7,8 +7,8 @@ Unrelated to Zero Trust network architecture.
 
 Package version is exactly ``1.0.0.dev0``. Core floor is
 ``django-trusts>=1.0.0.dev3,<2`` (merged
-`#112 <https://github.com/django-trusts/django-trusts/pull/112>`_ at
-``11058641b533e0f8489598e0b1f5cbe5d42a81db``).
+`#118 <https://github.com/django-trusts/django-trusts/pull/118>`_ at
+``7d5636ba721f0fc4b40b343b45e856b93e1c34cf``).
 
 Public APIs consumed
 --------------------
@@ -21,6 +21,8 @@ Public APIs consumed
   ``trust_grant_q``
 * ``trusts.core.Ref`` / ``TrustsRegistry.register`` / ``granted`` /
   ``filter_authorized_scopes`` / ``ConditionLookup``
+* ``trusts.conditions.RegistryConditionLookup`` /
+  ``TrustsRegistry.register_permission_condition``
 
 Supported execution does **not** import ``trusts.apps.kernel_config``
 (removed) and does **not** install a core ``AppConfig``.
@@ -36,8 +38,10 @@ Zero-owned surfaces
 * ``Model.objects.get_permission(...)``
 * ``Trust.objects.get_or_create_settlor_default`` / ``get_root`` /
   ``filter_by_user_perm`` / ``filter_by_user_content_perm``
-* ``Content.register_permission_condition`` and ``:condition`` overlay via
-  ``ContentConditionLookup`` bound from ``ZeroConfig.ready()``
+* ``Meta.permission_conditions`` / ``Meta.content_permission_conditions``
+  (including built-in ``Trust:own``) donated onto the configured handle
+  registry; ``:condition`` overlay via ``RegistryConditionLookup`` bound
+  from ``ZeroConfig.ready()``
 * Historical migrations ``trusts.0001_initial`` / ``trusts.0002_trustgroup``
 
 Installation
@@ -104,9 +108,13 @@ TUP + TGP registration
 ``ZeroConfig.ready()`` registers Trust-as-content TUP records on
 ``implementation_for_path('trusts.zero.backends.TrustModelBackend').configured_backend(...).registry``
 using ``Ref`` / ``register()``. TGP membership/ceiling records are
-attempted on the same public API. Host Content subclasses donate from
-their ``AppConfig.ready()`` through the same owner path. Core no
-longer ships ``kernel_config()``.
+attempted on the same public API. ``ZeroConfig.ready()`` also walks
+installed ``Content`` / ``Junction`` Meta condition tuples onto
+``handle.registry`` and binds ``RegistryConditionLookup``. Host Content
+subclasses donate relation records from their ``AppConfig.ready()``
+through the same owner path. Explicit condition registration uses
+``handle.registry.register_permission_condition``. Core no longer ships
+``kernel_config()``.
 
 Group list/object grants continue through Zero's
 ``HistoricalGroupQueryCompiler``.

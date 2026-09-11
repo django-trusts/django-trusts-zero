@@ -38,6 +38,7 @@ NORMAL_SUITE = [
     'tests.test_packaging',
     'tests.test_codec',
     'tests.test_issue9',
+    'tests.test_issue16',
     'tests.test_smoke',
 ]
 

@@ -6,12 +6,12 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import TestCase
 
+from trusts.conditions import RegistryConditionLookup
 from trusts.core import TrustsConfigurationError, TrustsRegistry
 from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
 from trusts.query import AuthorizedQuerySet
 from trusts.zero.models import (
     Content,
-    ContentConditionLookup,
     ContentQuerySet,
     PermissionConditionNotQueryable,
     Trust,
@@ -76,7 +76,7 @@ class RegistrationAndCodecTests(TestCase):
         self.assertIn(Category, content_models)
         self.assertIn(Ticket, content_models)
         lookup = handle.registry.condition_lookup
-        self.assertIsInstance(lookup, ContentConditionLookup)
+        self.assertIsInstance(lookup, RegistryConditionLookup)
         own = lookup.record_for(Trust, 'own')
         self.assertIsNotNone(own)
         self.assertIsNotNone(own.expr)
@@ -175,7 +175,8 @@ class RegistrationAndCodecTests(TestCase):
     def test_callable_condition_raises_before_sql(self):
         def never_called(user, perm, obj):
             raise AssertionError('callable must not run')
-        Content.register_permission_condition(Category, 'cb', never_called)
+        handle = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
+        handle.registry.register_permission_condition(Category, 'cb', never_called)
         cat = Category(name='n', trust=self.org)
         cat.save()
         with self.assertRaises(PermissionConditionNotQueryable):

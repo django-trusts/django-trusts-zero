@@ -7,10 +7,11 @@ points at `README.md`, not this file.
 
 ## Current pairing
 
-This tree is `django-trusts-zero==1.0.0.dev0` against the final core
-library cut `django-trusts==1.0.0.dev3`
-([django-trusts#112](https://github.com/django-trusts/django-trusts/pull/112)
-merge `11058641b533e0f8489598e0b1f5cbe5d42a81db`).
+This tree is `django-trusts-zero==1.0.0.dev0` pairing the #16 condition
+registry cut against core `django-trusts==1.0.0.dev3`
+([django-trusts#118](https://github.com/django-trusts/django-trusts/pull/118)
+HEAD `7d5636ba721f0fc4b40b343b45e856b93e1c34cf`). The previous merged
+floor remains [django-trusts#112](https://github.com/django-trusts/django-trusts/pull/112).
 
 Earlier unpublished Zero snapshots used `2.0.0.dev0` / `dev1` / `dev2`.
 Those values are not a public compatibility line.
@@ -49,7 +50,7 @@ See `docs/source/index.rst` and `migrates.md`.
 
 ## Verification
 
-Pair CI pins exact core merge `11058641b533e0f8489598e0b1f5cbe5d42a81db`.
+Pair CI pins exact core #118 HEAD `7d5636ba721f0fc4b40b343b45e856b93e1c34cf`.
 The Zero suite, fresh-install, old-path fail-closed, wheel RECORD, and
 uninstall-isolation scripts must run against that revision without
 skipping modules that formerly imported `kernel_config()` or a core

@@ -9,12 +9,12 @@ permissions:
   contents: read
 
 env:
-  # Final core library cut (django-trusts#112 merge). Pair pin for Zero 1.0.0.dev0.
-  COMPANION_KERNEL_SHA: 11058641b533e0f8489598e0b1f5cbe5d42a81db
+  # Core #118 condition registry (pair pin for Zero #16).
+  COMPANION_KERNEL_SHA: 7d5636ba721f0fc4b40b343b45e856b93e1c34cf
 
 jobs:
   tests:
-    name: tests vs final core (Python ${{ matrix.python-version }})
+    name: tests vs core #118 (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -32,7 +32,7 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install final core then Zero
+    - name: Install core #118 then Zero
       run: |
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage virtualenv
@@ -46,7 +46,7 @@ jobs:
       run: python scripts/verify-old-backend-path.py
 
   pair:
-    name: pair with merged final core
+    name: pair with core #118 condition registry
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -60,10 +60,10 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-    - name: Exact final-core pair
+    - name: Exact core #118 pair
       run: |
-        test "${COMPANION_KERNEL_SHA}" = "11058641b533e0f8489598e0b1f5cbe5d42a81db"
-        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "11058641b533e0f8489598e0b1f5cbe5d42a81db"
+        test "${COMPANION_KERNEL_SHA}" = "7d5636ba721f0fc4b40b343b45e856b93e1c34cf"
+        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "7d5636ba721f0fc4b40b343b45e856b93e1c34cf"
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
