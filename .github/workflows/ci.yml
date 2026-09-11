@@ -9,12 +9,12 @@ permissions:
   contents: read
 
 env:
-  # Merged core Step I (django-trusts#109 merge). Pair pin for Zero IIa.
-  COMPANION_KERNEL_SHA: 39f1f9611e214193aec4e97526cf9b54ee689967
+  # Final core library cut (django-trusts#112 merge). Pair pin for Zero 1.0.0.dev0.
+  COMPANION_KERNEL_SHA: 11058641b533e0f8489598e0b1f5cbe5d42a81db
 
 jobs:
   tests:
-    name: tests vs Step I (Python ${{ matrix.python-version }})
+    name: tests vs final core (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -32,13 +32,13 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install Step I kernel then Zero IIa
+    - name: Install final core then Zero
       run: |
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage virtualenv
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
         python -m pip install -e . --config-settings editable_mode=compat
-    - name: Zero IIa tests (no core AppConfig)
+    - name: Zero tests (no core AppConfig)
       run: coverage run -m tests.runtests && coverage report
     - name: Fresh install + makemigrations --check
       run: python scripts/verify-fresh-install.py
@@ -46,7 +46,7 @@ jobs:
       run: python scripts/verify-old-backend-path.py
 
   pair:
-    name: pair with merged core Step I
+    name: pair with merged final core
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -60,10 +60,10 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-    - name: Exact Step I pair
+    - name: Exact final-core pair
       run: |
-        test "${COMPANION_KERNEL_SHA}" = "39f1f9611e214193aec4e97526cf9b54ee689967"
-        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "39f1f9611e214193aec4e97526cf9b54ee689967"
+        test "${COMPANION_KERNEL_SHA}" = "11058641b533e0f8489598e0b1f5cbe5d42a81db"
+        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "11058641b533e0f8489598e0b1f5cbe5d42a81db"
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
@@ -92,6 +92,8 @@ jobs:
         python -m pip install --upgrade pip build twine virtualenv "Django>=6.1,<6.2"
         python -m build
         twine check dist/*
+    - name: Package metadata (version, core floor, LICENSE)
+      run: python scripts/verify-package-metadata.py
     - name: Wheel RECORD isolation + import
       run: python scripts/verify-wheel-install.py
     - name: Uninstall isolation

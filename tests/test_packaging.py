@@ -85,16 +85,68 @@ class ZeroSourceLayoutTests(SimpleTestCase):
 
 
 class ZeroPublishMetadataTests(SimpleTestCase):
-    def test_pyproject_requires_step_i_floor(self):
+    def test_pyproject_requires_final_core_floor(self):
         text = (ROOT / 'pyproject.toml').read_text()
         self.assertIn('name = "django-trusts-zero"', text)
-        self.assertIn('version = "2.0.0.dev2"', text)
-        self.assertIn('"django-trusts>=1.0.0.dev2,<2"', text)
+        self.assertIn('version = "1.0.0.dev0"', text)
+        self.assertIn('"django-trusts>=1.0.0.dev3,<2"', text)
         self.assertIn('"Django>=6.1,<6.2"', text)
+        self.assertIn('readme = "README.md"', text)
+        self.assertNotIn('readme = "DEV.md"', text)
+        self.assertIn('license = "BSD-2-Clause"', text)
         req = (ROOT / 'requirements.txt').read_text()
-        self.assertIn('39f1f9611e214193aec4e97526cf9b54ee689967', req)
+        self.assertIn('11058641b533e0f8489598e0b1f5cbe5d42a81db', req)
         ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
         self.assertIn(
-            'COMPANION_KERNEL_SHA: 39f1f9611e214193aec4e97526cf9b54ee689967',
+            'COMPANION_KERNEL_SHA: 11058641b533e0f8489598e0b1f5cbe5d42a81db',
             ci,
         )
+
+    def test_license_notice_is_beedesk_2015_2026(self):
+        text = (ROOT / 'LICENSE').read_text()
+        self.assertIn('Copyright (c) 2015-2026, BeeDesk, Inc.', text)
+        self.assertNotIn('and contributors', text.split('THIS SOFTWARE')[0])
+        self.assertIn('BSD-2-Clause', (ROOT / 'pyproject.toml').read_text())
+
+    def test_user_readme_is_not_internal_status(self):
+        readme = (ROOT / 'README.md').read_text()
+        forbidden = (
+            'IIa',
+            'Step I',
+            'Step II',
+            'Step III',
+            'C1',
+            'C2',
+            'Z1',
+            'pair pin',
+            'baton',
+            '2.0.0.dev',
+            '1.0.0.dev2',
+            '1.0.0.dev3',
+            '11058641',
+            '39f1f961',
+            '94e0fa1',
+            'code budget',
+            'kernel_config',
+        )
+        offenders = [needle for needle in forbidden if needle in readme]
+        self.assertEqual(offenders, [])
+        self.assertIn('pip install django-trusts-zero', readme)
+        self.assertIn(
+            'from trusts.zero.models import Trust, Content, Junction, TrustUserPermission',
+            readme,
+        )
+        self.assertIn('from trusts.zero.backends import TrustModelBackend', readme)
+        self.assertIn("'trusts.zero.apps.ZeroConfig'", readme)
+        self.assertIn("'trusts.zero.backends.TrustModelBackend'", readme)
+        self.assertIn("Do **not** add `'trusts'` to `INSTALLED_APPS`", readme)
+        self.assertIn('migrates.md', readme)
+        dev = (ROOT / 'DEV.md').read_text()
+        self.assertIn('internal', dev[:800].lower())
+        self.assertIn('transitional', dev[:800].lower())
+
+    def test_readme_examples_match_verified_settings(self):
+        settings_text = (ROOT / 'tests' / 'settings.py').read_text()
+        self.assertIn("'trusts.zero.apps.ZeroConfig'", settings_text)
+        self.assertIn("'trusts.zero.backends.TrustModelBackend'", settings_text)
+        self.assertNotIn("'trusts',", settings_text.replace("'trusts.zero", ''))

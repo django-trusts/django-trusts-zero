@@ -1,15 +1,13 @@
-"""Zero AppConfig identity after Step IIa (no installed core AppConfig)."""
+"""Zero AppConfig identity on final core (no installed core AppConfig)."""
 
 from django.apps import apps
 from django.test import SimpleTestCase
 
 from trusts.apps import (
-    AppConfig as KernelAppConfig,
     TrustsImplementationConfig,
     implementation_configs,
     implementation_for_class,
     implementation_for_path,
-    kernel_config,
 )
 from trusts.zero.apps import CANONICAL_BACKEND_PATH, ZeroConfig, zero_config
 from trusts.zero.backends import TrustModelBackend
@@ -29,7 +27,6 @@ class ZeroAppConfigTests(SimpleTestCase):
 
     def test_zero_config_is_the_implementation_owner(self):
         self.assertTrue(issubclass(ZeroConfig, TrustsImplementationConfig))
-        self.assertFalse(issubclass(KernelAppConfig, TrustsImplementationConfig))
         owners = implementation_configs()
         self.assertEqual(len(owners), 1)
         self.assertIs(owners[0], zero_config())
@@ -44,15 +41,20 @@ class ZeroAppConfigTests(SimpleTestCase):
             implementation_for_class(TrustModelBackend), owners[0],
         )
 
-    def test_no_installed_core_appconfig(self):
-        kernelish = [
-            config for config in apps.get_app_configs()
-            if type(config) is KernelAppConfig
-        ]
-        self.assertEqual(kernelish, [])
-        with self.assertRaises(LookupError) as ctx:
-            kernel_config()
-        self.assertIn('No installed Trusts kernel AppConfig', str(ctx.exception))
+    def test_core_ships_no_appconfig_or_kernel_config(self):
+        import trusts.apps as trusts_apps
+
+        self.assertFalse(hasattr(trusts_apps, 'kernel_config'))
+        self.assertFalse(hasattr(trusts_apps, 'AppConfig'))
+        with self.assertRaises(ImportError):
+            from trusts.apps import kernel_config  # noqa: F401
+        with self.assertRaises(ImportError):
+            from trusts.apps import AppConfig  # noqa: F401
+        self.assertIs(type(apps.get_app_config('trusts')), ZeroConfig)
+        self.assertEqual(
+            [type(config) for config in apps.get_app_configs() if config.label == 'trusts'],
+            [ZeroConfig],
+        )
 
     def test_exactly_one_trust_model_under_historical_label(self):
         trusts = [m for m in apps.get_models() if m.__name__ == 'Trust']
