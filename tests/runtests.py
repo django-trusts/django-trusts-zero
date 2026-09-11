@@ -27,10 +27,6 @@ if kernel.is_dir():
     sys.path.insert(0, str(kernel))
 sys.path.append(str(root))
 
-from tests.c2_shape import apply as apply_c2_shape
-from tests.c2_shape import patch_runtime as patch_c2_runtime
-apply_c2_shape()
-
 import django
 from django.test.utils import get_runner
 from django.conf import settings
@@ -41,14 +37,13 @@ NORMAL_SUITE = [
     'tests.test_migrations',
     'tests.test_packaging',
     'tests.test_codec',
-    'tests.test_duplicate_label',
+    'tests.test_issue9',
     'tests.test_smoke',
 ]
 
 
 def runtests():
     django.setup()
-    patch_c2_runtime()
     TestRunner = get_runner(settings)
     test_runner = TestRunner(verbosity=1, interactive=False)
     failures = test_runner.run_tests(NORMAL_SUITE)

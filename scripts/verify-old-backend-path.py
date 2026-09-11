@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Neg-Z1-C1: C1 + ZeroConfig must fail populate (duplicate label='trusts')."""
+"""IIa: old core backend path must fail startup with ImproperlyConfigured."""
 
 from __future__ import annotations
 
@@ -18,17 +18,20 @@ root = Path(%r).resolve()
 kernel = Path(%r).resolve()
 sys.path.insert(0, str(kernel))
 sys.path.append(str(root))
-os.environ["TRUSTS_ZERO_SKIP_C2_SHAPE"] = "1"
+os.environ.pop("DJANGO_SETTINGS_MODULE", None)
 from django.conf import settings
 settings.configure(
-    SECRET_KEY="neg-z1-c1",
+    SECRET_KEY="neg-old-backend",
     USE_TZ=True,
     DEFAULT_AUTO_FIELD="django.db.models.AutoField",
     INSTALLED_APPS=[
         "django.contrib.contenttypes",
         "django.contrib.auth",
-        "trusts",
         "trusts.zero.apps.ZeroConfig",
+    ],
+    AUTHENTICATION_BACKENDS=[
+        "django.contrib.auth.backends.ModelBackend",
+        "trusts.backends.TrustModelBackend",
     ],
     DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
 )
@@ -38,7 +41,7 @@ try:
     django.setup()
 except ImproperlyConfigured as exc:
     text = str(exc)
-    print("duplicate-label-gate", text)
+    print("old-backend-gate", text)
     raise SystemExit(0)
 print("populate-succeeded")
 raise SystemExit(1)
@@ -47,7 +50,6 @@ raise SystemExit(1)
 
 def main() -> int:
     env = os.environ.copy()
-    env['TRUSTS_ZERO_SKIP_C2_SHAPE'] = '1'
     env.pop('DJANGO_SETTINGS_MODULE', None)
     result = subprocess.run(
         [sys.executable, '-c', PROBE % (str(ROOT), str(KERNEL))],
@@ -59,11 +61,13 @@ def main() -> int:
     if result.returncode != 0:
         sys.stderr.write(result.stdout)
         sys.stderr.write(result.stderr)
-        raise SystemExit('neg-Z1-C1 gate failed')
-    if 'duplicate-label-gate' not in result.stdout:
-        raise SystemExit('neg-Z1-C1 did not print duplicate-label-gate')
+        raise SystemExit('old-backend-path gate failed')
+    if 'old-backend-gate' not in result.stdout:
+        raise SystemExit('old-backend-path did not print old-backend-gate')
+    if 'trusts.zero.backends.TrustModelBackend' not in result.stdout:
+        raise SystemExit('error did not name the canonical backend path')
     print(result.stdout.strip())
-    print('neg-Z1-C1 ok')
+    print('neg-old-backend-path ok')
     return 0
 
 

@@ -1,4 +1,4 @@
-"""Zero codec, registration, manager, and condition compatibility on C1 APIs."""
+"""Zero codec, registration, manager, and condition compatibility on IIa."""
 
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import Group, Permission, User
@@ -6,8 +6,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import TestCase
 
-from trusts.apps import kernel_config
 from trusts.core import TrustsConfigurationError, TrustsRegistry
+from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
 from trusts.query import AuthorizedQuerySet
 from trusts.zero.models import (
     Content,
@@ -69,7 +69,7 @@ class RegistrationAndCodecTests(TestCase):
         self.assertIs(records[0].content_model, Trust)
 
     def test_live_registry_has_tup_trust_and_bound_condition_lookup(self):
-        handle = kernel_config().configured_backend()
+        handle = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
         records = handle.registry.records_for_root(TrustUserPermission)
         content_models = {row.content_model for row in records}
         self.assertIn(Trust, content_models)
@@ -181,7 +181,7 @@ class RegistrationAndCodecTests(TestCase):
         with self.assertRaises(PermissionConditionNotQueryable):
             list(Category.objects.permitted('read:cb', self.user))
 
-    def test_group_local_grant_still_authorizes_via_c1_compiler(self):
+    def test_group_local_grant_still_authorizes_via_zero_compiler(self):
         group = Group.objects.create(name='writers')
         group.user_set.add(self.user)
         group.permissions.add(self.change)

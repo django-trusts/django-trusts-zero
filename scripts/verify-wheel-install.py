@@ -96,6 +96,11 @@ def main() -> int:
         raise SystemExit('Zero wheel ships trusts/__init__.py: %s' % init_hits)
     if not any(n.endswith('trusts/zero/apps.py') for n in names):
         raise SystemExit('Zero wheel missing trusts/zero/apps.py')
+    if not any(n.endswith('trusts/zero/backends.py') for n in names):
+        raise SystemExit('Zero wheel missing trusts/zero/backends.py')
+    if not any('django_trusts_zero-2.0.0.dev2' in n for n in names):
+        if 'django_trusts_zero-2.0.0.dev2' not in wheel.name:
+            raise SystemExit('Zero wheel is not 2.0.0.dev2: %s' % wheel.name)
     if not any(n.endswith('trusts/zero/migrations/0001_initial.py') for n in names):
         raise SystemExit('Zero wheel missing 0001_initial')
 

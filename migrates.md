@@ -1,9 +1,121 @@
-# migrates.md — django-trusts-zero Z1 (C1 APIs)
+# migrates.md — django-trusts-zero IIa (2.0.0.dev2)
 
-This file is the mechanical checklist for reconstituting the historical
-concrete Trusts implementation under `trusts.zero` on merged C1 public
-APIs. It does **not** close django-trusts#54. It does **not** authorize
-merging Z1 alone against C1.
+This file is the mechanical checklist for Step IIa: Zero-owned
+`AppConfig` and canonical backend. It closes
+[django-trusts-zero#9](https://github.com/django-trusts/django-trusts-zero/issues/9).
+Authorized by approved
+[#102 r3](https://github.com/django-trusts/django-trusts/issues/102#issuecomment-5638914363),
+[r4](https://github.com/django-trusts/django-trusts/issues/102#issuecomment-5638983164),
+and [r5](https://github.com/django-trusts/django-trusts/issues/102#issuecomment-5639018377).
+Core pair pin is [django-trusts#109](https://github.com/django-trusts/django-trusts/pull/109)
+merge [`39f1f9611e214193aec4e97526cf9b54ee689967`](https://github.com/django-trusts/django-trusts/commit/39f1f9611e214193aec4e97526cf9b54ee689967)
+(`django-trusts==1.0.0.dev2`).
+
+Unrelated to Zero Trust network architecture.
+
+Z0-cap `2.0.0.dev1` is a separate metadata-only artifact and is **not**
+this revision. Raw `2.0.0.dev0` history is not rewritten here.
+
+## Companion kernel (IIa)
+
+| Item | Value |
+| --- | --- |
+| Authoritative Zero metadata | this repo `pyproject.toml` (`2.0.0.dev2` + `django-trusts>=1.0.0.dev2,<2`) |
+| Paired Step I core | [django-trusts#109](https://github.com/django-trusts/django-trusts/pull/109) merge [`39f1f9611e214193aec4e97526cf9b54ee689967`](https://github.com/django-trusts/django-trusts/commit/39f1f9611e214193aec4e97526cf9b54ee689967) |
+| Zero baseline (Z1) | [`ce0a1754036ffa111ba179926d7edad43a15b706`](https://github.com/django-trusts/django-trusts-zero/commit/ce0a1754036ffa111ba179926d7edad43a15b706) / raw pin [`41d07f40e676f75389b91219106440932d402b53`](https://github.com/django-trusts/django-trusts-zero/commit/41d07f40e676f75389b91219106440932d402b53) |
+
+## Public changes (IIa)
+
+Stored schema and authorization **data** stay compatible. Public
+**imports and settings** change.
+
+| Surface | Old (Z1 / `2.0.0.dev0`) | New (IIa / `2.0.0.dev2`) |
+| --- | --- | --- |
+| Distribution | `django-trusts-zero==2.0.0.dev0` + `django-trusts>=1.0.0.dev0` | `django-trusts-zero==2.0.0.dev2` + `django-trusts>=1.0.0.dev2,<2` |
+| `INSTALLED_APPS` | `'trusts'` then `'trusts.zero.apps.ZeroConfig'` | **`'trusts.zero.apps.ZeroConfig'` only** (no `'trusts'`) |
+| Backend settings | `'trusts.backends.TrustModelBackend'` | `'trusts.zero.backends.TrustModelBackend'` |
+| Backend import | `from trusts.backends import TrustModelBackend` | `from trusts.zero.backends import TrustModelBackend` |
+| Owner API | `kernel_config()` swallow in `ZeroConfig.ready()` | `ZeroConfig(TrustsImplementationConfig)` + `implementation_for_path` / `zero_config()` |
+| Models | `from trusts.zero.models import Trust, Content, Junction` | **unchanged** |
+| Settings constants | `from trusts.zero import ENTITY_MODEL_NAME, ROOT_PK, …` | **unchanged** |
+| Django app label | `trusts` | **`trusts`** (unchanged) |
+| Migration names | `0001_initial`, `0002_trustgroup` | **unchanged** loader keys `trusts.0001_initial` / `trusts.0002_trustgroup` |
+| Tables / content types / permissions | `trusts_trust`, `trusts \| trust`, … | **unchanged** |
+
+### Old / new startup and failure behavior
+
+| Situation | Old (Z1) | New (IIa) |
+| --- | --- | --- |
+| Canonical IIa settings | N/A | Starts. No core `AppConfig`. Exactly one implementation owner (`ZeroConfig`). |
+| `'trusts'` in `INSTALLED_APPS` | Required (kernel store) | Not required. Supported IIa omits it. |
+| `AUTHENTICATION_BACKENDS = ['trusts.backends.TrustModelBackend']` | Supported (core historical class + `kernel_config()`) | **`ImproperlyConfigured`** naming `trusts.zero.backends.TrustModelBackend`. No forwarding. |
+| Both backend paths listed | N/A | **`ImproperlyConfigured`** (two mixin classes; old path is not Zero identity) |
+| Canonical path missing | N/A | **`ImproperlyConfigured`** from `ZeroConfig.ready()` |
+| Core below `1.0.0.dev2` | Installable (`>=1.0.0.dev0`) | **Metadata refuse** (`Requires-Dist: django-trusts>=1.0.0.dev2,<2`) and **startup belt** `ImproperlyConfigured` if `TrustsImplementationConfig` is missing |
+| Missing kernel `AppConfig` | `ZeroConfig.ready()` swallowed `LookupError` and skipped donation | **OK.** Donation writes Zero's registry. `kernel_config()` is never called. |
+| Owner-present mixin / list / create-under-Trust | Used `kernel_config()` | Resolves through `ZeroConfig`. `kernel_config()` is not called. |
+
+Do **not** add transparent core-path forwarding or make the old backend
+path succeed under IIa.
+
+## Migration identity (unchanged)
+
+Loader keys remain `('trusts', '0001_initial')` / `('trusts', '0002_trustgroup')`
+because `ZeroConfig.label = 'trusts'`. No `MIGRATION_MODULES`. No `0003`.
+`0002` still `dependencies = [('trusts', '0001_initial')]` and
+`database_operations=[]`.
+
+Already-applied 1.x / Z1 DBs keep matching `django_migrations` rows.
+`python -m django migrate --plan` has no Trusts operations on an
+already-current database. `makemigrations trusts --check` is quiet.
+
+## IIa migration-bot checklist
+
+Search application code and settings for:
+
+```text
+INSTALLED_APPS.*trusts
+AUTHENTICATION_BACKENDS.*trusts.backends
+from trusts.backends import TrustModelBackend
+from trusts.apps import kernel_config
+from trusts.models import
+from trusts import ENTITY_MODEL_NAME
+from trusts import ROOT_PK
+```
+
+Then:
+
+- [ ] Set `INSTALLED_APPS` to `'trusts.zero.apps.ZeroConfig'` (plus Django contrib). Remove `'trusts'`.
+- [ ] Set `AUTHENTICATION_BACKENDS` to `'trusts.zero.backends.TrustModelBackend'`. Remove `'trusts.backends.TrustModelBackend'`.
+- [ ] Replace `from trusts.backends import TrustModelBackend` with `from trusts.zero.backends import TrustModelBackend`.
+- [ ] Replace `kernel_config()` donations with `implementation_for_path('trusts.zero.backends.TrustModelBackend', apps_registry=self.apps)` or `zero_config()`.
+- [ ] Confirm startup: canonical settings succeed; old backend path raises `ImproperlyConfigured`.
+- [ ] Confirm no installed core `AppConfig` and exactly one implementation owner.
+- [ ] `python -m django migrate --plan` — no Trusts operations on an already-current database.
+- [ ] `python -m django makemigrations trusts --check` — quiet.
+- [ ] Confirm `ContentType` natural keys `trusts | trust` (and siblings) and `COUNT(*)` on every Trusts table are unchanged.
+- [ ] Confirm model labels, migration keys, permissions, and representative rows are unchanged.
+- [ ] Confirm object/list authorization, fail-closed anonymous/inactive/undeclared cases, and fixed query counts.
+- [ ] Confirm `pip` rejects `django-trusts==1.0.0.dev1` against this wheel (`>=1.0.0.dev2,<2`).
+- [ ] Confirm `pip uninstall django-trusts-zero` does not delete `trusts/__init__.py`.
+- [ ] Confirm uninstalling core makes `trusts.zero.backends` unusable.
+- [ ] Set package version to `2.0.0.dev2`. Do not fold Z0-cap `2.0.0.dev1` into this revision.
+- [ ] Do not implement GH IIb, core Step III/tombstone, `dev4` removal, examples, or Windows in this PR.
+
+## Out of scope (IIa)
+
+- GH IIb
+- Core Step III / `kernel_config()` tombstone / `1.0.0.dev4` deletion
+- Z0-cap `2.0.0.dev1` metadata-only artifact
+- Windows #17, examples, docs restructuring beyond this IIa record
+
+---
+
+# Prior: Z1 reconstitution (C1 APIs, `2.0.0.dev0`)
+
+The remainder records the earlier Z1 reconstitution. IIa supersedes its
+`INSTALLED_APPS` / backend / `kernel_config()` contract. Persisted
+identity rows below remain true.
 
 Implemented revision: **Z1 reconstitution** for
 [django-trusts-zero#7](https://github.com/django-trusts/django-trusts-zero/issues/7).
@@ -11,9 +123,7 @@ Authorized by [django-trusts#54 C1/r9](https://github.com/django-trusts/django-t
 and the #93 baton
 [comment 5632052795](https://github.com/django-trusts/django-trusts/pull/93#issuecomment-5632052795).
 
-Unrelated to Zero Trust network architecture.
-
-## Companion kernel
+## Companion kernel (Z1, historical)
 
 | Item | Value |
 | --- | --- |
@@ -162,7 +272,7 @@ Then:
 
 - [ ] Do **not** add `'trusts.zero.apps.ZeroConfig'` next to C1 `'trusts'`. Wait for C2.
 - [ ] After CUT, `INSTALLED_APPS` is `'trusts'` + `'trusts.zero.apps.ZeroConfig'`.
-- [ ] Keep `'trusts.backends.TrustModelBackend'` (core path). Do not switch to a Zero backend module.
+- [ ] **Superseded by IIa:** do not keep `'trusts.backends.TrustModelBackend'`. Use `'trusts.zero.backends.TrustModelBackend'`.
 - [ ] Canonical model import is `trusts.zero.models`. C2 1.x shim still serves `trusts.models` when Zero is installed.
 - [ ] Settings constants for migrations/commands: `trusts.zero`.
 - [ ] Replace `Content.grant`/`revoke`, `Trust.associate_group`/`grant_group_permission`/`revoke_group_permission`/`set_group_permissions`, and `TrustGroup.grant_permission`/`revoke_permission`/`set_permissions` with the ORM snippets above. Do not restore those methods.

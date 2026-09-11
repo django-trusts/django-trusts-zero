@@ -50,12 +50,11 @@ class ZeroSourceLayoutTests(SimpleTestCase):
         self.assertEqual(offenders, [])
 
     def test_zero_does_not_copy_generic_authorization_control_flow(self):
-        """No local granted/compose/filter_authorized/HistoricalGroup compiler."""
+        """No local granted/compose/filter_authorized. Compiler lives in backends."""
         banned = (
             'def granted(',
             'def compose(',
             'def filter_authorized(',
-            'class HistoricalGroupQueryCompiler',
             'from trusts.path import',
             'from trusts.runtime import',
             'from trusts.context import',
@@ -67,17 +66,35 @@ class ZeroSourceLayoutTests(SimpleTestCase):
         )
         offenders = []
         for path in (ROOT / 'trusts' / 'zero').rglob('*.py'):
+            if path.name == 'backends.py':
+                continue
             text = path.read_text()
             for needle in banned:
                 if needle in text:
                     offenders.append('%s: %s' % (path.relative_to(ROOT), needle))
+            if 'class HistoricalGroupQueryCompiler' in text:
+                offenders.append(
+                    '%s: class HistoricalGroupQueryCompiler' % path.relative_to(ROOT)
+                )
         self.assertEqual(offenders, [])
+        backends = (ROOT / 'trusts' / 'zero' / 'backends.py').read_text()
+        self.assertIn('class HistoricalGroupQueryCompiler', backends)
+        self.assertIn('class TrustModelBackend', backends)
+        self.assertNotIn('from trusts.backends import TrustModelBackend\n', backends)
+        self.assertNotIn('TrustModelBackend = ', backends)
 
 
 class ZeroPublishMetadataTests(SimpleTestCase):
-    def test_pyproject_requires_kernel_1x_train(self):
+    def test_pyproject_requires_step_i_floor(self):
         text = (ROOT / 'pyproject.toml').read_text()
         self.assertIn('name = "django-trusts-zero"', text)
-        self.assertIn('version = "2.0.0.dev0"', text)
-        self.assertIn('"django-trusts>=1.0.0.dev0"', text)
+        self.assertIn('version = "2.0.0.dev2"', text)
+        self.assertIn('"django-trusts>=1.0.0.dev2,<2"', text)
         self.assertIn('"Django>=6.1,<6.2"', text)
+        req = (ROOT / 'requirements.txt').read_text()
+        self.assertIn('39f1f9611e214193aec4e97526cf9b54ee689967', req)
+        ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
+        self.assertIn(
+            'COMPANION_KERNEL_SHA: 39f1f9611e214193aec4e97526cf9b54ee689967',
+            ci,
+        )

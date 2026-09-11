@@ -1,5 +1,5 @@
 # Runtime requirements. pyproject.toml is authoritative.
-# django-trusts>=1.0.0.dev0 does not match PyPI 0.10.x. Until 1.x is
+# django-trusts>=1.0.0.dev2,<2 does not match PyPI 0.10.x. Until 1.x is
 # published, install a path/git kernel first or use the companion wheel.
 Django>=6.1,<6.2
-django-trusts @ git+https://github.com/django-trusts/django-trusts.git@ffb02364a45f3a4bc2b9a3973de3612c37d785e9
+django-trusts @ git+https://github.com/django-trusts/django-trusts.git@39f1f9611e214193aec4e97526cf9b54ee689967
