@@ -60,6 +60,10 @@ class ZeroSourceLayoutTests(SimpleTestCase):
             'from trusts.runtime import',
             'from trusts.context import',
             'from trusts.trustee import',
+            'def grant(self, perm, user)',
+            'def associate_group(self, group)',
+            'def grant_group_permission(',
+            'def grant_permission(self, permission)',
         )
         offenders = []
         for path in (ROOT / 'trusts' / 'zero').rglob('*.py'):

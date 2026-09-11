@@ -48,7 +48,8 @@ Stored schema and authorization **data** stay compatible. Public
 | Backend | `'trusts.backends.TrustModelBackend'` | **unchanged** (core) |
 | Settings constants | `from trusts import ENTITY_MODEL_NAME, ROOT_PK, …` | `from trusts.zero import ENTITY_MODEL_NAME, ROOT_PK, …` |
 | List codec | `ContentQuerySet.permitted` sequenced handles in Zero/core models | one-line `django_permission_filter` → `.authorized` |
-| Create-under-Trust | `trust_grant_q` inside `TrustManager` | `filter_scope_rows` → `filter_authorized_scopes` when TGP records exist; C1 `trust_grant_q` remains the group-parity fallback until TGP grammar exists |
+| Create-under-Trust | `trust_grant_q` inside `TrustManager` using the **content** permission | `filter_scope_rows` → `resolve_content_permission(content, perm_name)` then `filter_authorized_scopes` when TGP records exist; C1 `trust_grant_q` remains the group-parity fallback until TGP grammar exists |
+| Write conveniences | `Content.grant`/`revoke`, `Trust.associate_group`/`grant_group_permission`/`revoke_group_permission`/`set_group_permissions`, `TrustGroup.grant_permission`/`revoke_permission`/`set_permissions` | **removed** (r7). Direct ORM on `TrustUserPermission` / `Trust.groups` / `TrustGroupPermission`. Ceiling still enforced by `TrustGroupPermission.clean`/`save`/`bulk_create` |
 | `:condition` overlay | `Content` registry imported by core | `ContentConditionLookup` bound from `ZeroConfig.ready()` |
 | Django app label | `trusts` | **`trusts`** (unchanged, owned by ZeroConfig) |
 | Migration names | `0001_initial`, `0002_trustgroup` | **unchanged** loader keys `trusts.0001_initial` / `trusts.0002_trustgroup` |
@@ -60,6 +61,7 @@ Forbidden:
 - bare `'trusts.zero'` as a substitute for `trusts.zero.apps.ZeroConfig`
 - Zero shipping `trusts/__init__.py`
 - copying `granted` / `HistoricalGroupQueryCompiler` / `compose` into Zero
+- restoring r7-deleted grant/revoke/associate façades on `Content` / `Trust` / `TrustGroup`
 
 ## Migration identity
 
@@ -97,8 +99,44 @@ against C1 APIs).
 | Callable `:condition` | `PermissionConditionNotQueryable` | **unchanged** |
 | Plan sequencing | Zero/core `aggregate_granted` / handle loop | **core** `.authorized` only |
 | `get_permission` | manager method | **retained** |
-| `filter_by_user_content_perm` | `trust_grant_q` | codec + `filter_authorized_scopes` (TGP) or C1 `trust_grant_q` fallback |
+| `filter_by_user_content_perm` | `trust_grant_q` with permission resolved on the **content** model | codec + `resolve_content_permission(content, perm_name)` then `filter_authorized_scopes` (TGP) or C1 `trust_grant_q` fallback |
 | Fail-closed undeclared | empty | **unchanged** (`any_plan_records`) |
+| Write conveniences | `Content.grant` / `revoke`, `Trust.associate_group` / `grant_group_permission*`, `TrustGroup.grant_permission*` | **deleted**; direct ORM |
+
+## Write conveniences (r7 deletion map)
+
+Approved 2.0 removals from reconstituted `trusts.zero.models`. Actor gating stays application code after a read/guard. `TrustGroupPermission.clean` / `save` / `bulk_create` still reject local grants outside the group's global ceiling.
+
+| Old | New (direct ORM) |
+| --- | --- |
+| `content.grant(perm, user)` | `TrustUserPermission.objects.get_or_create(trust=content.trust, entity=user, permission=Content.objects.get_permission(perm) if needed else perm)` |
+| `content.revoke(perm, user)` | `TrustUserPermission.objects.filter(trust=content.trust, entity=user, permission=…).delete()`; omit `permission` for former `perm=None` |
+| `trust.associate_group(group)` | `trust.groups.add(group)` or `TrustGroup.objects.get_or_create(trust=trust, group=group)` |
+| `trust.grant_group_permission(group, perm)` | `TrustGroupPermission.objects.get_or_create(trustgroup=tg, permission=perm)` after association + ceiling on `group.permissions` |
+| `trust.revoke_group_permission(group, perm)` | `TrustGroupPermission.objects.filter(trustgroup=tg, permission=perm).delete()` (association left in place) |
+| `trust.set_group_permissions(group, perms)` | delete extra `TrustGroupPermission` rows; create missing ones |
+| `trustgroup.grant_permission` / `revoke_permission` / `set_permissions` | same `TrustGroupPermission` ORM |
+
+```python
+perm = Receipt.objects.get_permission('read')
+
+TrustUserPermission.objects.get_or_create(
+    trust=receipt.trust, entity=trustee, permission=perm)
+TrustUserPermission.objects.filter(
+    trust=receipt.trust, entity=trustee, permission=perm).delete()
+
+trust.groups.add(accountants)
+trust.groups.remove(accountants)
+
+tg, _ = TrustGroup.objects.get_or_create(trust=trust, group=accountants)
+TrustGroupPermission.objects.get_or_create(trustgroup=tg, permission=perm)
+TrustGroupPermission.objects.filter(trustgroup=tg, permission=perm).delete()
+
+accountants.user_set.add(user)
+accountants.permissions.add(perm)  # global ceiling
+```
+
+Create-under-Trust: `Trust.objects.filter_by_user_content_perm(user, Category, 'add')` must resolve `add_category`, not `add_trust`. A trustee grant of `add_trust` alone is insufficient.
 
 ## Migration-bot checklist
 
@@ -110,6 +148,14 @@ AUTHENTICATION_BACKENDS.*trusts.backends
 from trusts.models import
 from trusts import ENTITY_MODEL_NAME
 from trusts import ROOT_PK
+.content.grant(
+.content.revoke(
+.associate_group(
+.grant_group_permission(
+.revoke_group_permission(
+.set_group_permissions(
+.grant_permission(
+.set_permissions(
 ```
 
 Then:
@@ -119,6 +165,9 @@ Then:
 - [ ] Keep `'trusts.backends.TrustModelBackend'` (core path). Do not switch to a Zero backend module.
 - [ ] Canonical model import is `trusts.zero.models`. C2 1.x shim still serves `trusts.models` when Zero is installed.
 - [ ] Settings constants for migrations/commands: `trusts.zero`.
+- [ ] Replace `Content.grant`/`revoke`, `Trust.associate_group`/`grant_group_permission`/`revoke_group_permission`/`set_group_permissions`, and `TrustGroup.grant_permission`/`revoke_permission`/`set_permissions` with the ORM snippets above. Do not restore those methods.
+- [ ] Keep ceiling writes on `TrustGroupPermission` (`.full_clean()` / `save` / `bulk_create`); do not bypass `local_grant_outside_ceiling`.
+- [ ] `filter_by_user_content_perm(user, ContentModel, 'add')` must keep authorizing the **content** permission (e.g. `add_category`), not `add_trust`.
 - [ ] `python -m django migrate --plan` — no Trusts operations on an already-current database.
 - [ ] `python -m django makemigrations trusts --check` — quiet in the paired configuration.
 - [ ] Confirm `ContentType` natural keys `trusts | trust` (and siblings) and `COUNT(*)` on every Trusts table are unchanged.

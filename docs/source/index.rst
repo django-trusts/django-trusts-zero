@@ -83,3 +83,51 @@ widening; group list/object grants on C1 continue through
 
 Host Content subclasses still contribute their own TUP ``register()``
 lines from their ``AppConfig.ready()``, using ``kernel_config()``.
+
+Direct ORM writes (r7 deletion map)
+-----------------------------------
+
+Write conveniences are gone in 2.0: ``Content.grant`` / ``revoke``,
+``Trust.associate_group`` / ``grant_group_permission`` /
+``revoke_group_permission`` / ``set_group_permissions``, and
+``TrustGroup.grant_permission`` / ``revoke_permission`` /
+``set_permissions``. Ceiling integrity stays on
+``TrustGroupPermission.clean`` / ``save`` / ``bulk_create``.
+
+::
+
+   from django.contrib.auth.models import Group
+   from trusts.zero.models import (
+       TrustGroup, TrustGroupPermission, TrustUserPermission,
+   )
+
+   perm = Receipt.objects.get_permission('read')
+
+   # trustee grant / revoke
+   TrustUserPermission.objects.get_or_create(
+       trust=receipt.trust, entity=trustee, permission=perm)
+   TrustUserPermission.objects.filter(
+       trust=receipt.trust, entity=trustee, permission=perm).delete()
+   TrustUserPermission.objects.filter(
+       trust=receipt.trust, entity=trustee).delete()  # former perm=None
+
+   # associate / disassociate
+   trust.groups.add(accountants)
+   trust.groups.remove(accountants)
+
+   # local group grant / revoke / set
+   tg, _created = TrustGroup.objects.get_or_create(
+       trust=trust, group=accountants)
+   TrustGroupPermission.objects.get_or_create(
+       trustgroup=tg, permission=perm)
+   TrustGroupPermission.objects.filter(
+       trustgroup=tg, permission=perm).delete()
+   # replace local set: delete extras, create missing TrustGroupPermission rows
+
+   # membership / ceiling
+   accountants.user_set.add(user)
+   accountants.permissions.add(perm)
+
+Create-under-Trust (``filter_by_user_content_perm``) resolves the
+permission on the **requested content model** (``add_category``, not
+``add_trust``).

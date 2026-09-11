@@ -1,5 +1,6 @@
 """Zero codec, registration, manager, and condition compatibility on C1 APIs."""
 
+from django.core.exceptions import ValidationError
 from django.contrib.auth.models import Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
@@ -9,10 +10,12 @@ from trusts.apps import kernel_config
 from trusts.core import TrustsConfigurationError, TrustsRegistry
 from trusts.query import AuthorizedQuerySet
 from trusts.zero.models import (
+    Content,
     ContentConditionLookup,
     ContentQuerySet,
     PermissionConditionNotQueryable,
     Trust,
+    TrustGroup,
     TrustGroupPermission,
     TrustUserPermission,
     django_permission_filter,
@@ -119,8 +122,27 @@ class RegistrationAndCodecTests(TestCase):
         empty = Trust.objects.filter_by_user_content_perm(
             self.user, Category, 'add',
         )
-        # Category is declared; user has no add grant.
+        # Category is declared; user has no add_category grant.
+        self.assertIsNone(empty._result_cache)
         self.assertEqual(list(empty), [])
+
+    def test_filter_by_user_content_perm_resolves_on_content_model(self):
+        add_category = Category.objects.get_permission('add')
+        add_trust = Trust.objects.get_permission('add')
+        TrustUserPermission(
+            trust=self.org, entity=self.user, permission=add_category,
+        ).save()
+        TrustUserPermission(
+            trust=self.isolated, entity=self.user, permission=add_trust,
+        ).save()
+        qs = Trust.objects.filter_by_user_content_perm(
+            self.user, Category, 'add',
+        )
+        self.assertIsNone(qs._result_cache)
+        self.assertIn(self.org, qs)
+        self.assertNotIn(self.isolated, qs)
+        self.assertNotIn(self.root, qs)
+        self.assertNotIn(self.child, qs)
 
     def test_filter_by_user_content_perm_rejects_condition(self):
         with self.assertRaises(PermissionConditionNotQueryable):
@@ -153,8 +175,6 @@ class RegistrationAndCodecTests(TestCase):
     def test_callable_condition_raises_before_sql(self):
         def never_called(user, perm, obj):
             raise AssertionError('callable must not run')
-        ContentQuerySet  # keep import used
-        from trusts.zero.models import Content
         Content.register_permission_condition(Category, 'cb', never_called)
         cat = Category(name='n', trust=self.org)
         cat.save()
@@ -167,11 +187,46 @@ class RegistrationAndCodecTests(TestCase):
         group.permissions.add(self.change)
         other_child = Trust(settlor=self.other, title='GChild', trust=self.isolated)
         other_child.save()
-        self.isolated.grant_group_permission(group, self.change)
+        tg, _created = TrustGroup.objects.get_or_create(
+            trust=self.isolated, group=group,
+        )
+        TrustGroupPermission.objects.create(trustgroup=tg, permission=self.change)
         user = User.objects.get(pk=self.user.pk)
         self.assertTrue(user.has_perm('trusts.change_trust', other_child))
         permitted = list(Trust.objects.permitted('change', user))
         self.assertIn(other_child, permitted)
+
+    def test_trustgrouppermission_save_rejects_outside_ceiling(self):
+        group = Group.objects.create(name='no-ceiling')
+        tg, _created = TrustGroup.objects.get_or_create(
+            trust=self.org, group=group,
+        )
+        with self.assertRaises(ValidationError):
+            TrustGroupPermission.objects.create(
+                trustgroup=tg, permission=self.change,
+            )
+
+    def test_r7_write_conveniences_are_absent(self):
+        for name in (
+            'grant', 'revoke',
+        ):
+            self.assertFalse(hasattr(Content, name), name)
+        for name in (
+            'associate_group',
+            'grant_group_permission',
+            'revoke_group_permission',
+            'set_group_permissions',
+        ):
+            self.assertFalse(hasattr(Trust, name), name)
+        for name in (
+            'grant_permission',
+            'revoke_permission',
+            'set_permissions',
+        ):
+            self.assertFalse(hasattr(TrustGroup, name), name)
+        self.assertTrue(callable(TrustGroupPermission.clean))
+        self.assertTrue(callable(TrustGroupPermission.save))
+        self.assertTrue(callable(TrustGroupPermission.objects.bulk_create))
 
     def test_django_permission_filter_is_the_codec(self):
         qs = Trust.objects.all()
