@@ -32,6 +32,9 @@ from django.test.utils import get_runner
 from django.conf import settings
 
 
+# Existing Zero-owned suite plus historical modules copied from core
+# 948d6666342377b9472debb57d4a1e26e81402d1 (STAGE 1). Core KERNEL_SUITE
+# modules stay in core for STAGE 2.
 NORMAL_SUITE = [
     'tests.test_appconfig',
     'tests.test_migrations',
@@ -40,6 +43,21 @@ NORMAL_SUITE = [
     'tests.test_issue9',
     'tests.test_issue16',
     'tests.test_smoke',
+    'tests.legacy.test_historical',
+    'tests.legacy.test_issue4',
+    'tests.legacy.test_issue8',
+    'tests.legacy.test_issue23',
+    'tests.legacy.test_issue29',
+    'tests.legacy.test_issue54',
+    'tests.legacy.test_issue67',
+    'tests.legacy.test_issue70',
+    'tests.legacy.test_issue72',
+    'tests.legacy.test_issue75',
+    'tests.legacy.test_issue77',
+    'tests.legacy.test_issue80',
+    'tests.legacy.test_issue85',
+    'tests.legacy.test_issue87',
+    'tests.legacy.test_issue89',
 ]
 
 
