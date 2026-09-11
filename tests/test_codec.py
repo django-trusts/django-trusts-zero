@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import TestCase
 
-from trusts.apps import kernel_config
+from trusts.zero.apps import CANONICAL_BACKEND, zero_config
 from trusts.core import TrustsConfigurationError, TrustsRegistry
 from trusts.query import AuthorizedQuerySet
 from trusts.zero.models import (
@@ -69,7 +69,7 @@ class RegistrationAndCodecTests(TestCase):
         self.assertIs(records[0].content_model, Trust)
 
     def test_live_registry_has_tup_trust_and_bound_condition_lookup(self):
-        handle = kernel_config().configured_backend()
+        handle = zero_config().configured_backend(CANONICAL_BACKEND)
         records = handle.registry.records_for_root(TrustUserPermission)
         content_models = {row.content_model for row in records}
         self.assertIn(Trust, content_models)
