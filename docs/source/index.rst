@@ -1,29 +1,37 @@
-django-trusts-zero Z1
-=====================
+django-trusts-zero Step IIa
+===========================
 
-Concrete 0.x Trusts models reconstituted under ``trusts.zero`` on the
-merged django-trusts C1 public APIs. Unrelated to Zero Trust network
+Concrete 0.x Trusts models under ``trusts.zero``, owned by
+``ZeroConfig`` on merged django-trusts Step I
+(``1.0.0.dev2`` / merge ``39f1f961``). Unrelated to Zero Trust network
 architecture.
 
-This is the **Z1 half** of the accepted
-`#54 metadata-registration-r9 <https://github.com/django-trusts/django-trusts/issues/54#issuecomment-5631618250>`_
-cutover. It must **not** merge alone against C1.
+This is **Step IIa** of the approved package-boundary staircase
+(`#102 r5 <https://github.com/django-trusts/django-trusts/issues/102#issuecomment-5639018377>`_).
+Package version is ``2.0.0.dev2`` with
+``django-trusts>=1.0.0.dev2,<2``.
 
-C1 public APIs consumed
------------------------
+Core public APIs consumed
+-------------------------
 
-* ``trusts.query.AuthorizedQuerySet.authorized(user, permission, extra_q=None)``
+* ``trusts.query.AuthorizedQuerySet.authorized`` control flow via ``granted``
 * ``trusts.core.filter_authorized_scopes``
 * ``trusts.core.ConditionLookup`` / ``TrustsRegistry.set_condition_lookup``
 * ``trusts.core.Ref`` / ``TrustsRegistry.register``
-* ``trusts.apps.kernel_config()``
-* ``trusts.backends.TrustModelBackend`` (unchanged dotted path)
+* ``trusts.apps.TrustsImplementationConfig``
+* ``trusts.apps.implementation_for_path`` / ``implementation_for_class``
+* ``trusts.backends.TrustModelBackendMixin`` (same object as ``trusts.core_backends`` until Step III)
 
 Zero-owned surfaces
 -------------------
 
-* Concrete models at ``trusts.zero.models`` with ``ZeroConfig.label = 'trusts'``
-* ``ContentQuerySet.permitted(perm, user)`` — one-line codec over ``.authorized``
+* ``trusts.zero.apps.ZeroConfig`` — sole implementation owner
+  (``name='trusts.zero'``, persisted ``label='trusts'``)
+* Distinct canonical class ``trusts.zero.backends.TrustModelBackend``
+  (not the temporary core historical class)
+* Concrete models at ``trusts.zero.models``
+* ``ContentQuerySet.permitted(perm, user)`` — Django-permission codec over
+  owner-resolved ``.authorized``
 * ``Model.objects.get_permission(...)``
 * ``Trust.objects.get_or_create_settlor_default`` / ``get_root`` /
   ``filter_by_user_perm`` / ``filter_by_user_content_perm``
@@ -31,29 +39,39 @@ Zero-owned surfaces
   ``ContentConditionLookup`` bound from ``ZeroConfig.ready()``
 * Historical migrations ``trusts.0001_initial`` / ``trusts.0002_trustgroup``
 
-Installation (paired C2+Z1 only)
---------------------------------
+Installation
+------------
 
 ::
 
    INSTALLED_APPS = [
-       'trusts',                       # kernel, label=trusts_core after C2
+       'django.contrib.contenttypes',
+       'django.contrib.auth',
        'trusts.zero.apps.ZeroConfig',  # models, label=trusts
    ]
    AUTHENTICATION_BACKENDS = (
        'django.contrib.auth.backends.ModelBackend',  # optional global
-       'trusts.backends.TrustModelBackend',          # unchanged path
+       'trusts.zero.backends.TrustModelBackend',
    )
 
-Bare ``'trusts.zero'`` is forbidden. Bare ``'trusts'`` after C2 is the
-kernel and no longer carries 0.x models.
+Do **not** list ``'trusts'`` (core is a library, not an installed app).
+Bare ``'trusts.zero'`` is forbidden. Do **not** keep
+``'trusts.backends.TrustModelBackend'`` — IIa fails startup with
+``ImproperlyConfigured`` naming the canonical Zero path.
 
-Negative duplicate-label gate
------------------------------
+Persisted identity is unchanged: migration keys
+``('trusts', '0001_initial')`` / ``('trusts', '0002_trustgroup')``,
+tables ``trusts_trust`` …, content types ``trusts | trust``.
 
-C1 still owns ``label='trusts'``. Installing Z1 with C1 is
-``ImproperlyConfigured`` before ``ready()``. That combination is
-unsupported, not a “fix later”.
+Startup and failure behavior
+----------------------------
+
+* Missing Step I helper or django-trusts below ``1.0.0.dev2`` raises
+  ``ImproperlyConfigured`` from ``ZeroConfig.ready()``.
+* The old core backend path raises ``ImproperlyConfigured`` (not an alias).
+* ``kernel_config()`` raises ``LookupError`` because the kernel
+  ``AppConfig`` is not installed. Host apps donate through
+  ``implementation_for_path``, never ``kernel_config()``.
 
 Authorized list filtering
 -------------------------
@@ -68,21 +86,23 @@ Authorized list filtering
 
 ``.permitted`` does not sequence grant plans. It resolves the Django
 permission codec (active principal, optional ``:condition``,
-``get_permission``) and delegates to ``.authorized``.
+``get_permission``) and delegates to ``.authorized``. Handles come from
+the Zero owner, not the kernel AppConfig.
 
 TUP + TGP registration
 ----------------------
 
 ``ZeroConfig.ready()`` registers Trust-as-content TUP records on
-``kernel_config().configured_handles()`` using C1 ``Ref`` /
-``register()``. TGP membership/ceiling records are attempted on the same
-public API. Merged C1 user paths are still one direct hop, so TGP
-``user_set`` registration is rejected until a later core grammar
-widening; group list/object grants on C1 continue through
-``HistoricalGroupQueryCompiler``. Zero does not copy that compiler.
+``implementation_for_path('trusts.zero.backends.TrustModelBackend').configured_backend(...).registry``
+using core ``Ref`` / ``register()``. TGP membership/ceiling records are
+attempted on the same public API. Merged core user paths are still one
+direct hop, so TGP ``user_set`` registration is rejected until a later
+core grammar widening; group list/object grants continue through
+Zero-owned ``HistoricalGroupQueryCompiler``.
 
 Host Content subclasses still contribute their own TUP ``register()``
-lines from their ``AppConfig.ready()``, using ``kernel_config()``.
+lines from their ``AppConfig.ready()``, using
+``implementation_for_path``, not ``kernel_config()``.
 
 Direct ORM writes (r7 deletion map)
 -----------------------------------
