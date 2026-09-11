@@ -275,8 +275,9 @@ def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kw
     create-under-Trust filter. On C1, TGP cannot register, so group
     parity uses the still-public C1 ``trust_grant_q`` (not copied).
     """
-    from trusts.apps import kernel_config
+    from trusts.apps import implementation_for_path
     from trusts.query import trust_grant_q
+    from trusts.zero.apps import CANONICAL_BACKEND
 
     reject_queryable_condition(
         perm_name, 'Trust.objects.filter_by_user_content_perm'
@@ -287,7 +288,7 @@ def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kw
         return manager.none()
     if not isinstance(content, type):
         content = content.__class__
-    handles = kernel_config().configured_handles()
+    handles = implementation_for_path(CANONICAL_BACKEND).configured_handles()
     if not any_plan_records(handles, content):
         return manager.none()
     content = getattr(content._meta, 'concrete_model', content)
@@ -305,6 +306,34 @@ def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kw
 
 
 class ContentQuerySet(AuthorizedQuerySet):
+    def authorized(self, user, permission, extra_q=None):
+        """Owner-present list filter. Does not call ``kernel_config()``.
+
+        Core ``AuthorizedQuerySet.authorized`` still reads the transitional
+        kernel AppConfig. IIa does not install that config, so Zero list
+        queries resolve handles through ``implementation_for_path``.
+        ``granted`` / ``Exists`` / ``.distinct()`` stay in core.
+        """
+        from django.db.models import Model
+
+        from trusts.apps import implementation_for_path
+        from trusts.core import TrustsConfigurationError, granted
+        from trusts.zero.apps import CANONICAL_BACKEND
+
+        if not isinstance(permission, Model):
+            raise TrustsConfigurationError(
+                'permission must be a model instance, not %r.' % (permission,)
+            )
+        granted_q = granted(
+            implementation_for_path(CANONICAL_BACKEND).configured_handles(),
+            self, user, permission, kind='complete',
+        )
+        if granted_q is None:
+            return self.none()
+        if extra_q is not None:
+            granted_q = granted_q & extra_q
+        return self.filter(granted_q).distinct()
+
     def permitted(self, perm, user):
         """Content the user may access via trustee or group local/global grants.
 
