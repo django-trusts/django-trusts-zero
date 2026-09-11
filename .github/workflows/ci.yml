@@ -10,7 +10,7 @@ permissions:
 
 env:
   # Core #118 condition registry (pair pin for Zero #16).
-  COMPANION_KERNEL_SHA: 9993f7b102b8b0d5844c208d22f52e9a22df18b2
+  COMPANION_KERNEL_SHA: 948d6666342377b9472debb57d4a1e26e81402d1
 
 jobs:
   tests:
@@ -62,8 +62,8 @@ jobs:
         python-version: "3.12"
     - name: Exact core #118 pair
       run: |
-        test "${COMPANION_KERNEL_SHA}" = "9993f7b102b8b0d5844c208d22f52e9a22df18b2"
-        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "9993f7b102b8b0d5844c208d22f52e9a22df18b2"
+        test "${COMPANION_KERNEL_SHA}" = "948d6666342377b9472debb57d4a1e26e81402d1"
+        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "948d6666342377b9472debb57d4a1e26e81402d1"
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat

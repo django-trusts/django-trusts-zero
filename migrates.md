@@ -15,7 +15,7 @@ Those surfaces are gone on the supported core library.
 | Item | Value |
 | --- | --- |
 | Authoritative Zero metadata | this repo `pyproject.toml` (`1.0.0.dev0` + `django-trusts>=1.0.0.dev3,<2`) |
-| Paired core #16 registry | [django-trusts#118](https://github.com/django-trusts/django-trusts/pull/118) HEAD [`9993f7b102b8b0d5844c208d22f52e9a22df18b2`](https://github.com/django-trusts/django-trusts/commit/9993f7b102b8b0d5844c208d22f52e9a22df18b2) on `cursor/zero-16-condition-registry-0bf8` |
+| Paired core #16 registry | [django-trusts#118](https://github.com/django-trusts/django-trusts/pull/118) merge [`948d6666342377b9472debb57d4a1e26e81402d1`](https://github.com/django-trusts/django-trusts/commit/948d6666342377b9472debb57d4a1e26e81402d1) |
 | Previous merged core floor | [django-trusts#112](https://github.com/django-trusts/django-trusts/pull/112) [`11058641b533e0f8489598e0b1f5cbe5d42a81db`](https://github.com/django-trusts/django-trusts/commit/11058641b533e0f8489598e0b1f5cbe5d42a81db) (`django-trusts==1.0.0.dev3`) |
 | Zero #16 baseline | [`f0b25c5562c4f9803d861503dd2acac21613119d`](https://github.com/django-trusts/django-trusts-zero/commit/f0b25c5562c4f9803d861503dd2acac21613119d) |
 
@@ -141,7 +141,7 @@ Create-under-Trust: `Trust.objects.filter_by_user_content_perm(user, Category, '
 This record is the Zero half of
 [django-trusts-zero #16](https://github.com/django-trusts/django-trusts-zero/issues/16),
 paired with [django-trusts#118](https://github.com/django-trusts/django-trusts/pull/118)
-HEAD `9993f7b102b8b0d5844c208d22f52e9a22df18b2`. Package version stays
+merge `948d6666342377b9472debb57d4a1e26e81402d1`. Package version stays
 **1.0.0.dev0**. No model, table, migration-loader key, content type,
 permission row, or stored authorization-data change.
 
