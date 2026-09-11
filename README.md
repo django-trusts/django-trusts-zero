@@ -5,16 +5,27 @@ forward from django-trusts 0.x, packaged as an optional implementation of
 the django-trusts relational authorization kernel. Unrelated to Zero Trust
 network architecture.
 
-## Z1 status
+## Step IIa status
 
-This tree reconstitutes historical schema under `trusts.zero` on the merged
-C1 public APIs (`AuthorizedQuerySet.authorized`, `filter_authorized_scopes`,
-`ConditionLookup`, `kernel_config()`, `TrustsRegistry.register`).
+This tree is `django-trusts-zero==2.0.0.dev2` against merged core Step I
+(`django-trusts==1.0.0.dev2`, merge
+[`39f1f961`](https://github.com/django-trusts/django-trusts/commit/39f1f9611e214193aec4e97526cf9b54ee689967)).
 
-**Do not merge Z1 alone against C1.** Both own `label='trusts'`. Installing
-`trusts.zero.apps.ZeroConfig` next to C1 `trusts.apps.AppConfig` is
-unsupported and must raise `ImproperlyConfigured` (duplicate application
-label). Final merge requires paired C2 (`label='trusts_core'` on the kernel).
+`ZeroConfig` is the sole implementation owner. Core is a library: do not
+list `'trusts'` in `INSTALLED_APPS`. The canonical backend class is
+defined in Zero and is not the temporary core historical class.
+
+```python
+INSTALLED_APPS = [
+    'django.contrib.contenttypes',
+    'django.contrib.auth',
+    'trusts.zero.apps.ZeroConfig',  # name=trusts.zero, label=trusts
+]
+AUTHENTICATION_BACKENDS = (
+    'django.contrib.auth.backends.ModelBackend',
+    'trusts.zero.backends.TrustModelBackend',
+)
+```
 
 Canonical models import:
 
@@ -22,17 +33,7 @@ Canonical models import:
 from trusts.zero.models import Trust, Content, Junction, TrustUserPermission
 ```
 
-Install (after C2; not valid on C1):
-
-```python
-INSTALLED_APPS = [
-    'trusts',                       # kernel, label=trusts_core after C2
-    'trusts.zero.apps.ZeroConfig',  # models, label=trusts
-]
-AUTHENTICATION_BACKENDS = (
-    'django.contrib.auth.backends.ModelBackend',
-    'trusts.backends.TrustModelBackend',  # unchanged core path
-)
-```
+Do not list `'trusts'` or `'trusts.zero'`. Do not keep
+`'trusts.backends.TrustModelBackend'` — that path fails at startup.
 
 See `docs/source/index.rst` and `migrates.md`.

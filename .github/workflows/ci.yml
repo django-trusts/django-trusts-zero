@@ -9,14 +9,12 @@ permissions:
   contents: read
 
 env:
-  # Merged C1 APIs (django-trusts#95 merge). Z1 must not merge alone against C1.
-  COMPANION_KERNEL_SHA: ffb02364a45f3a4bc2b9a3973de3612c37d785e9
-  # Optional future C2 branch/SHA. Empty means Z1-alone (C2-shape emulation).
-  COMPANION_C2_REF: ${{ vars.COMPANION_C2_REF || '' }}
+  # Merged core Step I (django-trusts#109). IIa must pair this exact merge.
+  COMPANION_KERNEL_SHA: 39f1f9611e214193aec4e97526cf9b54ee689967
 
 jobs:
   tests:
-    name: tests vs C1 APIs (Python ${{ matrix.python-version }})
+    name: tests vs Step I core (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -34,54 +32,35 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install C1 kernel then Zero
+    - name: Install Step I kernel then Zero
       run: |
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage virtualenv
-        python scripts/apply-kernel-namespace-overlay.py .deps/django-trusts
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
         python -m pip install -e . --config-settings editable_mode=compat
-    - name: Zero tests (C2-shape against C1 APIs)
+    - name: Zero tests (IIa against Step I)
       run: coverage run -m tests.runtests && coverage report
     - name: Fresh install + makemigrations --check
       run: python scripts/verify-fresh-install.py
-    - name: Duplicate-label negative gate
+    - name: Old-backend-path negative gate
       run: python scripts/verify-neg-duplicate-label.py
 
-  pair-c2:
-    name: pair with future C2 branch
+  pair-step-i:
+    name: pair with merged Step I core
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
     steps:
     - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: django-trusts/django-trusts
+        ref: ${{ env.COMPANION_KERNEL_SHA }}
+        path: .deps/django-trusts
     - uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-    - name: Resolve C2 companion (skip when absent)
-      id: c2
-      run: |
-        REF="${COMPANION_C2_REF}"
-        if [ -z "$REF" ]; then
-          REF="$(git ls-remote --heads https://github.com/django-trusts/django-trusts.git 'cursor/metadata-registration-c2-*' | awk '{print $1}' | head -1)"
-        fi
-        if [ -z "$REF" ]; then
-          echo "present=false" >> "$GITHUB_OUTPUT"
-          echo "No C2 branch yet; Z1-alone is expected until paired C2."
-        else
-          echo "present=true" >> "$GITHUB_OUTPUT"
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-        fi
-    - uses: actions/checkout@v4
-      if: steps.c2.outputs.present == 'true'
-      with:
-        repository: django-trusts/django-trusts
-        ref: ${{ steps.c2.outputs.ref }}
-        path: .deps/django-trusts
-    - name: Matrix B on real C2
-      if: steps.c2.outputs.present == 'true'
-      env:
-        TRUSTS_ZERO_SKIP_C2_SHAPE: "1"
+    - name: Matrix on exact Step I merge
       run: |
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage
@@ -89,9 +68,7 @@ jobs:
         python -m pip install -e . --config-settings editable_mode=compat
         coverage run -m tests.runtests
         python scripts/verify-fresh-install.py
-    - name: Record skip
-      if: steps.c2.outputs.present != 'true'
-      run: echo "pair-c2 skipped; merge of Z1 still requires a later C2 pair."
+        python scripts/verify-neg-duplicate-label.py
 
   package:
     name: package / wheel
