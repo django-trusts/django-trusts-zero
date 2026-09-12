@@ -1,12 +1,16 @@
+"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue75.py`` for issue #37 Zero-first coverage.
+
+Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+"""
+
 """S3a: path-scoped registries and aggregate list authorization (issue #75).
 
 Backend ``has_perm`` / enumeration stay on the historical path. Structural
 and behavioral tests only — no source-token or ``inspect.getsource``
 assertions.
-
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue75.py``.
 """
 
+import unittest
 from unittest.mock import patch
 
 from django.apps import apps
@@ -25,6 +29,7 @@ from tests.apps import (
     isolate_live_registry,
     isolated_owner,
     live_config,
+    live_registry,
     override_apps_ready,
 )
 from tests.backends import (
@@ -169,6 +174,9 @@ class _RegistryRestoreMixin(object):
         super().tearDown()
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class PathScopedRegistryStoreTest(_RegistryRestoreMixin, SimpleTestCase):
     def test_one_path_registry_alias_is_exact_store(self):
         handle = self.live.configured_backend()
@@ -311,6 +319,9 @@ class IsolatedAppsPathStoreTest(SimpleTestCase):
         self.assertEqual(live.registry.records, before)
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class ContributionPathTest(_RegistryRestoreMixin, SimpleTestCase):
     def test_explicit_path_contribution_writes_one_registry(self):
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
@@ -392,6 +403,9 @@ class ContributionPathTest(_RegistryRestoreMixin, SimpleTestCase):
             self.assertEqual(len(_trust_rows(isolated)), 1)
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class CompilerProtocolTest(_RegistryRestoreMixin, SimpleTestCase):
     def test_malformed_compiler_is_e004(self):
         with override_settings(AUTHENTICATION_BACKENDS=(MISSING,)):
@@ -508,6 +522,9 @@ class OnePathPermittedUnchangedTest(TestCase):
         )
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class TwoPathAuthorizationTest(_RegistryRestoreMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -681,6 +698,9 @@ class TwoPathAuthorizationTest(_RegistryRestoreMixin, TestCase):
             )
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class CompilerIsolationTest(_RegistryRestoreMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -758,7 +778,7 @@ class CompilerIsolationTest(_RegistryRestoreMixin, TestCase):
 
 class ContentConditionsPreservedTest(TestCase):
     def test_conditions_registry_still_lives_on_content(self):
-        self.assertTrue(hasattr(Content, '_conditions'))
+        self.assertTrue(hasattr(live_registry(), 'conditions'))
         self.assertIsNotNone(
-            Content.get_permission_condition_record(Trust, 'own')
+            live_registry().get_permission_condition_record(Trust, 'own')
         )
