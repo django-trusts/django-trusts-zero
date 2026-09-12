@@ -1,167 +1,199 @@
 django-trusts-zero
 ==================
 
-Concrete 0.x Trusts models under ``trusts.zero``, owned by
-``trusts.zero.apps.ZeroConfig`` on the django-trusts 1.x owner API.
-Unrelated to Zero Trust network architecture.
+``django-trusts-zero`` is the concrete continuation of django-trusts 0.x.
+Use it when an application needs the historical Trust/Content models, stored
+Django identities, and a migration path from the 0.x package. The name is
+unrelated to Zero Trust networking.
 
-Package version is exactly ``1.0.0.dev0``. Core floor is
-``django-trusts>=1.0.0.dev3,<2`` (merged
-`#118 <https://github.com/django-trusts/django-trusts/pull/118>`_ merge
-``948d6666342377b9472debb57d4a1e26e81402d1``).
+The package depends on the schema-neutral ``django-trusts`` 1.x core. Core is
+a Python library; Zero owns the concrete Django application, models, backend,
+and migration identity.
 
-Public APIs consumed
---------------------
+Install
+-------
 
-* ``trusts.apps.TrustsImplementationConfig``
-* ``trusts.apps.implementation_configs`` /
-  ``implementation_for_path`` / ``implementation_for_class``
-* ``trusts.backends.TrustModelBackendMixin``
-* ``trusts.query.AuthorizedQuerySet`` / ``historical_group_grant_exists`` /
-  ``trust_grant_q``
-* ``trusts.core.Ref`` / ``TrustsRegistry.register`` / ``granted`` /
-  ``filter_authorized_scopes`` / ``ConditionLookup``
-* ``trusts.conditions.RegistryConditionLookup`` /
-  ``TrustsRegistry.register_permission_condition``
+.. code-block:: bash
 
-Supported execution does **not** import ``trusts.apps.kernel_config``
-(removed) and does **not** install a core ``AppConfig``.
+   pip install django-trusts-zero
 
-Zero-owned surfaces
--------------------
+Configure the explicit Zero application and backend:
 
-* Concrete models at ``trusts.zero.models`` with ``ZeroConfig.label = 'trusts'``
-* Canonical backend ``trusts.zero.backends.TrustModelBackend`` (core
-  ships only ``TrustModelBackendMixin``)
-* ``ContentQuerySet.permitted(perm, user)`` — Django-permission codec over
-  Zero-owned ``.authorized``
-* ``Model.objects.get_permission(...)``
-* ``Trust.objects.get_or_create_settlor_default`` / ``get_root`` /
-  ``filter_by_user_perm`` / ``filter_by_user_content_perm``
-* ``Meta.permission_conditions`` / ``Meta.content_permission_conditions``
-  (including built-in ``Trust:own``) donated onto the configured handle
-  registry; ``:condition`` overlay via ``RegistryConditionLookup`` bound
-  from ``ZeroConfig.ready()``
-* Historical migrations ``trusts.0001_initial`` / ``trusts.0002_trustgroup``
-
-Installation
-------------
-
-::
+.. code-block:: python
 
    INSTALLED_APPS = [
-       'django.contrib.contenttypes',
-       'django.contrib.auth',
-       'trusts.zero.apps.ZeroConfig',  # models + owner, label=trusts
+       "django.contrib.contenttypes",
+       "django.contrib.auth",
+       "trusts.zero.apps.ZeroConfig",
    ]
+
    AUTHENTICATION_BACKENDS = (
-       'django.contrib.auth.backends.ModelBackend',  # optional global
-       'trusts.zero.backends.TrustModelBackend',     # canonical Zero path
+       "django.contrib.auth.backends.ModelBackend",
+       "trusts.zero.backends.TrustModelBackend",
    )
 
-Forbidden
----------
+Do not add ``"trusts"`` to ``INSTALLED_APPS``. The core package arrives as a
+dependency and does not provide a Django application. ``ZeroConfig`` keeps
+the historical app label ``trusts`` so existing migrations, tables, content
+types, permissions, and stored rows retain their identities.
 
-* ``'trusts'`` in ``INSTALLED_APPS`` (core is a library, not an app)
-* ``AUTHENTICATION_BACKENDS = ['trusts.backends.TrustModelBackend']``
-  (removed core class; startup ``ImproperlyConfigured``)
-* Bare ``'trusts.zero'`` as a substitute for ``trusts.zero.apps.ZeroConfig``
-* ``from trusts.backends import TrustModelBackend`` as Zero's identity
-* Transparent forwarding from the old core backend path onto Zero's registry
-
-Old / new startup
------------------
-
-* **Old (django-trusts 0.x):** ``INSTALLED_APPS`` listed ``'trusts'``;
-  ``AUTHENTICATION_BACKENDS`` listed ``trusts.backends.TrustModelBackend``.
-* **New (``1.0.0.dev0``):** ``INSTALLED_APPS`` lists only
-  ``trusts.zero.apps.ZeroConfig``; ``AUTHENTICATION_BACKENDS`` lists
-  ``trusts.zero.backends.TrustModelBackend``; missing canonical path,
-  leftover core path, or core below ``1.0.0.dev3`` raise
-  ``ImproperlyConfigured`` naming the floor / canonical path.
-  ``kernel_config()`` and a core ``AppConfig`` are gone.
-
-Persisted Django identity is unchanged: ``label='trusts'``, loader keys
-``trusts.0001_initial`` / ``trusts.0002_trustgroup``, tables
-``trusts_*``, ContentTypes ``trusts | trust`` (and siblings), permission
-codenames.
-
-Authorized list filtering
--------------------------
-
-::
-
-   from trusts.zero.models import Trust
-
-   Trust.objects.permitted('change', request.user)
-   Trust.objects.get_permission('change')
-   Trust.objects.filter_by_user_content_perm(request.user, Receipt, 'add')
-
-``.permitted`` does not sequence grant plans itself. It resolves the
-Django permission codec (active principal, optional ``:condition``,
-``get_permission``) and delegates to ``.authorized`` on Zero-owned
-handles.
-
-TUP + TGP registration
+Concrete model surface
 ----------------------
 
-``ZeroConfig.ready()`` registers Trust-as-content TUP records on
-``implementation_for_path('trusts.zero.backends.TrustModelBackend').configured_backend(...).registry``
-using ``Ref`` / ``register()``. TGP membership/ceiling records are
-attempted on the same public API. ``ZeroConfig.ready()`` also walks
-installed ``Content`` / ``Junction`` Meta condition tuples onto
-``handle.registry`` and binds ``RegistryConditionLookup``. Host Content
-subclasses donate relation records from their ``AppConfig.ready()``
-through the same owner path. Explicit condition registration uses
-``handle.registry.register_permission_condition``. Core no longer ships
-``kernel_config()``.
+Representative imports are:
 
-Group list/object grants continue through Zero's
-``HistoricalGroupQueryCompiler``.
+.. code-block:: python
 
-Direct ORM writes (r7 deletion map)
------------------------------------
-
-Write conveniences are gone: ``Content.grant`` / ``revoke``,
-``Trust.associate_group`` / ``grant_group_permission`` /
-``revoke_group_permission`` / ``set_group_permissions``, and
-``TrustGroup.grant_permission`` / ``revoke_permission`` /
-``set_permissions``. Ceiling integrity stays on
-``TrustGroupPermission.clean`` / ``save`` / ``bulk_create``.
-
-::
-
-   from django.contrib.auth.models import Group
    from trusts.zero.models import (
-       TrustGroup, TrustGroupPermission, TrustUserPermission,
+       Content,
+       Junction,
+       Trust,
+       TrustGroup,
+       TrustGroupPermission,
+       TrustUserPermission,
    )
 
-   perm = Receipt.objects.get_permission('read')
+``Trust`` is the organization or scope tree. ``Content`` is the abstract
+mixin for rows protected by a Trust. ``Junction`` supports an optional
+through-model. ``TrustUserPermission`` and ``TrustGroupPermission`` persist
+local grants; Django groups and roles provide membership and capability
+ceilings.
 
-   # trustee grant / revoke
-   TrustUserPermission.objects.get_or_create(
-       trust=receipt.trust, entity=trustee, permission=perm)
-   TrustUserPermission.objects.filter(
-       trust=receipt.trust, entity=trustee, permission=perm).delete()
-   TrustUserPermission.objects.filter(
-       trust=receipt.trust, entity=trustee).delete()  # former perm=None
+Authorization
+-------------
 
-   # associate / disassociate
-   trust.groups.add(accountants)
-   trust.groups.remove(accountants)
+Object checks use Django's normal permission surface:
 
-   # local group grant / revoke / set
-   tg, _created = TrustGroup.objects.get_or_create(
-       trust=trust, group=accountants)
-   TrustGroupPermission.objects.get_or_create(
-       trustgroup=tg, permission=perm)
-   TrustGroupPermission.objects.filter(
-       trustgroup=tg, permission=perm).delete()
+.. code-block:: python
 
-   # membership / ceiling
-   accountants.user_set.add(user)
-   accountants.permissions.add(perm)
+   allowed = request.user.has_perm("billing.read_receipt", receipt)
 
-Create-under-Trust (``filter_by_user_content_perm``) resolves the
-permission on the **requested content model** (``add_category``, not
-``add_trust``).
+Zero's backend uses core ``PlanQueryCompiler``. Its supported relational
+object decisions and authorized listings compile through the same registered
+policy and remain fixed-query with respect to candidate count.
+
+Filter before slicing or pagination:
+
+.. code-block:: python
+
+   page = Receipt.objects.permitted("read", request.user)[:25]
+
+``ContentQuerySet.permitted`` is Zero's Django-permission codec over
+``.authorized``. ``get_permission`` resolves a Django permission for the
+model. Create-under-Trust filtering uses the permission on the requested
+content model:
+
+.. code-block:: python
+
+   targets = Trust.objects.filter_by_user_content_perm(
+       request.user,
+       Receipt,
+       "add",
+   )
+
+That scope projection is implemented by core ``filter_authorized_scopes``.
+The shared query primitives are ``granted`` and ``filter_authorized_scopes``;
+malformed, unsupported, or unregistered policy fails closed.
+
+Register protected content
+--------------------------
+
+``ZeroConfig`` registers ``Trust`` as protected content. A host application
+donates each additional ``Content`` model from its ``AppConfig.ready()``:
+
+.. code-block:: python
+
+   from trusts.apps import implementation_for_path
+   from trusts.zero.apps import CANONICAL_BACKEND_PATH
+   from trusts.zero.registration import register_zero_content
+
+   owner = implementation_for_path(CANONICAL_BACKEND_PATH)
+   registry = owner.configured_backend(CANONICAL_BACKEND_PATH).registry
+   register_zero_content(registry, Receipt)
+
+``register_zero_content`` registers the direct
+``TrustUserPermission`` path and two complete same-root
+``TrustGroupPermission`` alternatives. A local group grant must also be
+within either ``group.permissions`` or ``group.roles.permissions``. Complete
+paths combine by OR. ``register_zero_relations`` performs only Zero's
+Trust-as-content donation; host applications remain responsible for donating
+their own content models.
+
+Registered ``Meta.permission_conditions`` are bound through
+``RegistryConditionLookup``. Explicit condition registration uses the
+configured registry's ``register_permission_condition`` method.
+
+Edit grants
+-----------
+
+Applications may edit ``TrustUserPermission`` and
+``TrustGroupPermission`` through normal ORM workflows. Zero also supplies
+authorization-aware helpers in ``trusts.zero.authorization``:
+
+.. code-block:: python
+
+   from trusts.zero.authorization import (
+       associate_group_with_trust,
+       grant_trust_group_permission,
+       grant_trustee,
+       revoke_trustee,
+   )
+
+   grant_trustee(actor, receipt, colleague, "read")
+   associate_group_with_trust(actor, receipt, accountants)
+   grant_trust_group_permission(actor, receipt, accountants, "read")
+   revoke_trustee(actor, receipt, colleague, "read")
+
+These helpers require administrative ``change`` authority. Group membership
+and global ``Group.permissions`` changes can affect more than one Trust, so
+real applications must still validate their own administrative workflows and
+transaction boundaries.
+
+Views and decorators
+--------------------
+
+Zero owns the reusable team views:
+
+.. code-block:: python
+
+   from django.urls import include, path
+
+   urlpatterns = [
+       path("", include("trusts.zero.urls")),
+   ]
+
+Their namespace is ``trusts`` (for example ``trusts:team_create`` and
+``trusts:team_detail``). View decorators remain core APIs under
+``trusts.decorators``.
+
+Supported versions and limits
+-----------------------------
+
+* Python 3.12, 3.13, and 3.14
+* Django 6.1
+* ``django-trusts>=1.0.0.dev3,<2``
+* Callable conditions remain object-only; queryset APIs reject them.
+* Configured group and permission model substitutions are not supported.
+* This development release preserves the 0.x persisted identity, but not
+  every historical convenience method or import path.
+
+Migration and related projects
+------------------------------
+
+* `Zero migration guide
+  <https://github.com/django-trusts/django-trusts-zero/blob/dev/migrates.md>`_
+* `Core authorization guide
+  <https://github.com/django-trusts/django-trusts/blob/dev/docs/source/index.rst>`_
+* `Supported Python and Django versions
+  <https://github.com/django-trusts/django-trusts/blob/dev/docs/support-matrix.md>`_
+* `GitHub-style relational example
+  <https://github.com/django-trusts/django-trusts-gh-permissions>`_
+* `Bounded Windows ACL example
+  <https://github.com/django-trusts/django-trusts-windows-acl>`_
+* `Runnable Zero application
+  <https://github.com/django-trusts/django-trusts-example/tree/dev>`_
+
+Contributor and build history lives in ``DEV.md``. Historical migration
+details remain in ``migrates.md``; neither is the current API reference.
+
+Copyright BeeDesk, Inc., 2015--2026. BSD-2-Clause.
