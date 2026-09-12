@@ -1,14 +1,18 @@
+"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue89.py`` for issue #37 Zero-first coverage.
+
+Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+"""
+
 """S8: freeze live registries and report detectable missing declarations.
 
 Structural and behavioral tests only — no source-token or
 ``inspect.getsource`` assertions. Isolated ``TrustsRegistry()``
 instances stay independent of Django readiness.
-
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue89.py``.
 """
 
 from contextlib import contextmanager
 from io import StringIO
+import unittest
 from unittest.mock import patch
 
 from django.apps import apps
@@ -24,6 +28,7 @@ from tests.apps import (
     install_writable_registry,
     isolated_owner,
     live_config,
+    live_registry,
     override_apps_ready,
 )
 import tests as tests_module
@@ -250,6 +255,9 @@ class FrozenPlanProjectionsTest(SimpleTestCase):
         self.assertIs(filtered.model, Category)
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class LiveFreezeLifecycleTest(_RegistryRestoreMixin, SimpleTestCase):
     def test_writable_during_contributor_ready_then_freeze_on_first_read(self):
         isolated = TrustsRegistry()
@@ -418,10 +426,12 @@ class SentinelAfterFreezeTest(_RegistryRestoreMixin, SimpleTestCase):
         isolated = install_writable_registry(self.live, CONCRETE)
         self.live.configured_backend()
         self.assertTrue(isolated.frozen)
-        # C2 kernel ready() does not donate Trust-as-content (Zero does
-        # that on the live store during populate). Re-entry must not
-        # mutate the frozen replacement.
-        self.live.ready()
+        # Zero ready() donates Trust-as-content. After a supported read
+        # the replacement is frozen, so re-entry must fail closed and
+        # leave the isolated store empty of Trust-as-content.
+        with self.assertRaises(TrustsConfigurationError) as ctx:
+            self.live.ready()
+        self.assertIn('frozen', str(ctx.exception).lower())
         self.assertFalse(isolated.plan_for(Trust).records)
 
 
@@ -480,6 +490,9 @@ class MissingDeclarationCheckTest(_RegistryRestoreMixin, TestCase):
             self.assertIn('OrphanJunction', junction[0].msg)
             self.assertIn('exact backend path', sheet[0].hint)
 
+    @unittest.skip(
+        'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+    )
     def test_coverage_on_second_handle_only_clears_e003(self):
         class SecondSheet(Content):
             title = models.CharField(max_length=12)
@@ -588,7 +601,7 @@ class MissingDeclarationCheckTest(_RegistryRestoreMixin, TestCase):
         with self.assertNumQueries(0):
             out = StringIO()
             err = StringIO()
-            call_command('check', 'trusts_kernel_host', stdout=out, stderr=err)
+            call_command('check', 'trusts_zero_tests', stdout=out, stderr=err)
             subset = out.getvalue() + err.getvalue()
         self.assertNotIn(CHECK_ID_MISSING_DECLARATION, subset)
         trusts_only = [live_config()]
