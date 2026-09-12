@@ -264,7 +264,9 @@ class QueryableConditionTest(TestCase):
         )
         publish_permission_condition(Ticket, 'own', lambda u, p, o: u == o.owner)
         publish_permission_condition(Ticket, 'open', lambda u, p, o: o.status == 'open')
-        publish_permission_condition(Ticket, 'never', lambda u, p, o: o.pk == -1)
+        publish_permission_condition(
+            Ticket, 'never', lambda u, p, o: o.title == '__never__',
+        )
 
         self.change = 'trusts_zero_tests.change_ticket'
         self.change_editable = 'trusts_zero_tests.change_ticket:editable'

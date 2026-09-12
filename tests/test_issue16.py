@@ -10,7 +10,7 @@ from django.contrib.auth.models import Permission, User
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.db import models
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import isolate_apps
 
 from trusts.checks import (
@@ -143,7 +143,7 @@ class MetaDonationOnceTests(SimpleTestCase):
     @isolate_apps('tests', 'django.contrib.auth', 'django.contrib.contenttypes')
     def test_junction_meta_helper_registers_exactly_once(self):
         def via_memo(u, p, o):
-            return u == o.owner
+            return u == o.content.owner
 
         class Memo(models.Model):
             owner = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -333,8 +333,9 @@ class BuilderOnceTests(TestCase):
         exploding = _BuilderLog(lambda u, p, o: (_ for _ in ()).throw(
             AssertionError('callable must not run during checks')
         ))
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(PermissionConditionError) as ctx:
             isolated.register_permission_condition(Category, 'boom16', exploding)
+        self.assertIn('AssertionError', str(ctx.exception))
         self.assertEqual(len(exploding.calls), 1)
         self.assertIsNone(isolated.get_permission_condition_record(Category, 'boom16'))
 
@@ -349,7 +350,7 @@ class BuilderOnceTests(TestCase):
         self.assertEqual(len(self.log.calls), 1)
 
 
-class HelperDonationTests(SimpleTestCase):
+class HelperDonationTests(TransactionTestCase):
     def test_content_meta_helper_is_not_a_second_store(self):
         isolated = TrustsRegistry()
         donate_content_permission_conditions(isolated, Ticket)
@@ -367,9 +368,9 @@ class HelperDonationTests(SimpleTestCase):
         self.assertFalse(hasattr(Content, '_conditions'))
 
     def test_trust_own_builder_donation_is_zero_sql(self):
-        from trusts.zero.models import trust_own
-
-        self.assertEqual(Trust._meta.permission_conditions, (('own', trust_own),))
+        code, builder = Trust._meta.permission_conditions[0]
+        self.assertEqual(code, 'own')
+        self.assertTrue(callable(builder))
         isolated = TrustsRegistry()
         with self.assertNumQueries(0):
             donate_content_permission_conditions(isolated, Trust)

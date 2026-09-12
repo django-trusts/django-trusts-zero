@@ -22,7 +22,7 @@ from tests.backends import GroupOnlyBackend, MixinOnlyBackend
 from tests.models import Category, Organization, Ticket, TestGroupJunction
 from trusts.core import PlanQueryCompiler
 from trusts.zero.backends import TrustModelBackend
-from trusts.conditions import Ref
+from trusts.conditions import Ref as ConditionRef
 from trusts.core import (
     PlanQueryCompiler,
     Ref,
@@ -626,7 +626,7 @@ class _BuilderLog(object):
 
     def saw_only_refs(self):
         return all(
-            isinstance(arg, Ref) for call in self.calls for arg in call
+            isinstance(arg, ConditionRef) for call in self.calls for arg in call
         )
 
 

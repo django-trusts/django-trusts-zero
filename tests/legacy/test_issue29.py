@@ -307,8 +307,9 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
         exploding = _BuilderLog(lambda u, p, o: (_ for _ in ()).throw(
             AssertionError('callable must not run during checks')
         ))
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(PermissionConditionError) as ctx:
             isolated.register_permission_condition(Ticket, 'boom', exploding)
+        self.assertIn('AssertionError', str(ctx.exception))
         self.assertEqual(len(exploding.calls), 1)
         self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'boom'))
 
