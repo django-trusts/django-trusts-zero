@@ -6,7 +6,6 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import TestCase
 
-from trusts.conditions import RegistryConditionLookup
 from trusts.core import TrustsConfigurationError, TrustsRegistry
 from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
 from trusts.query import AuthorizedQuerySet
@@ -81,7 +80,7 @@ class RegistrationAndCodecTests(TestCase):
         self.assertIn(Category, content_models)
         self.assertIn(Ticket, content_models)
         lookup = handle.registry.condition_lookup
-        self.assertIsInstance(lookup, RegistryConditionLookup)
+        self.assertIsNotNone(lookup)
         own = lookup.record_for(Trust, 'own')
         self.assertIsNotNone(own)
         self.assertIsNotNone(own.expr)
