@@ -1,6 +1,6 @@
 [run]
 branch = True
-source = trusts.zero
+source = .
 omit =
     */tests/*
     */trusts/zero/migrations/*
@@ -8,3 +8,7 @@ omit =
     */docs/*
     */scripts/*
     */.deps/*
+
+[report]
+include =
+    trusts/zero/*
