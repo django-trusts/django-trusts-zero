@@ -1,3 +1,8 @@
+"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue85.py`` for issue #37 Zero-first coverage.
+
+Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+"""
+
 """S6: Junction-backed Group contribution and backend routing (issue #85).
 
 The host test app contributes ``TrustUserPermission → Trust ← Junction
@@ -5,10 +10,9 @@ The host test app contributes ``TrustUserPermission → Trust ← Junction
 QuerySet authorization use the registered plan. Structural and
 behavioral tests only — no source-token or ``inspect.getsource``
 assertions.
-
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue85.py``.
 """
 
+import unittest
 from unittest.mock import patch
 
 from django.apps import apps
@@ -28,6 +32,7 @@ from tests.apps import (
     junction_group_content_ref,
     isolated_owner,
     live_config,
+    live_registry,
     override_apps_ready,
 )
 from tests.backends import MixinOnlyBackend
@@ -386,6 +391,9 @@ class IsolatedAppsDoesNotDonateGroupContributionTest(SimpleTestCase):
         self.assertEqual(_group_rows(live), tup_group)
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class GroupContributionPathTest(_RegistryRestoreMixin, SimpleTestCase):
     def test_omitted_ambiguous_path_fails_before_writing(self):
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
@@ -648,6 +656,9 @@ class GroupAuthorizationRegistryTest(_UsersMixin, TestCase):
         )
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class GroupCompilerIsolationTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
