@@ -39,8 +39,9 @@ keywords = ["django", "authorization", "permissions", "organizations"]
 Homepage = "https://github.com/django-trusts/django-trusts-zero"
 Repository = "https://github.com/django-trusts/django-trusts-zero"
 Issues = "https://github.com/django-trusts/django-trusts-zero/issues"
-Kernel = "https://github.com/django-trusts/django-trusts"
-"Issue 9" = "https://github.com/django-trusts/django-trusts-zero/issues/9"
+Documentation = "https://github.com/django-trusts/django-trusts-zero/blob/dev/docs/source/index.rst"
+Core = "https://github.com/django-trusts/django-trusts"
+Migration = "https://github.com/django-trusts/django-trusts-zero/blob/dev/migrates.md"
 
 [project.optional-dependencies]
 test = [
