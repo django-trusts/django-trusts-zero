@@ -1,6 +1,13 @@
 from django.apps import AppConfig as DjangoAppConfig
 from django.core.exceptions import ImproperlyConfigured
 
+from trusts.zero.registration import register_zero_meta_option_names
+
+
+# Phase-1: Zero-only Meta option names must exist before host models
+# that declare them are constructed. ready() is too late.
+register_zero_meta_option_names()
+
 
 CANONICAL_BACKEND_PATH = 'trusts.zero.backends.TrustModelBackend'
 DEPRECATED_CORE_BACKEND_PATH = 'trusts.backends.TrustModelBackend'
@@ -101,7 +108,7 @@ class ZeroConfig(_ZeroBase):
         """
         from trusts.apps import implementation_for_path
         from trusts.conditions import RegistryConditionLookup
-        from trusts.zero.models import (
+        from trusts.zero.registration import (
             donate_installed_permission_conditions,
             register_zero_relations,
         )

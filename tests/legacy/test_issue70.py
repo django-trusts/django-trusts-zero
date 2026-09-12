@@ -37,7 +37,7 @@ from trusts.zero.models import (
     Trust,
     TrustUserPermission,
 )
-from trusts.query import trust_grant_q
+from trusts.zero.query import filter_authorized_scopes
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
@@ -486,8 +486,8 @@ class TrustPermittedRegistryTest(TestCase):
         filtered.assert_not_called()
         self.assertEqual(exists.call_count, 1)
 
-    def test_create_under_trust_stays_on_trust_grant_q(self):
-        with patch('trusts.query.trust_grant_q', wraps=trust_grant_q) as grant_q:
+    def test_create_under_trust_uses_filter_authorized_scopes(self):
+        with patch('trusts.zero.query.filter_authorized_scopes', wraps=filter_authorized_scopes) as grant_q:
             pks = _pks(Trust.objects.filter_by_user_content_perm(
                 self.alice, Trust, 'change_trust',
             ))

@@ -20,7 +20,8 @@ from django.test import TestCase, TransactionTestCase, override_settings
 
 from tests.backends import GroupOnlyBackend, MixinOnlyBackend
 from tests.models import Category, Organization, Ticket, TestGroupJunction
-from trusts.zero.backends import HistoricalGroupQueryCompiler, TrustModelBackend
+from trusts.core import PlanQueryCompiler
+from trusts.zero.backends import TrustModelBackend
 from trusts.conditions import condition_refs
 from trusts.core import (
     PlanQueryCompiler,
@@ -32,12 +33,12 @@ from trusts.core import (
 )
 from trusts.zero.models import (
     Content,
-    ContentManager,
-    PermissionConditionNotQueryable,
     Trust,
     TrustUserPermission,
 )
-from trusts.query import is_active_principal, trust_grant_q
+from trusts.zero.query import ContentManager
+from trusts.conditions import PermissionConditionNotQueryable
+from trusts.query import is_active_principal
 from tests.legacy.helpers import (
     enable_local_group_grant,
     forget_condition,
@@ -333,9 +334,8 @@ class DistributiveLawTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
         self.cat_b = Category.objects.create(trust=self.trust_b, name='c-b')
         self.change = _perm(Category, 'change_category')
         self.change_code = 'trusts_zero_tests.change_category'
-        # A (group-only compiler): historical group on C1 only.
-        # B (mixin): TUP on C2 only. Shared TUP rows cannot split a
-        # HistoricalGroupQueryCompiler path, so A omits content_exists.
+        # Concrete handle has TUP + both TGP alternatives, so a group
+        # grant on C1 and a trustee grant on C2 both authorize.
         self.alice_group = Group.objects.create(name='alice-dist')
         self.alice.groups.add(self.alice_group)
         self.change.group_set.add(self.alice_group)
@@ -735,10 +735,9 @@ class HistoricalFallbackCapabilityTest(_RegistryRestoreMixin, _UsersMixin, TestC
             self.live.registries[path] = TrustsRegistry()
 
     def test_compiler_advertises_fallback_only_on_historical_route(self):
-        self.assertTrue(HistoricalGroupQueryCompiler.historical_fallback)
         self.assertFalse(PlanQueryCompiler.historical_fallback)
         concrete = self.live.configured_backend(CONCRETE)
-        self.assertTrue(concrete.historical_fallback)
+        self.assertFalse(concrete.historical_fallback)
         self.assertFalse(MixinOnlyBackend.query_compiler.historical_fallback)
         with override_settings(AUTHENTICATION_BACKENDS=(MIXIN,)):
             with self.assertRaises(TrustsConfigurationError):
@@ -759,7 +758,7 @@ class HistoricalFallbackCapabilityTest(_RegistryRestoreMixin, _UsersMixin, TestC
             self._empty_plans(CONCRETE)
             handle = self.live.configured_backend()
             self.assertFalse(handle.registry.plan_for(Category).records)
-            self.assertTrue(handle.historical_fallback)
+            self.assertFalse(handle.historical_fallback)
             self.assertFalse(hasattr(TrustModelBackend, '_get_trusts'))
             concrete = TrustModelBackend()
             self.assertFalse(concrete.has_perm(self.alice, self.change_code, self.cat_a))
@@ -783,7 +782,7 @@ class HistoricalFallbackCapabilityTest(_RegistryRestoreMixin, _UsersMixin, TestC
         self._empty_plans(CONCRETE)
         concrete_handle = self.live.configured_backend(CONCRETE)
         self.assertFalse(concrete_handle.registry.plan_for(Category).records)
-        self.assertTrue(concrete_handle.historical_fallback)
+        self.assertFalse(concrete_handle.historical_fallback)
         concrete = TrustModelBackend()
         self.assertFalse(concrete.has_perm(self.alice, self.change_code, self.cat_a))
         self.assertFalse(self.alice.has_perm(self.change_code, self.cat_a))
@@ -825,7 +824,7 @@ class MixedPathUndeclaredJunctionTest(_RegistryRestoreMixin, _UsersMixin, TestCa
     def test_concrete_authorizes_declared_junction_group(self):
         handle = self.live.configured_backend()
         self.assertTrue(handle.registry.plan_for(Group).records)
-        self.assertTrue(handle.historical_fallback)
+        self.assertFalse(handle.historical_fallback)
         self.assertTrue(self.alice.has_perm(self.code, self.group))
         self.assertFalse(self.bob.has_perm(self.code, self.group))
         qs = Group.objects.filter(pk=self.group.pk)

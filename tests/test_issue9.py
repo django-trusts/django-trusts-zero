@@ -25,10 +25,8 @@ from trusts.zero.apps import (
     ZeroConfig,
     zero_config,
 )
-from trusts.zero.backends import (
-    HistoricalGroupQueryCompiler,
-    TrustModelBackend,
-)
+from trusts.core import PlanQueryCompiler
+from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
 
 
@@ -76,9 +74,11 @@ class CanonicalBackendIdentityTests(SimpleTestCase):
         self.assertTrue(issubclass(TrustModelBackend, TrustModelBackendMixin))
         self.assertTrue(issubclass(TrustModelBackend, object))
         self.assertIsInstance(
-            TrustModelBackend.query_compiler, HistoricalGroupQueryCompiler,
+            TrustModelBackend.query_compiler, PlanQueryCompiler,
         )
-        self.assertTrue(TrustModelBackend.query_compiler.historical_fallback)
+        self.assertFalse(getattr(
+            TrustModelBackend.query_compiler, 'historical_fallback', False,
+        ))
         self.assertFalse(hasattr(core_backends, 'TrustModelBackend'))
         self.assertTrue(hasattr(core_backends, 'TrustModelBackendMixin'))
         with self.assertRaises(ImportError):

@@ -9,12 +9,12 @@ permissions:
   contents: read
 
 env:
-  # Core #118 condition registry (pair pin for Zero #16).
-  COMPANION_KERNEL_SHA: 948d6666342377b9472debb57d4a1e26e81402d1
+  # Core #18/#120 companion PR #121 head (mutually tested with this Zero PR).
+  COMPANION_KERNEL_SHA: bdf5e4c22b67f76213fe711a6c7895a603626c3c
 
 jobs:
   tests:
-    name: tests vs core #118 (Python ${{ matrix.python-version }})
+    name: tests vs core #18/#120 pair (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -32,7 +32,7 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install core #118 then Zero
+    - name: Install paired core then Zero
       run: |
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage virtualenv
@@ -44,9 +44,11 @@ jobs:
       run: python scripts/verify-fresh-install.py
     - name: Old backend path fails startup
       run: python scripts/verify-old-backend-path.py
+    - name: Installed URL include + template render
+      run: python scripts/verify-installed-ui.py
 
   pair:
-    name: pair with core #118 condition registry
+    name: pair with core #18/#120 companion head
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -60,10 +62,10 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-    - name: Exact core #118 pair
+    - name: Exact paired core head
       run: |
-        test "${COMPANION_KERNEL_SHA}" = "948d6666342377b9472debb57d4a1e26e81402d1"
-        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "948d6666342377b9472debb57d4a1e26e81402d1"
+        test "${COMPANION_KERNEL_SHA}" = "bdf5e4c22b67f76213fe711a6c7895a603626c3c"
+        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "bdf5e4c22b67f76213fe711a6c7895a603626c3c"
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
@@ -71,6 +73,7 @@ jobs:
         coverage run -m tests.runtests
         python scripts/verify-fresh-install.py
         python scripts/verify-old-backend-path.py
+        python scripts/verify-installed-ui.py
 
   package:
     name: package / wheel

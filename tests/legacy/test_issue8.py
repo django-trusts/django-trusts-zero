@@ -15,8 +15,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
 
-from trusts.admin import register_auto_modeladmins
-from trusts.authorization import (
+from trusts.zero.admin import register_auto_modeladmins
+from trusts.zero.authorization import (
     AuthorizationDenied,
     add_group_member,
     associate_group_with_trust,
@@ -31,11 +31,11 @@ from trusts.authorization import (
 from trusts import utils
 from trusts.zero.models import (
     Content,
-    PermissionConditionNotQueryable,
     Role,
     Trust,
     TrustUserPermission,
 )
+from trusts.conditions import PermissionConditionNotQueryable
 from tests.legacy.helpers import (
     ContentModelMixin,
     create_test_users,
@@ -122,7 +122,7 @@ class PermittedQuerySetTest(Issue8FixtureMixin, TestCase):
 
     def test_get_permission_uses_configured_model(self):
         from django.contrib.auth.models import Permission as AuthPermission
-        from trusts import get_permission_model
+        from trusts.zero import get_permission_model
 
         self.assertIs(get_permission_model(), AuthPermission)
         perm = Category.objects.get_permission('read')

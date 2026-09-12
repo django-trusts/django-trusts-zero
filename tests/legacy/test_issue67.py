@@ -39,7 +39,7 @@ from trusts.zero.models import (
     Trust,
     TrustUserPermission,
 )
-from trusts.query import trust_grant_q
+from trusts.zero.query import filter_authorized_scopes
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
@@ -459,7 +459,7 @@ class CategoryPermittedRegistryTest(TestCase):
             self._direct_pks(conditioned, self.alice),
         )
 
-    def test_registered_terminals_skip_trust_grant_q(self):
+    def test_registered_terminals_skip_filter_authorized_scopes(self):
         registry = live_config().registry
         self.assertTrue(registry.plan_for(Category).records)
         self.assertTrue(registry.plan_for(Trust).records)
@@ -480,7 +480,7 @@ class CategoryPermittedRegistryTest(TestCase):
         ).save()
         self._reload()
 
-        with patch('trusts.query.trust_grant_q', wraps=trust_grant_q) as grant_q:
+        with patch('trusts.zero.query.filter_authorized_scopes', wraps=filter_authorized_scopes) as grant_q:
             list(Category.objects.permitted(self.change_code, self.alice))
             self.assertEqual(grant_q.call_count, 0)
             list(Trust.objects.permitted('trusts.change_trust', self.alice))

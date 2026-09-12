@@ -40,9 +40,12 @@ from tests.legacy.helpers import (
     get_or_create_root_user,
     reload_test_users,
 )
-from trusts.zero.models import Trust, TrustManager, Content, Junction, \
-                          Role, RolePermission, TrustUserPermission, TrustGroup, \
-                          TrustGroupPermission
+from trusts.zero.models import (
+    Trust, Content, Junction,
+    Role, RolePermission, TrustUserPermission, TrustGroup,
+    TrustGroupPermission,
+)
+from trusts.zero.query import TrustManager
 from trusts.zero.backends import TrustModelBackend
 from trusts.decorators import permission_required, P, K, G, O
 from tests.models import Category, TestGroupJunction

@@ -33,9 +33,11 @@ from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
 from trusts.zero.models import (
     Content,
     Junction,
-    PermissionConditionNotQueryable,
     Trust,
     TrustUserPermission,
+)
+from trusts.conditions import PermissionConditionNotQueryable
+from trusts.zero.registration import (
     donate_content_permission_conditions,
     donate_installed_permission_conditions,
     donate_junction_content_permission_conditions,
@@ -98,6 +100,7 @@ class ZeroConditionSurfaceTests(SimpleTestCase):
         source = inspect.getsource(zero_models)
         self.assertNotIn('class ContentConditionLookup', source)
         self.assertNotIn('@staticmethod', source)
+        self.assertFalse(hasattr(zero_models, 'PermissionConditionNotQueryable'))
         self.assertIs(PermissionConditionNotQueryable, CoreNotQueryable)
 
     def test_zero_binds_generic_registry_lookup(self):

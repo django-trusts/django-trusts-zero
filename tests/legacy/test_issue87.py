@@ -7,7 +7,7 @@ Final-state adaptations: Zero test app label, core registry APIs, no Content._co
 
 Structural and behavioral tests only — no source-token or
 ``inspect.getsource`` assertions. Conditions and
-``HistoricalGroupQueryCompiler`` stay; the static content map does not.
+``PlanQueryCompiler`` is the object/list compiler; the static content map does not.
 """
 
 from contextlib import contextmanager
@@ -27,7 +27,8 @@ from tests.apps import live_registry, clone_writable_registry, forget_models, ov
 from tests.backends import MixinOnlyBackend
 from tests.models import Category, TestGroupJunction, Ticket
 from trusts.backends import TrustModelBackendMixin
-from trusts.zero.backends import HistoricalGroupQueryCompiler, TrustModelBackend
+from trusts.core import PlanQueryCompiler
+from trusts.zero.backends import TrustModelBackend
 from trusts.checks import check_permission_conditions
 from trusts.conditions import condition_refs, validate_expression
 from trusts.core import (
@@ -37,14 +38,18 @@ from trusts.core import (
     common_permissions,
 )
 from trusts.zero.models import (
-    donate_content_permission_conditions,
-    donate_junction_content_permission_conditions,
     Content,
-    ContentManager,
     Junction,
     Trust,
-    TrustManager,
     TrustUserPermission,
+)
+from trusts.zero.registration import (
+    donate_content_permission_conditions,
+    donate_junction_content_permission_conditions,
+)
+from trusts.zero.query import (
+    ContentManager,
+    TrustManager,
 )
 from tests.legacy.helpers import (
     enable_local_group_grant,
@@ -399,17 +404,16 @@ class ConditionRegistryPreservedTest(_ConditionIsolationMixin, TestCase):
 
 class HistoricalCompilerPreservedTest(SimpleTestCase):
     def test_concrete_compiler_identity_and_mixin_isolation(self):
-        self.assertTrue(HistoricalGroupQueryCompiler.historical_fallback)
         self.assertFalse(PlanQueryCompiler.historical_fallback)
         self.assertIsInstance(
-            TrustModelBackend.query_compiler, HistoricalGroupQueryCompiler,
+            TrustModelBackend.query_compiler, PlanQueryCompiler,
         )
         self.assertIsInstance(
             MixinOnlyBackend.query_compiler, PlanQueryCompiler,
         )
         handle = live_config().configured_backend()
-        self.assertTrue(handle.historical_fallback)
-        self.assertIsInstance(handle.compiler, HistoricalGroupQueryCompiler)
+        self.assertFalse(handle.historical_fallback)
+        self.assertIsInstance(handle.compiler, PlanQueryCompiler)
 
 
 class LiveTerminalParityTest(_UsersMixin, TestCase):

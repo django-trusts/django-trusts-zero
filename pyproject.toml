@@ -63,3 +63,6 @@ packages = [
     "trusts.zero.management.commands",
     "trusts.zero.migrations",
 ]
+
+[tool.setuptools.package-data]
+"trusts.zero" = ["templates/trusts_zero/*.html"]

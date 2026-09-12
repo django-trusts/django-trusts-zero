@@ -79,7 +79,8 @@ class ZeroSourceLayoutTests(SimpleTestCase):
                 )
         self.assertEqual(offenders, [])
         backends = (ROOT / 'trusts' / 'zero' / 'backends.py').read_text()
-        self.assertIn('class HistoricalGroupQueryCompiler', backends)
+        self.assertNotIn('class HistoricalGroupQueryCompiler', backends)
+        self.assertIn('PlanQueryCompiler', backends)
         self.assertIn('class TrustModelBackend', backends)
         self.assertNotIn('from trusts.backends import TrustModelBackend\n', backends)
         self.assertNotIn('TrustModelBackend = ', backends)
@@ -121,10 +122,10 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         self.assertNotIn('readme = "DEV.md"', text)
         self.assertIn('license = "BSD-2-Clause"', text)
         req = (ROOT / 'requirements.txt').read_text()
-        self.assertIn('948d6666342377b9472debb57d4a1e26e81402d1', req)
+        self.assertIn('bdf5e4c22b67f76213fe711a6c7895a603626c3c', req)
         ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
         self.assertIn(
-            'COMPANION_KERNEL_SHA: 948d6666342377b9472debb57d4a1e26e81402d1',
+            'COMPANION_KERNEL_SHA: bdf5e4c22b67f76213fe711a6c7895a603626c3c',
             ci,
         )
 

@@ -14,8 +14,8 @@ from django.core.management import call_command
 from django.db import connection
 from django.test import TestCase
 
-from trusts import get_group_model, get_permission_model
-from trusts.authorization import (
+from trusts.zero import get_group_model, get_permission_model
+from trusts.zero.authorization import (
     AuthorizationDenied,
     associate_group_with_trust,
     grant_trust_group_permission,
