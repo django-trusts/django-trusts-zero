@@ -157,6 +157,20 @@ class BackendAndRegistrationTests(SimpleTestCase):
             __import__('trusts.zero.backends', fromlist=['x']),
             'HistoricalGroupQueryCompiler',
         ))
+        backends = (ROOT / 'trusts' / 'zero' / 'backends.py').read_text()
+        self.assertIn('query_compiler = PlanQueryCompiler()', backends)
+        self.assertNotIn('inspect', backends)
+        self.assertNotIn('RelationPlan', backends)
+        self.assertNotIn('group_exists', backends)
+        query = (ROOT / 'trusts' / 'zero' / 'query.py').read_text()
+        for name in (
+            '_bind_record_qs',
+            '_scope_prefix_lookups',
+            '_plan_for_permission',
+            '_content_model',
+            '_require_instance',
+        ):
+            self.assertNotIn(name, query, name)
 
     def test_register_zero_relations_is_idempotent(self):
         registry = TrustsRegistry()

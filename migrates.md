@@ -15,7 +15,7 @@ Those surfaces are gone on the supported core library.
 | Item | Value |
 | --- | --- |
 | Authoritative Zero metadata | this repo `pyproject.toml` (`1.0.0.dev0` + `django-trusts>=1.0.0.dev3,<2`) |
-| Paired core #18/#120 | [django-trusts#121](https://github.com/django-trusts/django-trusts/pull/121) head [`bdf5e4c22b67f76213fe711a6c7895a603626c3c`](https://github.com/django-trusts/django-trusts/commit/bdf5e4c22b67f76213fe711a6c7895a603626c3c) |
+| Paired core #18/#120 | [django-trusts#121](https://github.com/django-trusts/django-trusts/pull/121) head [`7b9387635835e47450fcc5dcfee4fd62a5f16b5f`](https://github.com/django-trusts/django-trusts/commit/7b9387635835e47450fcc5dcfee4fd62a5f16b5f) |
 | Previous merged core floor | [django-trusts#119](https://github.com/django-trusts/django-trusts/pull/119) merge [`6c705e284d37b10b7c29196a9ece88996273758e`](https://github.com/django-trusts/django-trusts/commit/6c705e284d37b10b7c29196a9ece88996273758e) |
 | Zero #18 baseline | [`73b74b4213f6040f0e71c4c46d7a509804975672`](https://github.com/django-trusts/django-trusts-zero/commit/73b74b4213f6040f0e71c4c46d7a509804975672) |
 
@@ -102,11 +102,12 @@ Supported model imports (`Trust`, `Content`, `Junction`, `Role`,
 `trusts:team_detail`); only the include path changes.
 
 `has_trust_row_perm` now uses `Trust.objects.filter_by_user_content_perm`
-/ `filter_authorized_scopes`. Trust-as-content is self-referential; Zero
-wraps core's prefix projection so same-model proper prefix hops still
-compile (core's function returns empty when scope equals the terminal).
-There is no `trust_grant_q` fallback. Group enumeration uses membership-hop
-records on `PlanQueryCompiler.group_exists` (no historical group SQL).
+/ public core `filter_authorized_scopes`. Trust-as-content is
+self-referential; core includes proper prefixes of the terminal model
+(terminal-only same-model still `none()`). There is no Zero wrapper and
+no `trust_grant_q` fallback. Group enumeration uses core
+`PlanQueryCompiler.group_exists` on membership-hop records (no Zero
+import-time patch, no historical group SQL).
 
 Zero-only `Meta` option names (`roles`, `content_roles`,
 `content_permission_conditions`, `auto_modeladmin`) are registered when
