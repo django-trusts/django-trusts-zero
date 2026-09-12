@@ -257,10 +257,8 @@ class ExprParityTests(TestCase):
 
         registry = _zero_registry()
         # Implementation store type (not an application API).
-        try:
-            from trusts.conditions._ir import ConditionRecord
-        except ImportError:
-            from trusts.conditions import ConditionRecord
+        from trusts.zero.apps import _load_conditions_implementation
+        ConditionRecord = _load_conditions_implementation().ConditionRecord
         empty = ConditionRecord(model=Ticket)
         registry.conditions._records[(Ticket._meta.label, 'empty16')] = empty
         try:

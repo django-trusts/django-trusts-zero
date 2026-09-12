@@ -1,7 +1,9 @@
 """Source-tree proofs that Zero does not own kernel paths or copy compilers."""
 
+import importlib
 import importlib.util
 from pathlib import Path
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -112,16 +114,11 @@ class ZeroSourceLayoutTests(SimpleTestCase):
 
     def test_production_lookup_prefers_private_ir(self):
         text = (ROOT / 'trusts' / 'zero' / 'apps.py').read_text()
-        self.assertIn(
-            'from trusts.conditions._ir import RegistryConditionLookup',
-            text,
-        )
-        public_import = 'from trusts.conditions import RegistryConditionLookup'
-        self.assertIn(public_import, text)
-        self.assertLess(
-            text.index('from trusts.conditions._ir import RegistryConditionLookup'),
-            text.index(public_import),
-        )
+        self.assertIn("_IR_MODULE = 'trusts.conditions._ir'", text)
+        self.assertIn('except ModuleNotFoundError', text)
+        self.assertIn('if getattr(exc, \'name\', None) != _IR_MODULE', text)
+        self.assertIn('_load_conditions_implementation().RegistryConditionLookup', text)
+        self.assertNotIn('except ImportError:\n            from trusts.conditions import RegistryConditionLookup', text)
 
     def test_converted_modules_do_not_import_public_store_names(self):
         banned = (
@@ -146,7 +143,39 @@ class ZeroSourceLayoutTests(SimpleTestCase):
         self.assertNotIn('from trusts.conditions import RegistryConditionLookup', issue16)
         self.assertNotIn('from trusts.conditions import ConditionRegistry', issue16)
         self.assertNotIn('from trusts.conditions import validate_expression', issue16)
-        self.assertIn('from trusts.conditions._ir import ConditionRecord', issue16)
+        self.assertIn('_load_conditions_implementation().ConditionRecord', issue16)
+        self.assertNotIn('except ImportError:', issue16)
+
+    def test_existing_ir_import_failure_does_not_fall_back(self):
+        from trusts.zero import apps as zero_apps
+
+        real = importlib.import_module
+
+        def transitive_failure(name, package=None):
+            if name == 'trusts.conditions._ir':
+                raise ModuleNotFoundError(
+                    "No module named 'trusts.conditions._broken_dep'",
+                    name='trusts.conditions._broken_dep',
+                )
+            return real(name, package)
+
+        with patch.object(zero_apps.importlib, 'import_module', transitive_failure):
+            with self.assertRaises(ModuleNotFoundError) as ctx:
+                zero_apps._load_conditions_implementation()
+        self.assertEqual(ctx.exception.name, 'trusts.conditions._broken_dep')
+
+        def missing_symbol(name, package=None):
+            if name == 'trusts.conditions._ir':
+                raise ImportError(
+                    "cannot import name 'RegistryConditionLookup' "
+                    "from 'trusts.conditions._ir'"
+                )
+            return real(name, package)
+
+        with patch.object(zero_apps.importlib, 'import_module', missing_symbol):
+            with self.assertRaises(ImportError) as ctx:
+                zero_apps._load_conditions_implementation()
+        self.assertIn('RegistryConditionLookup', str(ctx.exception))
 
 
 class ZeroPublishMetadataTests(SimpleTestCase):
