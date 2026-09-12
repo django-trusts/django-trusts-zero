@@ -1,0 +1,10 @@
+[run]
+branch = True
+source = trusts.zero
+omit =
+    */migrations/*
+    */tests/*
+    */docs/*
+    */scripts/*
+    */.deps/*
+    */django-trusts/*
