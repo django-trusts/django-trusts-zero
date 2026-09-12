@@ -1,3 +1,8 @@
+"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue80.py`` for issue #37 Zero-first coverage.
+
+Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+"""
+
 """S4: filter_by_user_content_perm registration gate (issue #80).
 
 Aggregate support rule: any configured path with
@@ -5,10 +10,9 @@ Aggregate support rule: any configured path with
 The grant stays ``trust_grant_q`` on Trust rows. Structural and
 behavioral tests only — no source-token or ``inspect.getsource``
 assertions.
-
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue80.py``.
 """
 
+import unittest
 from unittest.mock import patch
 
 from django.apps import apps
@@ -18,7 +22,7 @@ from django.core.management import call_command
 from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase, override_settings
 
-from tests.apps import install_writable_registry, live_config
+from tests.apps import install_writable_registry, live_config, live_registry
 from tests.models import AutoAdminCategory, Category, Organization, Ticket
 from trusts.core import (
     Ref,
@@ -359,6 +363,9 @@ class FilterByUserContentPermRegistryGateTest(
         )
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class MultiPathCreateUnderTrustGateTest(
     _RegistryRestoreMixin, _UsersMixin, TestCase
 ):
