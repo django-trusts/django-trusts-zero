@@ -1,7 +1,9 @@
-"""Acceptance tests for issue #23: fail-closed per-Trust group intersection.
+"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue23.py`` for issue #37 Zero-first coverage.
 
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue23.py``.
+Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
 """
+
+"""Acceptance tests for issue #23: fail-closed per-Trust group intersection."""
 
 from io import StringIO
 
