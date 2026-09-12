@@ -1,10 +1,17 @@
 from django.db import models
 from django.contrib.auth.models import Group, User
 
-from trusts.conditions import condition_refs
 from trusts.zero.models import Content, Junction
 
-_u, _p, _o = condition_refs()
+
+def ticket_own(u, p, o):
+    """Ticket ``:own`` builder: principal is the ticket owner."""
+    return u == o.owner
+
+
+def ticket_meta_own(u, p, o):
+    """Ticket ``:meta_own`` builder: same predicate, second Meta code."""
+    return u == o.owner
 
 
 class Organization(models.Model):
@@ -89,8 +96,8 @@ class Ticket(Content):
     class Meta:
         default_permissions = ('add', 'read', 'change', 'delete')
         permission_conditions = (
-            ('own', _u == _o.owner),
-            ('meta_own', _u == _o.owner),
+            ('own', ticket_own),
+            ('meta_own', ticket_meta_own),
         )
 
     def __str__(self):

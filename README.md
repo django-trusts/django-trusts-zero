@@ -68,9 +68,10 @@ That call is exercised by the project's smoke and codec tests.
 
 ## Known limitations
 
-- Callable permission conditions stay object-only. Queryset APIs
-  (`permitted`, `filter_by_user_content_perm`) refuse them so they
-  cannot silently over-grant.
+- Named permission conditions are registration-time builders. Core
+  invokes the callable once with symbolic `(u, p, o)`, stores IR only,
+  and never runs it during `has_perm` or `.permitted()`.
+  `filter_by_user_content_perm` still refuses a `:condition` suffix.
 - `TRUSTS_GROUP_MODEL` and `TRUSTS_PERMISSION_MODEL` no longer swap
   field targets.
 - Convenience writers such as `Content.grant` and

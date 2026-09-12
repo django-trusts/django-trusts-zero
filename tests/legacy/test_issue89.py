@@ -37,7 +37,7 @@ from tests.models import (
 )
 from trusts.checks import (
     CHECK_ID_MISSING_DECLARATION,
-    CHECK_ID_LEGACY_CALLBACK_WARNING,
+    CHECK_ID_OBSOLETE_CALLBACK_SETTING,
     check_missing_declarations,
     check_permission_conditions,
     check_query_compilers,
@@ -605,7 +605,7 @@ class MissingDeclarationCheckTest(_RegistryRestoreMixin, TestCase):
             compiler_ids = {message.id for message in check_query_compilers(None)}
             self.assertNotIn(CHECK_ID_MISSING_DECLARATION, condition_ids)
             self.assertNotIn(CHECK_ID_MISSING_DECLARATION, compiler_ids)
-            self.assertNotIn(CHECK_ID_LEGACY_CALLBACK_WARNING, _e003())
+            self.assertNotIn(CHECK_ID_OBSOLETE_CALLBACK_SETTING, _e003())
             with override_settings(
                 SILENCED_SYSTEM_CHECKS=['trusts.E003', 'fields.W342'],
             ):

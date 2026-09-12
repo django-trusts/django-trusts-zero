@@ -10,12 +10,12 @@ from django.contrib.auth.models import Permission, User
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.db import models
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import isolate_apps
 
 from trusts.checks import (
-    CHECK_ID_LEGACY_CALLBACK,
-    CHECK_ID_LEGACY_CALLBACK_WARNING,
+    CHECK_ID_OBSOLETE_CALLBACK_SETTING,
+    check_obsolete_legacy_callback_setting,
     check_permission_conditions,
     iter_live_permission_conditions,
 )
@@ -24,11 +24,10 @@ from trusts.conditions import (
     ConditionRegistry,
     PermissionConditionError,
     PermissionConditionNotQueryable as CoreNotQueryable,
+    Ref,
     RegistryConditionLookup,
-    condition_refs,
-    legacy_permission_callbacks_allowed,
 )
-from trusts.core import TrustsRegistry
+from trusts.core import TrustsConfigurationError, TrustsRegistry
 from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
 from trusts.zero.models import (
     Content,
@@ -42,7 +41,8 @@ from trusts.zero.registration import (
     donate_installed_permission_conditions,
     donate_junction_content_permission_conditions,
 )
-from tests.models import Category, Ticket
+from tests.apps import live_handle, publish_permission_condition
+from tests.models import Category, Ticket, ticket_own
 
 
 REMOVED_STATIC = (
@@ -74,14 +74,19 @@ def _condition_rows(registry, model, cond_code):
     ]
 
 
-class _CallLog(object):
+class _BuilderLog(object):
     def __init__(self, impl=None):
-        self.impl = impl or (lambda user, perm, obj: True)
+        self.impl = impl or (lambda u, p, o: u == o.owner)
         self.calls = []
 
-    def __call__(self, user, perm, obj):
-        self.calls.append((user, perm, obj))
-        return self.impl(user, perm, obj)
+    def __call__(self, u, p, o):
+        self.calls.append((u, p, o))
+        return self.impl(u, p, o)
+
+    def saw_only_refs(self):
+        return all(
+            isinstance(arg, Ref) for call in self.calls for arg in call
+        )
 
 
 class ZeroConditionSurfaceTests(SimpleTestCase):
@@ -91,6 +96,7 @@ class ZeroConditionSurfaceTests(SimpleTestCase):
         self.assertFalse(hasattr(zero_models, 'ContentConditionLookup'))
         self.assertFalse(hasattr(Content, '_conditions'))
         self.assertFalse(hasattr(zero_models, 'legacy_permission_callbacks_allowed'))
+        self.assertFalse(hasattr(zero_models, 'condition_refs'))
         self.assertFalse(hasattr(zero_models, '_ConditionRecord'))
         for name in REMOVED_STATIC:
             self.assertFalse(hasattr(Content, name), name)
@@ -104,10 +110,12 @@ class ZeroConditionSurfaceTests(SimpleTestCase):
         self.assertIs(PermissionConditionNotQueryable, CoreNotQueryable)
 
     def test_zero_binds_generic_registry_lookup(self):
-        registry = _zero_registry()
+        handle = live_handle()
+        registry = handle.registry
         lookup = registry.condition_lookup
         self.assertIsInstance(lookup, RegistryConditionLookup)
         self.assertIs(lookup.conditions, registry.conditions)
+        self.assertTrue(callable(handle.register_permission_condition))
 
 
 class MetaDonationOnceTests(SimpleTestCase):
@@ -134,7 +142,8 @@ class MetaDonationOnceTests(SimpleTestCase):
 
     @isolate_apps('tests', 'django.contrib.auth', 'django.contrib.contenttypes')
     def test_junction_meta_helper_registers_exactly_once(self):
-        u, _p, o = condition_refs()
+        def via_memo(u, p, o):
+            return u == o.content.owner
 
         class Memo(models.Model):
             owner = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -148,7 +157,7 @@ class MetaDonationOnceTests(SimpleTestCase):
             class Meta:
                 app_label = 'trusts_zero_tests'
                 content_permission_conditions = (
-                    ('via_memo', u == o.owner),
+                    ('via_memo', via_memo),
                 )
 
         isolated = TrustsRegistry()
@@ -157,6 +166,7 @@ class MetaDonationOnceTests(SimpleTestCase):
         rows = _condition_rows(isolated, MemoJunction, 'via_memo')
         self.assertEqual(len(rows), 1)
         self.assertIsNotNone(rows[0][2].expr)
+        self.assertFalse(hasattr(rows[0][2], 'func'))
         self.assertIsNone(_zero_registry().get_permission_condition_record(
             MemoJunction, 'via_memo',
         ))
@@ -164,19 +174,28 @@ class MetaDonationOnceTests(SimpleTestCase):
 
 class OwnerIsolationTests(SimpleTestCase):
     def test_owners_do_not_share_or_overwrite_and_new_registry_is_empty(self):
-        u, _p, o = condition_refs()
         left = TrustsRegistry()
         right = TrustsRegistry()
-        expr_a = u == o.owner
-        expr_b = o.title == 'keep'
-        left.register_permission_condition(Ticket, 'own', expr_a)
-        right.register_permission_condition(Ticket, 'own', expr_b)
-        self.assertIs(left.get_permission_condition_record(Ticket, 'own').expr, expr_a)
-        self.assertIs(right.get_permission_condition_record(Ticket, 'own').expr, expr_b)
+        left.register_permission_condition(
+            Ticket, 'own', lambda u, p, o: u == o.owner,
+        )
+        right.register_permission_condition(
+            Ticket, 'own', lambda u, p, o: o.title == 'keep',
+        )
+        left_expr = left.get_permission_condition_record(Ticket, 'own').expr
+        right_expr = right.get_permission_condition_record(Ticket, 'own').expr
+        self.assertEqual(
+            left_expr.to_tuple(),
+            ('eq', ('ref', 'principal', ()), ('ref', 'object', ('owner',))),
+        )
+        self.assertEqual(
+            right_expr.to_tuple(),
+            ('eq', ('ref', 'object', ('title',)), ('const', 'keep')),
+        )
         live = _zero_registry().get_permission_condition_record(Ticket, 'own')
         self.assertIsNot(live, left.get_permission_condition_record(Ticket, 'own'))
-        self.assertIsNot(live.expr, expr_a)
-        self.assertIsNot(live.expr, expr_b)
+        self.assertIsNot(live.expr, left_expr)
+        self.assertIsNot(live.expr, right_expr)
 
         fresh = TrustsRegistry()
         self.assertEqual(list(fresh.iter_permission_conditions()), [])
@@ -238,18 +257,18 @@ class ExprParityTests(TestCase):
         with self.assertRaises(AttributeError):
             user.has_perm('trusts_zero_tests.read_ticket:nope16', self.ticket)
 
-        registry = _zero_registry()
-        u, _p, o = condition_refs()
-        registry.register_permission_condition(Ticket, 'typo16', u == o.nope)
-        try:
-            with self.assertRaises(PermissionConditionError) as typo:
-                list(Ticket.objects.permitted('read:typo16', user))
-            self.assertIn('nope', str(typo.exception))
-            with self.assertRaises(PermissionConditionError):
-                user.has_perm('trusts_zero_tests.read_ticket:typo16', self.ticket)
+        isolated = TrustsRegistry()
+        with self.assertRaises(PermissionConditionError) as typo:
+            isolated.register_permission_condition(
+                Ticket, 'typo16', lambda u, p, o: u == o.nope,
+            )
+        self.assertIn('nope', str(typo.exception))
+        self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'typo16'))
 
-            empty = ConditionRecord(model=Ticket)
-            registry.conditions._records[(Ticket._meta.label, 'empty16')] = empty
+        registry = _zero_registry()
+        empty = ConditionRecord(model=Ticket)
+        registry.conditions._records[(Ticket._meta.label, 'empty16')] = empty
+        try:
             with self.assertRaises(PermissionConditionError) as unbound:
                 registry.evaluate_permission_condition(
                     Ticket, 'empty16', user, 'trusts_zero_tests.read_ticket',
@@ -259,11 +278,10 @@ class ExprParityTests(TestCase):
             with self.assertRaises(PermissionConditionError):
                 user.has_perm('trusts_zero_tests.read_ticket:empty16', self.ticket)
         finally:
-            registry.conditions._records.pop((Ticket._meta.label, 'typo16'), None)
             registry.conditions._records.pop((Ticket._meta.label, 'empty16'), None)
 
 
-class CallableGateTests(TestCase):
+class BuilderOnceTests(TestCase):
     def setUp(self):
         call_command('create_trust_root')
         self.user = User.objects.create_user('cb-16', 'cb-16@example.com', 'x')
@@ -279,65 +297,87 @@ class CallableGateTests(TestCase):
             trust=self.org, entity=self.user, permission=read,
         ).save()
         self.registry = _zero_registry()
-        self.log = _CallLog(lambda user, perm, obj: obj.name == 'keep')
-        self.registry.register_permission_condition(Category, 'spy16', self.log)
+        self.log = _BuilderLog(lambda u, p, o: o.name == 'keep')
+        publish_permission_condition(Category, 'spy16', self.log)
 
     def tearDown(self):
         self.registry.conditions._records.pop((Category._meta.label, 'spy16'), None)
 
-    def test_default_rejects_callable_without_invoking(self):
-        self.assertFalse(legacy_permission_callbacks_allowed())
+    def test_builder_once_object_and_queryset_parity(self):
+        self.assertEqual(len(self.log.calls), 1)
+        self.assertTrue(self.log.saw_only_refs())
         user = User.objects.get(pk=self.user.pk)
-        with self.assertRaises(PermissionConditionNotQueryable):
-            list(Category.objects.permitted('read:spy16', user))
-        with self.assertRaises(PermissionConditionError) as ctx:
-            user.has_perm('trusts_zero_tests.read_category:spy16', self.keep)
-        self.assertIn('TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS', str(ctx.exception))
-        self.assertEqual(self.log.calls, [])
-
-    @override_settings(TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS=True)
-    def test_opt_in_callback_is_object_only(self):
-        self.assertTrue(legacy_permission_callbacks_allowed())
-        user = User.objects.get(pk=self.user.pk)
-        with self.assertRaises(PermissionConditionNotQueryable):
-            list(Category.objects.permitted('read:spy16', user))
-        self.assertEqual(self.log.calls, [])
+        permitted = set(Category.objects.permitted('read:spy16', user))
+        self.assertEqual(permitted, {self.keep})
         self.assertTrue(user.has_perm('trusts_zero_tests.read_category:spy16', self.keep))
         self.assertFalse(user.has_perm('trusts_zero_tests.read_category:spy16', self.drop))
-        self.assertEqual(len(self.log.calls), 2)
-        self.assertEqual(self.log.calls[0][2], self.keep)
-        self.assertEqual(self.log.calls[1][2], self.drop)
+        self.assertEqual(len(self.log.calls), 1)
 
-    def test_checks_never_invoke_callables(self):
-        exploding = _CallLog(lambda user, perm, obj: (_ for _ in ()).throw(
+    def test_frozen_live_register_is_before_builder(self):
+        late = _BuilderLog(lambda u, p, o: o.name == 'keep')
+        with self.assertRaises(TrustsConfigurationError):
+            live_handle().register_permission_condition(Category, 'late16', late)
+        self.assertEqual(late.calls, [])
+
+    def test_checks_never_reinvoke_builder(self):
+        self.assertEqual(len(self.log.calls), 1)
+        messages = check_permission_conditions(None)
+        self.assertEqual(len(self.log.calls), 1)
+        self.assertEqual(
+            [m.id for m in messages if m.id == CHECK_ID_OBSOLETE_CALLBACK_SETTING],
+            [],
+        )
+
+    def test_boolean_builder_fails_at_register(self):
+        isolated = TrustsRegistry()
+        exploding = _BuilderLog(lambda u, p, o: (_ for _ in ()).throw(
             AssertionError('callable must not run during checks')
         ))
-        self.registry.register_permission_condition(Category, 'boom16', exploding)
-        try:
-            messages = check_permission_conditions(None)
-            self.assertEqual(exploding.calls, [])
-            ids = [m.id for m in messages]
-            self.assertIn(CHECK_ID_LEGACY_CALLBACK, ids)
-            self.assertNotIn(CHECK_ID_LEGACY_CALLBACK_WARNING, ids)
-        finally:
-            self.registry.conditions._records.pop((Category._meta.label, 'boom16'), None)
+        with self.assertRaises(PermissionConditionError) as ctx:
+            isolated.register_permission_condition(Category, 'boom16', exploding)
+        self.assertIn('AssertionError', str(ctx.exception))
+        self.assertEqual(len(exploding.calls), 1)
+        self.assertIsNone(isolated.get_permission_condition_record(Category, 'boom16'))
 
     @override_settings(TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS=True)
-    def test_opt_in_check_is_warning_without_invoking(self):
-        messages = check_permission_conditions(None)
-        self.assertEqual(self.log.calls, [])
-        ids = [m.id for m in messages]
-        self.assertIn(CHECK_ID_LEGACY_CALLBACK_WARNING, ids)
-        self.assertNotIn(CHECK_ID_LEGACY_CALLBACK, ids)
+    def test_leftover_setting_is_error_and_does_not_enable_callbacks(self):
+        messages = check_obsolete_legacy_callback_setting(None)
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].id, CHECK_ID_OBSOLETE_CALLBACK_SETTING)
+        self.assertIn('does not enable', messages[0].msg)
+        user = User.objects.get(pk=self.user.pk)
+        self.assertTrue(user.has_perm('trusts_zero_tests.read_category:spy16', self.keep))
+        self.assertEqual(len(self.log.calls), 1)
 
 
-class HelperDonationTests(SimpleTestCase):
+class HelperDonationTests(TransactionTestCase):
     def test_content_meta_helper_is_not_a_second_store(self):
-        u, _p, o = condition_refs()
         isolated = TrustsRegistry()
         donate_content_permission_conditions(isolated, Ticket)
         donate_content_permission_conditions(isolated, Ticket)
         rows = _condition_rows(isolated, Ticket, 'own')
         self.assertEqual(len(rows), 1)
-        self.assertIsNotNone(isolated.get_permission_condition_record(Ticket, 'own').expr)
+        record = isolated.get_permission_condition_record(Ticket, 'own')
+        self.assertIsNotNone(record.expr)
+        self.assertFalse(hasattr(record, 'func'))
+        self.assertEqual(
+            record.expr.to_tuple(),
+            ('eq', ('ref', 'principal', ()), ('ref', 'object', ('owner',))),
+        )
+        self.assertIs(Ticket._meta.permission_conditions[0][1], ticket_own)
         self.assertFalse(hasattr(Content, '_conditions'))
+
+    def test_trust_own_builder_donation_is_zero_sql(self):
+        code, builder = Trust._meta.permission_conditions[0]
+        self.assertEqual(code, 'own')
+        self.assertTrue(callable(builder))
+        isolated = TrustsRegistry()
+        with self.assertNumQueries(0):
+            donate_content_permission_conditions(isolated, Trust)
+        record = isolated.get_permission_condition_record(Trust, 'own')
+        self.assertIsNotNone(record)
+        self.assertFalse(hasattr(record, 'func'))
+        self.assertEqual(
+            record.expr.to_tuple(),
+            ('eq', ('ref', 'principal', ()), ('ref', 'object', ('settlor',))),
+        )

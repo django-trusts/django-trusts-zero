@@ -7,12 +7,10 @@ points at `README.md`, not this file.
 
 ## Current pairing
 
-This tree is `django-trusts-zero==1.0.0.dev0` pairing the #16 condition
-registry cut against core `django-trusts==1.0.0.dev3`
-([django-trusts#118](https://github.com/django-trusts/django-trusts/pull/118)
-merge `948d6666342377b9472debb57d4a1e26e81402d1`, reviewed head
-`9993f7b102b8b0d5844c208d22f52e9a22df18b2`). The previous merged
-floor remains [django-trusts#112](https://github.com/django-trusts/django-trusts/pull/112).
+This tree is `django-trusts-zero==1.0.0.dev0` pairing the #142 Z-convert
+against Core Stage A [django-trusts#144](https://github.com/django-trusts/django-trusts/pull/144)
+head `5d12fa2fe18097abfe8f4ed30da6dafd1ace60be`. The previous paired
+core floor remains [django-trusts#121](https://github.com/django-trusts/django-trusts/pull/121).
 
 Earlier unpublished Zero snapshots used `2.0.0.dev0` / `dev1` / `dev2`.
 Those values are not a public compatibility line.
@@ -51,7 +49,7 @@ See `docs/source/index.rst` and `migrates.md`.
 
 ## Verification
 
-Pair CI pins exact core #118 merge `948d6666342377b9472debb57d4a1e26e81402d1`.
+Pair CI pins exact Core Stage A head `5d12fa2fe18097abfe8f4ed30da6dafd1ace60be`.
 The Zero suite (including `tests/legacy/` historical copies from that
 core revision), fresh-install, old-path fail-closed, wheel RECORD, and
 uninstall-isolation scripts must run against that revision without

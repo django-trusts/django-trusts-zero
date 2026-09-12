@@ -7,12 +7,8 @@ from trusts.zero import (
     DEFAULT_SETTLOR, ALLOW_NULL_SETTLOR, ROOT_PK,
 )
 from trusts import utils
-from trusts.conditions import condition_refs
 from trusts.zero.policy import permission_in_global_ceiling
 from trusts.zero.query import ContentManager, TrustManager
-
-
-_u, _p, _o = condition_refs()
 
 
 class ReadonlyFieldsMixin(object):
@@ -78,7 +74,9 @@ class Trust(Content):
     class Meta:
         unique_together = ('settlor', 'title')
         default_permissions = ('add', 'change', 'delete', 'read',)
-        permission_conditions = (('own', _u == _o.settlor), )
+        permission_conditions = (
+            ('own', lambda u, p, o: u == o.settlor),
+        )
 
     def __str__(self):
         settlor_str = ' of %s' % str(self.settlor) if self.settlor is not None else ''

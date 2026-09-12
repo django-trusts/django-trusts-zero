@@ -43,9 +43,41 @@ def live_config(apps_registry=None):
     )
 
 
+def live_handle(apps_registry=None):
+    """Configured Zero backend handle."""
+    return live_config(apps_registry).configured_backend(CANONICAL_BACKEND_PATH)
+
+
 def live_registry(apps_registry=None):
     """Configured Zero handle registry."""
-    return live_config(apps_registry).configured_backend(CANONICAL_BACKEND_PATH).registry
+    return live_handle(apps_registry).registry
+
+
+def publish_permission_condition(model, cond_code, builder_or_expr, registry=None):
+    """Register on an unfrozen registry, then publish the IR onto live.
+
+    After ``apps.ready``, the live handle registry is frozen and
+    ``register_permission_condition`` raises before a builder runs.
+    Isolated ``TrustsRegistry()`` never auto-freezes. Tests that need
+    ad-hoc conditions on the live lookup copy the resulting IR record.
+    """
+    from trusts.core import TrustsRegistry
+
+    isolated = TrustsRegistry()
+    record = isolated.register_permission_condition(
+        model, cond_code, builder_or_expr,
+    )
+    target = live_registry() if registry is None else registry
+    target.conditions._records[(model._meta.label, cond_code)] = record
+    return record
+
+
+def publish_donated_conditions(source, target=None):
+    """Copy condition IR records from an unfrozen source onto live."""
+    dest = live_registry() if target is None else target
+    store = getattr(source, 'conditions', source)
+    for model, code, record in store.iter_permission_conditions():
+        dest.conditions._records[(model._meta.label, code)] = record
 
 
 def junction_content_field(junction_model):

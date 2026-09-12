@@ -24,10 +24,9 @@ from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import isolate_apps
 
-from tests.apps import TestsConfig, isolate_live_registry, isolated_owner, live_config, live_registry, override_apps_ready
+from tests.apps import TestsConfig, isolate_live_registry, isolated_owner, live_config, live_registry, override_apps_ready, publish_permission_condition
 import tests as tests_module
 from tests.models import Category, Ticket
-from trusts.conditions import condition_refs
 from trusts.core import (
     Ref,
     RelationPlan,
@@ -43,6 +42,7 @@ from trusts.zero.models import (
 from trusts.zero.query import filter_authorized_scopes
 from tests.legacy.helpers import (
     enable_local_group_grant,
+    forget_condition,
     get_or_create_root_user,
 )
 
@@ -349,17 +349,10 @@ class CategoryPermittedRegistryTest(TestCase):
 
         self._reload()
 
-        u, _p, o = condition_refs()
-        live_registry().register_permission_condition(Category, 'named', o.name == 'keep')
-        self.addCleanup(self._clear_named_condition)
-
-    def _clear_named_condition(self):
-        from trusts import utils
-
-        short = utils.get_short_model_name(Category)
-        codes = live_registry().conditions._records.get(short)
-        if codes is not None:
-            codes.pop('named', None)
+        publish_permission_condition(
+            Category, 'named', lambda u, p, o: o.name == 'keep',
+        )
+        self.addCleanup(lambda: forget_condition(Category, 'named'))
 
     def _reload(self):
         self.alice = User.objects.get(pk=self.alice.pk)

@@ -13,7 +13,7 @@ from django.contrib import admin
 from django.contrib.auth.models import Group, Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
-from django.test import Client, TestCase, override_settings
+from django.test import Client, TestCase
 
 from trusts.zero.admin import register_auto_modeladmins
 from trusts.zero.authorization import (
@@ -28,7 +28,6 @@ from trusts.zero.authorization import (
     refuse_group_permission_write,
     revoke_trustee,
 )
-from trusts import utils
 from trusts.zero.models import (
     Content,
     Role,
@@ -40,19 +39,19 @@ from tests.legacy.helpers import (
     ContentModelMixin,
     create_test_users,
     enable_local_group_grant,
+    forget_condition,
     get_or_create_root_user,
     grant_content,
     reload_test_users,
     revoke_content,
 )
-from tests.apps import live_registry
+from tests.apps import publish_permission_condition
 from tests.models import AutoAdminCategory, AutoAdminJunction, Category, ManualAdminCategory
 
 
 class Issue8FixtureMixin(ContentModelMixin):
     def _forget_never_condition(self):
-        short = utils.get_short_model_name(Category)
-        live_registry().conditions._records.get(short, {}).pop('never', None)
+        forget_condition(Category, 'never')
 
     def setUp(self):
         super(Issue8FixtureMixin, self).setUp()
@@ -141,15 +140,14 @@ class PermittedQuerySetTest(Issue8FixtureMixin, TestCase):
         reload_test_users(self)
         self.assertFalse(self.user.has_perm(self.get_perm_code(self.perm_change), self.content))
 
-    @override_settings(TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS=True)
     def test_conditioned_perm_fails_closed(self):
         """A :condition must not silently return every unconditioned grant.
 
-        Reproduces the #20 review: register an always-false condition,
+        Reproduces the #20 review: register an always-false builder,
         grant the underlying read, then compare has_perm vs permitted.
         """
-        live_registry().register_permission_condition(
-            Category, 'never', lambda user, perm, obj: False
+        publish_permission_condition(
+            Category, 'never', lambda u, p, o: o.name == '__never__',
         )
         self.addCleanup(self._forget_never_condition)
         TrustUserPermission(
@@ -160,8 +158,7 @@ class PermittedQuerySetTest(Issue8FixtureMixin, TestCase):
         conditioned = '%s:never' % unconditioned
         self.assertTrue(self.user.has_perm(unconditioned, self.content))
         self.assertFalse(self.user.has_perm(conditioned, self.content))
-        with self.assertRaises(PermissionConditionNotQueryable):
-            Category.objects.permitted(conditioned, self.user)
+        self.assertFalse(Category.objects.permitted(conditioned, self.user).exists())
         with self.assertRaises(AttributeError):
             Category.objects.permitted('read_category:own', self.user)
         # Unconditioned path still lists the granted row only.
@@ -238,8 +235,8 @@ class FilterByUserContentPermTest(Issue8FixtureMixin, TestCase):
         self.assertIn(self.org.pk, trusts.values_list('pk', flat=True))
 
     def test_conditioned_perm_fails_closed(self):
-        live_registry().register_permission_condition(
-            Category, 'never', lambda user, perm, obj: False
+        publish_permission_condition(
+            Category, 'never', lambda u, p, o: o.name == '__never__',
         )
         self.addCleanup(self._forget_never_condition)
         TrustUserPermission(
