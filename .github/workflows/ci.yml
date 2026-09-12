@@ -9,12 +9,14 @@ permissions:
   contents: read
 
 env:
-  # Core #142 Stage A companion PR #144 head (paired with this Z-convert).
-  COMPANION_KERNEL_SHA: 5d12fa2fe18097abfe8f4ed30da6dafd1ace60be
+  # Merged Core Stage A on django-trusts `dev` (#144).
+  COMPANION_KERNEL_SHA: 710b3ea26778ff069d1f5329adc9f2f481a1ea92
+  # Core Stage B candidate (no Core PR). Explicit pair-proof only.
+  STAGE_B_KERNEL_SHA: 12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa
 
 jobs:
   tests:
-    name: tests vs core #142 Stage A pair (Python ${{ matrix.python-version }})
+    name: tests vs merged core (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -61,7 +63,7 @@ jobs:
       run: python scripts/verify-installed-ui.py
 
   pair:
-    name: pair with core #142 Stage A companion head
+    name: pair with merged core #144
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -75,10 +77,38 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-    - name: Exact paired core head
+    - name: Exact merged core head
       run: |
-        test "${COMPANION_KERNEL_SHA}" = "5d12fa2fe18097abfe8f4ed30da6dafd1ace60be"
-        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "5d12fa2fe18097abfe8f4ed30da6dafd1ace60be"
+        test "${COMPANION_KERNEL_SHA}" = "710b3ea26778ff069d1f5329adc9f2f481a1ea92"
+        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "710b3ea26778ff069d1f5329adc9f2f481a1ea92"
+        python -m pip install --upgrade pip
+        python -m pip install "Django>=6.1,<6.2" coverage
+        python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
+        python -m pip install -e . --config-settings editable_mode=compat
+        coverage run -m tests.runtests
+        python scripts/verify-fresh-install.py
+        python scripts/verify-old-backend-path.py
+        python scripts/verify-installed-ui.py
+
+  pair-stage-b:
+    name: pair with core #142 Stage B candidate
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: django-trusts/django-trusts
+        ref: ${{ env.STAGE_B_KERNEL_SHA }}
+        path: .deps/django-trusts
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Exact Stage B candidate head
+      run: |
+        test "${STAGE_B_KERNEL_SHA}" = "12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa"
+        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa"
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat

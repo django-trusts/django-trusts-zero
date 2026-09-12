@@ -22,7 +22,6 @@ from tests.backends import GroupOnlyBackend, MixinOnlyBackend
 from tests.models import Category, Organization, Ticket, TestGroupJunction
 from trusts.core import PlanQueryCompiler
 from trusts.zero.backends import TrustModelBackend
-from trusts.conditions import Ref as ConditionRef
 from trusts.core import (
     PlanQueryCompiler,
     Ref,
@@ -624,11 +623,6 @@ class _BuilderLog(object):
         self.calls.append((u, p, o))
         return self.impl(u, p, o)
 
-    def saw_only_refs(self):
-        return all(
-            isinstance(arg, ConditionRef) for call in self.calls for arg in call
-        )
-
 
 @contextmanager
 def _tables(*model_classes):
@@ -870,7 +864,6 @@ class QuerySetCallableConditionTest(_UsersMixin, TestCase):
 
     def test_builder_once_object_and_queryset_parity(self):
         self.assertEqual(len(self.log.calls), 1)
-        self.assertTrue(self.log.saw_only_refs())
         self.assertTrue(self.alice.has_perm(self.conditioned, self.cat_a))
         self.assertFalse(self.alice.has_perm(self.conditioned, self.cat_b))
         permitted = set(
