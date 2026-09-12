@@ -1,3 +1,8 @@
+"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue70.py`` for issue #37 Zero-first coverage.
+
+Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+"""
+
 """S1: package-owned Trust-as-content contribution (issue #70).
 
 Registers ``TrustUserPermission → parent Trust ← child Trust`` on the
@@ -5,8 +10,6 @@ AppConfig-owned ``TrustsRegistry`` so ``Trust.objects.permitted(...)``
 uses the common relation plan. Backend ``has_perm`` and
 ``filter_by_user_content_perm`` stay on the old path. Isolated core
 tests keep constructing their own ``TrustsRegistry()``.
-
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue70.py``.
 """
 
 from unittest.mock import patch
@@ -20,7 +23,7 @@ from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import isolate_apps
 
-from tests.apps import TestsConfig, apply_zero_trust_donation, isolate_live_registry, isolated_owner, live_config
+from tests.apps import TestsConfig, apply_zero_trust_donation, isolate_live_registry, isolated_owner, live_config, live_registry
 import tests as tests_module
 from tests.models import Category, Ticket
 from trusts.core import (
