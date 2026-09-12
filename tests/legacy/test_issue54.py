@@ -1,3 +1,8 @@
+"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue54.py`` for issue #37 Zero-first coverage.
+
+Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+"""
+
 """#54 C1: additive generic public seams.
 
 AuthorizedQuerySet / AuthorizedManager, filter_authorized_scopes,
@@ -5,8 +10,6 @@ ConditionLookup / set_condition_lookup, and live_config(). Structural
 and behavioral tests only — no source-token or inspect.getsource
 assertions. Does not retarget the app label, move models, bind a Zero
 Content lookup, or delete the legacy compiler.
-
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue54.py``.
 """
 
 import sys
@@ -25,7 +28,7 @@ from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.test.utils import isolate_apps
 
-from tests.apps import live_config
+from tests.apps import live_config, live_registry
 from tests.models import Category, Organization, Ticket
 from trusts.apps import TrustsImplementationConfig
 from trusts.zero.backends import HistoricalGroupQueryCompiler
@@ -317,10 +320,10 @@ class ConditionLookupBackendAdapterTest(_UsersMixin, TestCase):
         super().tearDown()
 
     def test_zero_binds_content_condition_lookup(self):
-        from trusts.zero.models import ContentConditionLookup
+        from trusts.conditions import RegistryConditionLookup
 
         self.assertIsInstance(
-            self.handle.registry.condition_lookup, ContentConditionLookup,
+            self.handle.registry.condition_lookup, RegistryConditionLookup,
         )
         with self.assertRaises(AttributeError):
             self.alice.has_perm('trusts_zero_tests.read_category:missing', self.cat_a)
