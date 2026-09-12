@@ -1,9 +1,12 @@
+"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue8.py`` for issue #37 Zero-first coverage.
+
+Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+"""
+
 """Recovery tests for issue #8: list APIs, authorization, auto_modeladmin.
 
 Does not close #8. Covers the core milestone: APIs, auth holes, cross-trust
 group scope, inactive principals, and opt-in admin registration.
-
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue8.py``.
 """
 
 from django.contrib import admin
@@ -42,13 +45,14 @@ from tests.legacy.helpers import (
     reload_test_users,
     revoke_content,
 )
+from tests.apps import live_registry
 from tests.models import AutoAdminCategory, AutoAdminJunction, Category, ManualAdminCategory
 
 
 class Issue8FixtureMixin(ContentModelMixin):
     def _forget_never_condition(self):
         short = utils.get_short_model_name(Category)
-        Content._conditions.get(short, {}).pop('never', None)
+        live_registry().conditions._records.get(short, {}).pop('never', None)
 
     def setUp(self):
         super(Issue8FixtureMixin, self).setUp()
@@ -144,7 +148,7 @@ class PermittedQuerySetTest(Issue8FixtureMixin, TestCase):
         Reproduces the #20 review: register an always-false condition,
         grant the underlying read, then compare has_perm vs permitted.
         """
-        Content.register_permission_condition(
+        live_registry().register_permission_condition(
             Category, 'never', lambda user, perm, obj: False
         )
         self.addCleanup(self._forget_never_condition)
@@ -234,7 +238,7 @@ class FilterByUserContentPermTest(Issue8FixtureMixin, TestCase):
         self.assertIn(self.org.pk, trusts.values_list('pk', flat=True))
 
     def test_conditioned_perm_fails_closed(self):
-        Content.register_permission_condition(
+        live_registry().register_permission_condition(
             Category, 'never', lambda user, perm, obj: False
         )
         self.addCleanup(self._forget_never_condition)
