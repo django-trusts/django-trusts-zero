@@ -13,6 +13,8 @@ env:
   COMPANION_KERNEL_SHA: 710b3ea26778ff069d1f5329adc9f2f481a1ea92
   # Core Stage B candidate (no Core PR). Explicit pair-proof only.
   STAGE_B_KERNEL_SHA: 12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa
+  # Staged six-name public trusts.conditions surface (Core #150 r2 local).
+  SIX_NAME_KERNEL_SHA: 30b4878e68883e81a16913e4fd05015f4551e164
 
 jobs:
   tests:
@@ -109,6 +111,34 @@ jobs:
       run: |
         test "${STAGE_B_KERNEL_SHA}" = "12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa"
         test "$(git -C .deps/django-trusts rev-parse HEAD)" = "12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa"
+        python -m pip install --upgrade pip
+        python -m pip install "Django>=6.1,<6.2" coverage
+        python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
+        python -m pip install -e . --config-settings editable_mode=compat
+        coverage run -m tests.runtests
+        python scripts/verify-fresh-install.py
+        python scripts/verify-old-backend-path.py
+        python scripts/verify-installed-ui.py
+
+  pair-six-name:
+    name: pair with core six-name candidate
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: django-trusts/django-trusts
+        ref: ${{ env.SIX_NAME_KERNEL_SHA }}
+        path: .deps/django-trusts
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Exact six-name candidate head
+      run: |
+        test "${SIX_NAME_KERNEL_SHA}" = "30b4878e68883e81a16913e4fd05015f4551e164"
+        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "30b4878e68883e81a16913e4fd05015f4551e164"
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat

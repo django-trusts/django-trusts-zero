@@ -325,11 +325,10 @@ class ConditionLookupBackendAdapterTest(_UsersMixin, TestCase):
         super().tearDown()
 
     def test_zero_binds_content_condition_lookup(self):
-        from trusts.conditions import RegistryConditionLookup
-
-        self.assertIsInstance(
-            self.handle.registry.condition_lookup, RegistryConditionLookup,
-        )
+        self.assertIsNotNone(self.handle.registry.condition_lookup)
+        own = self.handle.registry.get_permission_condition_record(Trust, 'own')
+        self.assertIsNotNone(own)
+        self.assertIsNotNone(own.expr)
         with self.assertRaises(AttributeError):
             self.alice.has_perm('trusts_zero_tests.read_category:missing', self.cat_a)
 

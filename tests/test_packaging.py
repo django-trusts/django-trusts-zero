@@ -1,7 +1,9 @@
 """Source-tree proofs that Zero does not own kernel paths or copy compilers."""
 
+import importlib
 import importlib.util
 from pathlib import Path
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -110,6 +112,71 @@ class ZeroSourceLayoutTests(SimpleTestCase):
         self.assertFalse((ROOT / 'trusts' / 'tests.py').exists())
         self.assertFalse((ROOT / 'trusts' / 'zero' / 'tests.py').exists())
 
+    def test_production_lookup_prefers_private_ir(self):
+        text = (ROOT / 'trusts' / 'zero' / 'apps.py').read_text()
+        self.assertIn("_IR_MODULE = 'trusts.conditions._ir'", text)
+        self.assertIn('except ModuleNotFoundError', text)
+        self.assertIn('if getattr(exc, \'name\', None) != _IR_MODULE', text)
+        self.assertIn('_load_conditions_implementation().RegistryConditionLookup', text)
+        self.assertNotIn('except ImportError:\n            from trusts.conditions import RegistryConditionLookup', text)
+
+    def test_converted_modules_do_not_import_public_store_names(self):
+        banned = (
+            'from trusts.conditions import RegistryConditionLookup',
+            'from trusts.conditions import ConditionRecord',
+            'from trusts.conditions import ConditionRegistry',
+            'from trusts.conditions import validate_expression',
+        )
+        converted = (
+            ROOT / 'tests' / 'test_codec.py',
+            ROOT / 'tests' / 'legacy' / 'test_issue54.py',
+            ROOT / 'tests' / 'legacy' / 'test_issue87.py',
+        )
+        offenders = []
+        for path in converted:
+            text = path.read_text()
+            for needle in banned:
+                if needle in text:
+                    offenders.append('%s: %s' % (path.relative_to(ROOT), needle))
+        self.assertEqual(offenders, [])
+        issue16 = (ROOT / 'tests' / 'test_issue16.py').read_text()
+        self.assertNotIn('from trusts.conditions import RegistryConditionLookup', issue16)
+        self.assertNotIn('from trusts.conditions import ConditionRegistry', issue16)
+        self.assertNotIn('from trusts.conditions import validate_expression', issue16)
+        self.assertIn('_load_conditions_implementation().ConditionRecord', issue16)
+        self.assertNotIn('except ImportError:', issue16)
+
+    def test_existing_ir_import_failure_does_not_fall_back(self):
+        from trusts.zero import apps as zero_apps
+
+        real = importlib.import_module
+
+        def transitive_failure(name, package=None):
+            if name == 'trusts.conditions._ir':
+                raise ModuleNotFoundError(
+                    "No module named 'trusts.conditions._broken_dep'",
+                    name='trusts.conditions._broken_dep',
+                )
+            return real(name, package)
+
+        with patch.object(zero_apps.importlib, 'import_module', transitive_failure):
+            with self.assertRaises(ModuleNotFoundError) as ctx:
+                zero_apps._load_conditions_implementation()
+        self.assertEqual(ctx.exception.name, 'trusts.conditions._broken_dep')
+
+        def missing_symbol(name, package=None):
+            if name == 'trusts.conditions._ir':
+                raise ImportError(
+                    "cannot import name 'RegistryConditionLookup' "
+                    "from 'trusts.conditions._ir'"
+                )
+            return real(name, package)
+
+        with patch.object(zero_apps.importlib, 'import_module', missing_symbol):
+            with self.assertRaises(ImportError) as ctx:
+                zero_apps._load_conditions_implementation()
+        self.assertIn('RegistryConditionLookup', str(ctx.exception))
+
 
 class ZeroPublishMetadataTests(SimpleTestCase):
     def test_pyproject_requires_final_core_floor(self):
@@ -130,6 +197,10 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         )
         self.assertIn(
             'STAGE_B_KERNEL_SHA: 12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa',
+            ci,
+        )
+        self.assertIn(
+            'SIX_NAME_KERNEL_SHA: 30b4878e68883e81a16913e4fd05015f4551e164',
             ci,
         )
 
