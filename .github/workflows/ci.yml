@@ -10,7 +10,7 @@ permissions:
 
 env:
   # Core #18/#120 companion PR #121 head (mutually tested with this Zero PR).
-  COMPANION_KERNEL_SHA: 7b9387635835e47450fcc5dcfee4fd62a5f16b5f
+  COMPANION_KERNEL_SHA: a0104be138f5fbcc7d74ce1fce8054c3e1e89634
 
 jobs:
   tests:
@@ -64,8 +64,8 @@ jobs:
         python-version: "3.12"
     - name: Exact paired core head
       run: |
-        test "${COMPANION_KERNEL_SHA}" = "7b9387635835e47450fcc5dcfee4fd62a5f16b5f"
-        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "7b9387635835e47450fcc5dcfee4fd62a5f16b5f"
+        test "${COMPANION_KERNEL_SHA}" = "a0104be138f5fbcc7d74ce1fce8054c3e1e89634"
+        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "a0104be138f5fbcc7d74ce1fce8054c3e1e89634"
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat

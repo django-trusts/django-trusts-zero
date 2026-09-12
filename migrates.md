@@ -15,7 +15,7 @@ Those surfaces are gone on the supported core library.
 | Item | Value |
 | --- | --- |
 | Authoritative Zero metadata | this repo `pyproject.toml` (`1.0.0.dev0` + `django-trusts>=1.0.0.dev3,<2`) |
-| Paired core #18/#120 | [django-trusts#121](https://github.com/django-trusts/django-trusts/pull/121) head [`7b9387635835e47450fcc5dcfee4fd62a5f16b5f`](https://github.com/django-trusts/django-trusts/commit/7b9387635835e47450fcc5dcfee4fd62a5f16b5f) |
+| Paired core #18/#120 | [django-trusts#121](https://github.com/django-trusts/django-trusts/pull/121) head [`a0104be138f5fbcc7d74ce1fce8054c3e1e89634`](https://github.com/django-trusts/django-trusts/commit/a0104be138f5fbcc7d74ce1fce8054c3e1e89634) |
 | Previous merged core floor | [django-trusts#119](https://github.com/django-trusts/django-trusts/pull/119) merge [`6c705e284d37b10b7c29196a9ece88996273758e`](https://github.com/django-trusts/django-trusts/commit/6c705e284d37b10b7c29196a9ece88996273758e) |
 | Zero #18 baseline | [`73b74b4213f6040f0e71c4c46d7a509804975672`](https://github.com/django-trusts/django-trusts-zero/commit/73b74b4213f6040f0e71c4c46d7a509804975672) |
 
