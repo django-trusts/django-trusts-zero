@@ -1,3 +1,8 @@
+"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue67.py`` for issue #37 Zero-first coverage.
+
+Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+"""
+
 """Child H: first historical TUP→Trust←Category reader (issue #67).
 
 Migrates the trustee half of ``ContentQuerySet.permitted`` for the
@@ -5,8 +10,6 @@ explicitly registered Category terminal. Backend ``has_perm`` stays on
 the old path. Isolated core tests keep constructing their own
 ``TrustsRegistry()``. Trust-as-content is S1 (``test_issue70``).
 Ticket is S2 (``test_issue72``).
-
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue67.py``.
 """
 
 import types
@@ -21,7 +24,7 @@ from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import isolate_apps
 
-from tests.apps import TestsConfig, isolate_live_registry, isolated_owner, live_config, override_apps_ready
+from tests.apps import TestsConfig, isolate_live_registry, isolated_owner, live_config, live_registry, override_apps_ready
 import tests as tests_module
 from tests.models import Category, Ticket
 from trusts.conditions import condition_refs
@@ -336,14 +339,14 @@ class CategoryPermittedRegistryTest(TestCase):
         self._reload()
 
         u, _p, o = condition_refs()
-        Content.register_permission_condition(Category, 'named', o.name == 'keep')
+        live_registry().register_permission_condition(Category, 'named', o.name == 'keep')
         self.addCleanup(self._clear_named_condition)
 
     def _clear_named_condition(self):
         from trusts import utils
 
         short = utils.get_short_model_name(Category)
-        codes = Content._conditions.get(short)
+        codes = live_registry().conditions._records.get(short)
         if codes is not None:
             codes.pop('named', None)
 
