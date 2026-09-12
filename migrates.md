@@ -160,6 +160,8 @@ historical_fallback
 historical_group_grant_exists
 group_local_grant_exists
 permission_granted_via_group_exists
+_record_group_grant_exists
+_trust_group_model
 trust_grant_q
 _has_tgp_records
 ```

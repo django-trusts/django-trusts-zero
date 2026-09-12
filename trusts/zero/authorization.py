@@ -36,7 +36,7 @@ def _tup_model():
     return _trusts_model('TrustUserPermission')
 
 
-def _trust_group_model():
+def _zero_trust_group():
     return _trusts_model('TrustGroup')
 
 
@@ -259,7 +259,7 @@ def revoke_trust_group_permission(actor, content, group, perm):
              'change permission is required to revoke team permissions.')
     group = _resolve_group(group, queryset=content.trust.groups.all())
     permission = _resolve_content_perm(content, perm)
-    tg = _trust_group_model().objects.get(trust=content.trust, group=group)
+    tg = _zero_trust_group().objects.get(trust=content.trust, group=group)
     _tgp_model().objects.filter(trustgroup=tg, permission=permission).delete()
     return group
 
@@ -280,7 +280,7 @@ def set_trust_group_permissions(actor, content, group, permissions):
 def _grant_local_group_permission(trust, group, permission):
     """Create a local grant; roll back a new association if it fails."""
     with transaction.atomic():
-        tg, created = _trust_group_model().objects.get_or_create(
+        tg, created = _zero_trust_group().objects.get_or_create(
             trust=trust, group=group,
         )
         _tgp_model().objects.get_or_create(
@@ -293,7 +293,7 @@ def _set_local_group_permissions(trust, group, permissions):
     """Replace local grants; roll back a new association if any grant fails."""
     permissions = list(permissions)
     with transaction.atomic():
-        tg, created = _trust_group_model().objects.get_or_create(
+        tg, created = _zero_trust_group().objects.get_or_create(
             trust=trust, group=group,
         )
         _tgp_model().objects.filter(trustgroup=tg).exclude(
