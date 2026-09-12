@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [dev]
   pull_request:
 
 permissions:
@@ -39,7 +39,20 @@ jobs:
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
         python -m pip install -e . --config-settings editable_mode=compat
     - name: Zero tests (no core AppConfig)
-      run: coverage run -m tests.runtests && coverage report
+      run: |
+        coverage run -m tests.runtests
+        coverage report
+    - name: Generate Cobertura coverage.xml
+      if: matrix.python-version == '3.12'
+      run: coverage xml
+    - name: Upload coverage to Coveralls
+      if: matrix.python-version == '3.12'
+      uses: coverallsapp/github-action@v2
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        file: coverage.xml
+        format: cobertura
+        compare-ref: dev
     - name: Fresh install + makemigrations --check
       run: python scripts/verify-fresh-install.py
     - name: Old backend path fails startup
