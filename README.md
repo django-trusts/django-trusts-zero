@@ -1,5 +1,7 @@
 # django-trusts-zero
 
+[![Coverage](https://coveralls.io/repos/github/django-trusts/django-trusts-zero/badge.svg?branch=dev)](https://coveralls.io/github/django-trusts/django-trusts-zero?branch=dev)
+
 `django-trusts-zero` is the concrete continuation of django-trusts 0.x.
 Use it when you want the historical Trust/Content models, stored
 identities, and migration path from that line.
