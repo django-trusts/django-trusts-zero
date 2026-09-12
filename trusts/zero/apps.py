@@ -109,11 +109,18 @@ class ZeroConfig(_ZeroBase):
         store.
         """
         from trusts.apps import implementation_for_path
-        from trusts.conditions import RegistryConditionLookup
         from trusts.zero.registration import (
             donate_installed_permission_conditions,
             register_zero_relations,
         )
+
+        # Implementation lookup. Private on Core's six-name
+        # ``trusts.conditions``; not an application API. Merged Stage A
+        # still exports the same type on the public module.
+        try:
+            from trusts.conditions._ir import RegistryConditionLookup
+        except ImportError:
+            from trusts.conditions import RegistryConditionLookup
 
         owner = implementation_for_path(
             CANONICAL_BACKEND_PATH, apps_registry=self.apps,

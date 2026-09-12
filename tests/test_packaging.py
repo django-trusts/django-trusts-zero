@@ -110,6 +110,44 @@ class ZeroSourceLayoutTests(SimpleTestCase):
         self.assertFalse((ROOT / 'trusts' / 'tests.py').exists())
         self.assertFalse((ROOT / 'trusts' / 'zero' / 'tests.py').exists())
 
+    def test_production_lookup_prefers_private_ir(self):
+        text = (ROOT / 'trusts' / 'zero' / 'apps.py').read_text()
+        self.assertIn(
+            'from trusts.conditions._ir import RegistryConditionLookup',
+            text,
+        )
+        public_import = 'from trusts.conditions import RegistryConditionLookup'
+        self.assertIn(public_import, text)
+        self.assertLess(
+            text.index('from trusts.conditions._ir import RegistryConditionLookup'),
+            text.index(public_import),
+        )
+
+    def test_converted_modules_do_not_import_public_store_names(self):
+        banned = (
+            'from trusts.conditions import RegistryConditionLookup',
+            'from trusts.conditions import ConditionRecord',
+            'from trusts.conditions import ConditionRegistry',
+            'from trusts.conditions import validate_expression',
+        )
+        converted = (
+            ROOT / 'tests' / 'test_codec.py',
+            ROOT / 'tests' / 'legacy' / 'test_issue54.py',
+            ROOT / 'tests' / 'legacy' / 'test_issue87.py',
+        )
+        offenders = []
+        for path in converted:
+            text = path.read_text()
+            for needle in banned:
+                if needle in text:
+                    offenders.append('%s: %s' % (path.relative_to(ROOT), needle))
+        self.assertEqual(offenders, [])
+        issue16 = (ROOT / 'tests' / 'test_issue16.py').read_text()
+        self.assertNotIn('from trusts.conditions import RegistryConditionLookup', issue16)
+        self.assertNotIn('from trusts.conditions import ConditionRegistry', issue16)
+        self.assertNotIn('from trusts.conditions import validate_expression', issue16)
+        self.assertIn('from trusts.conditions._ir import ConditionRecord', issue16)
+
 
 class ZeroPublishMetadataTests(SimpleTestCase):
     def test_pyproject_requires_final_core_floor(self):
@@ -130,6 +168,10 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         )
         self.assertIn(
             'STAGE_B_KERNEL_SHA: 12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa',
+            ci,
+        )
+        self.assertIn(
+            'SIX_NAME_KERNEL_SHA: 30b4878e68883e81a16913e4fd05015f4551e164',
             ci,
         )
 

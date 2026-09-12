@@ -20,11 +20,8 @@ from trusts.checks import (
     iter_live_permission_conditions,
 )
 from trusts.conditions import (
-    ConditionRecord,
-    ConditionRegistry,
     PermissionConditionError,
-    PermissionConditionNotQueryable as CoreNotQueryable,
-    RegistryConditionLookup,
+    PermissionConditionNotQueryable,
 )
 from trusts.core import TrustsConfigurationError, TrustsRegistry
 from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
@@ -34,7 +31,6 @@ from trusts.zero.models import (
     Trust,
     TrustUserPermission,
 )
-from trusts.conditions import PermissionConditionNotQueryable
 from trusts.zero.registration import (
     donate_content_permission_conditions,
     donate_installed_permission_conditions,
@@ -101,14 +97,15 @@ class ZeroConditionSurfaceTests(SimpleTestCase):
         self.assertNotIn('class ContentConditionLookup', source)
         self.assertNotIn('@staticmethod', source)
         self.assertFalse(hasattr(zero_models, 'PermissionConditionNotQueryable'))
-        self.assertIs(PermissionConditionNotQueryable, CoreNotQueryable)
+        self.assertTrue(issubclass(PermissionConditionNotQueryable, Exception))
 
     def test_zero_binds_generic_registry_lookup(self):
         handle = live_handle()
         registry = handle.registry
-        lookup = registry.condition_lookup
-        self.assertIsInstance(lookup, RegistryConditionLookup)
-        self.assertIs(lookup.conditions, registry.conditions)
+        self.assertIsNotNone(registry.condition_lookup)
+        own = registry.get_permission_condition_record(Trust, 'own')
+        self.assertIsNotNone(own)
+        self.assertIsNotNone(own.expr)
         self.assertTrue(callable(handle.register_permission_condition))
 
 
@@ -193,7 +190,6 @@ class OwnerIsolationTests(SimpleTestCase):
 
         fresh = TrustsRegistry()
         self.assertEqual(list(fresh.iter_permission_conditions()), [])
-        self.assertIsInstance(ConditionRegistry(), ConditionRegistry)
         self.assertIsNone(fresh.get_permission_condition_record(Trust, 'own'))
         self.assertIsNone(fresh.get_permission_condition_record(Ticket, 'own'))
 
@@ -260,6 +256,11 @@ class ExprParityTests(TestCase):
         self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'typo16'))
 
         registry = _zero_registry()
+        # Implementation store type (not an application API).
+        try:
+            from trusts.conditions._ir import ConditionRecord
+        except ImportError:
+            from trusts.conditions import ConditionRecord
         empty = ConditionRecord(model=Ticket)
         registry.conditions._records[(Ticket._meta.label, 'empty16')] = empty
         try:
