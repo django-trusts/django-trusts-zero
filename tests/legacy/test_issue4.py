@@ -1,10 +1,13 @@
+"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue4.py`` for issue #37 Zero-first coverage.
+
+Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+"""
+
 """Queryable V1 permission conditions (issue #4).
 
 Parity between ``has_perm`` and ``ContentQuerySet.permitted`` for
 registered ``Expr`` trees; callables stay object-only and are never
 probed with symbolic refs.
-
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue4.py``.
 """
 
 from django.contrib.auth.models import Group, Permission
@@ -40,6 +43,7 @@ from tests.legacy.helpers import (
     get_or_create_root_user,
     reload_test_users,
 )
+from tests.apps import live_registry
 from tests.models import Organization, Ticket
 
 
@@ -127,7 +131,7 @@ class ConditionGrammarTest(SimpleTestCase):
         self.assertIsInstance(ordering, Expr)
         self.assertFalse(is_predicate(ordering))
         with self.assertRaises(PermissionConditionError):
-            Content.register_permission_condition(Ticket, 'range', ordering)
+            live_registry().register_permission_condition(Ticket, 'range', ordering)
 
     def test_calls_indexing_arithmetic_setters_rejected(self):
         u, p, o = condition_refs()
@@ -162,9 +166,9 @@ class ConditionGrammarTest(SimpleTestCase):
     def test_non_predicate_and_non_callable_rejected_at_register(self):
         u, p, o = condition_refs()
         with self.assertRaises(PermissionConditionError):
-            Content.register_permission_condition(Ticket, 'bare', o.owner)
+            live_registry().register_permission_condition(Ticket, 'bare', o.owner)
         with self.assertRaises(TypeError):
-            Content.register_permission_condition(Ticket, 'bad', 'not-a-condition')
+            live_registry().register_permission_condition(Ticket, 'bad', 'not-a-condition')
 
     def test_incompatible_literal_types_rejected_at_validate(self):
         u, p, o = condition_refs()
@@ -186,9 +190,7 @@ class ConditionGrammarTest(SimpleTestCase):
 class QueryableConditionTest(TestCase):
     def setUp(self):
         super(QueryableConditionTest, self).setUp()
-        self._saved_conditions = {
-            key: dict(codes) for key, codes in Content._conditions.items()
-        }
+        self._saved_conditions = dict(live_registry().conditions._records)
         call_command('create_trust_root')
         get_or_create_root_user(self)
         create_test_users(self)
@@ -242,25 +244,25 @@ class QueryableConditionTest(TestCase):
         reload_test_users(self)
 
         u, p, o = condition_refs()
-        Content.register_permission_condition(Ticket, 'editable', OWNED_OR_MANAGER_UNLOCKED)
-        Content.register_permission_condition(
+        live_registry().register_permission_condition(Ticket, 'editable', OWNED_OR_MANAGER_UNLOCKED)
+        live_registry().register_permission_condition(
             Ticket, 'unlocked',
             ((u == o.owner) | (u == o.organization.manager)) & (o.status != 'locked'),
         )
-        Content.register_permission_condition(Ticket, 'own', u == o.owner)
-        Content.register_permission_condition(Ticket, 'open', o.status == 'open')
-        Content.register_permission_condition(
+        live_registry().register_permission_condition(Ticket, 'own', u == o.owner)
+        live_registry().register_permission_condition(Ticket, 'open', o.status == 'open')
+        live_registry().register_permission_condition(
             Ticket, 'never', lambda user, perm, obj: False
         )
-        Content.register_permission_condition(
+        live_registry().register_permission_condition(
             Ticket, 'python_or',
             lambda user, perm, obj: user == obj.owner or obj.status == 'open',
         )
-        Content.register_permission_condition(
+        live_registry().register_permission_condition(
             Ticket, 'called',
             lambda user, perm, obj: obj.status.lower() == 'open',
         )
-        Content.register_permission_condition(
+        live_registry().register_permission_condition(
             Ticket, 'legacy_own',
             lambda user, perm, obj: user == obj.owner,
         )
@@ -271,10 +273,8 @@ class QueryableConditionTest(TestCase):
         self.change_open = 'trusts_zero_tests.change_ticket:open'
 
     def tearDown(self):
-        Content._conditions.clear()
-        Content._conditions.update({
-            key: dict(codes) for key, codes in self._saved_conditions.items()
-        })
+        live_registry().conditions._records.clear()
+        live_registry().conditions._records.update(self._saved_conditions)
         super(QueryableConditionTest, self).tearDown()
 
     def _direct_pks(self, perm, user):
@@ -402,7 +402,7 @@ class QueryableConditionTest(TestCase):
 
     def test_legacy_callback_never_symbolically_invoked(self):
         log = _CallLog(lambda user, perm, obj: user == obj.owner)
-        Content.register_permission_condition(Ticket, 'spy', log)
+        live_registry().register_permission_condition(Ticket, 'spy', log)
         self.assertEqual(log.calls, [])
         spy = 'trusts_zero_tests.change_ticket:spy'
         with self.assertRaises(PermissionConditionNotQueryable):
@@ -417,7 +417,7 @@ class QueryableConditionTest(TestCase):
 
     def test_invalid_field_path_fails_closed(self):
         u, p, o = condition_refs()
-        Content.register_permission_condition(Ticket, 'missing', u == o.not_a_field)
+        live_registry().register_permission_condition(Ticket, 'missing', u == o.not_a_field)
         missing = 'trusts_zero_tests.change_ticket:missing'
         with self.assertRaises(PermissionConditionError):
             Ticket.objects.permitted(missing, self.user)
@@ -431,7 +431,7 @@ class QueryableConditionTest(TestCase):
         a missing principal attribute as ``None`` would allow that row.
         """
         u, p, o = condition_refs()
-        Content.register_permission_condition(Ticket, 'typo', u.regoin == o.region)
+        live_registry().register_permission_condition(Ticket, 'typo', u.regoin == o.region)
         typo = 'trusts_zero_tests.change_ticket:typo'
         with self.assertRaises(PermissionConditionError) as direct:
             self.user.has_perm(typo, self.owned_open)
@@ -447,7 +447,7 @@ class QueryableConditionTest(TestCase):
 
     def test_nullable_object_field_none_is_not_a_missing_attribute(self):
         u, p, o = condition_refs()
-        Content.register_permission_condition(Ticket, 'unset_region', o.region == None)
+        live_registry().register_permission_condition(Ticket, 'unset_region', o.region == None)
         unset = 'trusts_zero_tests.change_ticket:unset_region'
         self.assertTrue(self.user.has_perm(unset, self.owned_open))
         self.assertFalse(self.user.has_perm(unset, self.owned_locked))
@@ -460,7 +460,7 @@ class QueryableConditionTest(TestCase):
         self.owned_open.region = self.user.username
         self.owned_open.save()
         u, p, o = condition_refs()
-        Content.register_permission_condition(Ticket, 'named', u.username == o.region)
+        live_registry().register_permission_condition(Ticket, 'named', u.username == o.region)
         named = 'trusts_zero_tests.change_ticket:named'
         self.assertTrue(self.user.has_perm(named, self.owned_open))
         self.assertFalse(self.user.has_perm(named, self.owned_locked))
@@ -471,8 +471,8 @@ class QueryableConditionTest(TestCase):
     def test_nonempty_permission_path_fails_closed(self):
         """``p.codenmae`` must not become an always-true ``None == None``."""
         u, p, o = condition_refs()
-        Content.register_permission_condition(Ticket, 'ptypo', p.codenmae == None)
-        Content.register_permission_condition(Ticket, 'pcode', p.codename == None)
+        live_registry().register_permission_condition(Ticket, 'ptypo', p.codenmae == None)
+        live_registry().register_permission_condition(Ticket, 'pcode', p.codename == None)
         for code in ('ptypo', 'pcode'):
             perm = 'trusts_zero_tests.change_ticket:%s' % code
             with self.assertRaises(PermissionConditionError) as direct:
@@ -489,8 +489,8 @@ class QueryableConditionTest(TestCase):
         group = Group.objects.create(name='cond-group')
         self.user.groups.add(group)
         u, p, o = condition_refs()
-        Content.register_permission_condition(Ticket, 'ingroup', o.owner.groups == group)
-        Content.register_permission_condition(
+        live_registry().register_permission_condition(Ticket, 'ingroup', o.owner.groups == group)
+        live_registry().register_permission_condition(
             Ticket, 'siblings', o.organization.tickets == None
         )
         for code, needle in (
@@ -512,7 +512,7 @@ class QueryableConditionTest(TestCase):
 
     def test_two_object_field_equality_parity(self):
         u, p, o = condition_refs()
-        Content.register_permission_condition(
+        live_registry().register_permission_condition(
             Ticket, 'same_people', o.owner == o.organization.manager
         )
         perm = 'trusts_zero_tests.change_ticket:same_people'
@@ -523,9 +523,9 @@ class QueryableConditionTest(TestCase):
         self.owned_open.status = '1'
         self.owned_open.save()
         u, p, o = condition_refs()
-        Content.register_permission_condition(Ticket, 'status_eq_int', o.status == 1)
-        Content.register_permission_condition(Ticket, 'status_ne_int', o.status != 1)
-        Content.register_permission_condition(Ticket, 'status_eq_str', o.status == '1')
+        live_registry().register_permission_condition(Ticket, 'status_eq_int', o.status == 1)
+        live_registry().register_permission_condition(Ticket, 'status_ne_int', o.status != 1)
+        live_registry().register_permission_condition(Ticket, 'status_eq_str', o.status == '1')
         for code in ('status_eq_int', 'status_ne_int'):
             perm = 'trusts_zero_tests.change_ticket:%s' % code
             with self.assertRaises(PermissionConditionError) as direct:
@@ -543,10 +543,10 @@ class QueryableConditionTest(TestCase):
     def test_relation_raw_pk_rejected_on_eq_and_ne(self):
         """Django would coerce Q(owner='1') through the FK; Python compares the User."""
         u, p, o = condition_refs()
-        Content.register_permission_condition(Ticket, 'owner_eq_str', o.owner == '1')
-        Content.register_permission_condition(Ticket, 'owner_ne_str', o.owner != '1')
-        Content.register_permission_condition(Ticket, 'owner_eq_int', o.owner == 1)
-        Content.register_permission_condition(Ticket, 'owner_ne_int', o.owner != 1)
+        live_registry().register_permission_condition(Ticket, 'owner_eq_str', o.owner == '1')
+        live_registry().register_permission_condition(Ticket, 'owner_ne_str', o.owner != '1')
+        live_registry().register_permission_condition(Ticket, 'owner_eq_int', o.owner == 1)
+        live_registry().register_permission_condition(Ticket, 'owner_ne_int', o.owner != 1)
         for code in ('owner_eq_str', 'owner_ne_str', 'owner_eq_int', 'owner_ne_int'):
             perm = 'trusts_zero_tests.change_ticket:%s' % code
             with self.assertRaises(PermissionConditionError) as direct:
@@ -559,7 +559,7 @@ class QueryableConditionTest(TestCase):
         self.assertTrue(self.user.has_perm(self.change_own, self.owned_open))
 
     def test_builtin_own_is_registered_expression(self):
-        record = Content.get_permission_condition_record(Trust, 'own')
+        record = live_registry().get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(record)
         self.assertIsNotNone(record.expr)
         self.assertIsNone(record.func)
