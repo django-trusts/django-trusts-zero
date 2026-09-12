@@ -90,9 +90,13 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.12"
+    - name: Install documentation and packaging tools
+      run: |
+        python -m pip install --upgrade pip build twine virtualenv "Django>=6.1,<6.2" "Sphinx>=8,<9"
+    - name: Build documentation without warnings
+      run: sphinx-build -nW docs/source docs/_build/html
     - name: Build sdist and wheel
       run: |
-        python -m pip install --upgrade pip build twine virtualenv "Django>=6.1,<6.2"
         python -m build
         twine check dist/*
     - name: Package metadata (version, core floor, LICENSE)
