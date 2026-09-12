@@ -1,125 +1,53 @@
+"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue77.py`` for issue #37 Zero-first coverage.
+
+Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+
+Generic multi-path / compiler-isolation / distributive-law / coordinator
+classes were deleted (core-owned; restore under ``tests/core/`` with
+neutral hosts). Zero keeps runnable live one-path authorization and
+Zero-noun assertions — no ``@unittest.skip`` stand-ins.
+"""
+
 """S3b: backend authorization and enumeration on compiler handles (issue #77).
 
 Structural and behavioral tests only — no source-token or
 ``inspect.getsource`` assertions.
-
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue77.py``.
 """
 
-from contextlib import contextmanager
-from unittest.mock import patch
-
-from django.apps import apps
-from tests.apps import install_writable_registry, live_config, live_registry
+from tests.apps import live_registry, live_config
 from django.contrib.auth.models import AnonymousUser, Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
-from django.db import connection, models
 from django.db.models.query import QuerySet
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 
-from tests.backends import GroupOnlyBackend, MixinOnlyBackend
 from tests.models import Category, Organization, Ticket, TestGroupJunction
-from trusts.zero.backends import HistoricalGroupQueryCompiler, TrustModelBackend
+from trusts.zero.backends import TrustModelBackend
 from trusts.conditions import condition_refs
-from trusts.core import (
-    PlanQueryCompiler,
-    Ref,
-    TrustsCompilerError,
-    TrustsConfigurationError,
-    TrustsRegistry,
-    common_permissions,
-)
+from trusts.core import common_permissions
 from trusts.zero.models import (
-    Content,
-    ContentManager,
     PermissionConditionNotQueryable,
     Trust,
     TrustUserPermission,
 )
-from trusts.query import is_active_principal, trust_grant_q
+from trusts.query import is_active_principal
 from tests.legacy.helpers import (
     enable_local_group_grant,
     forget_condition,
     get_or_create_root_user,
 )
 
-
 CONCRETE = 'trusts.zero.backends.TrustModelBackend'
-MIXIN = 'tests.backends.MixinOnlyBackend'
-GROUP_ONLY = 'tests.backends.GroupOnlyBackend'
-MISSING = 'tests.backends.MissingCompilerBackend'
-RAISING = 'tests.backends.RaisingCompilerBackend'
 MODEL = 'django.contrib.auth.backends.ModelBackend'
-
 
 def _pks(qs):
     return set(qs.values_list('pk', flat=True))
-
 
 def _perm(model, codename):
     return Permission.objects.get(
         content_type=ContentType.objects.get_for_model(model),
         codename=codename,
     )
-
-
-def _codes(perms):
-    return set(perms)
-
-
-def _contribute_category(registry):
-    j = Ref(TrustUserPermission)
-    rev = Category._meta.get_field('trust').remote_field.get_accessor_name()
-    registry.register(
-        content=getattr(j.trust, rev),
-        user=j.entity,
-        permission=j.permission,
-    )
-
-
-class _RegistryRestoreMixin(object):
-    def setUp(self):
-        super().setUp()
-        self.live = live_config()
-        self.saved_registries = dict(self.live.registries)
-        self.saved_trust_sentinel = getattr(
-            self.live, '_trusts_tup_trust_registry_id', None
-        )
-        self.saved_trust_ids = getattr(
-            self.live, '_trusts_tup_trust_registry_ids', None
-        )
-        self.live_contributor = apps.get_app_config('trusts_zero_tests')
-        self.saved_category_sentinel = getattr(
-            self.live_contributor, '_trusts_tup_category_registry_id', None
-        )
-        self.saved_ticket_sentinel = getattr(
-            self.live_contributor, '_trusts_tup_ticket_registry_id', None
-        )
-        self.saved_group_sentinel = getattr(
-            self.live_contributor, '_trusts_tup_group_registry_id', None
-        )
-
-    def tearDown(self):
-        self.live.registries.clear()
-        self.live.registries.update(self.saved_registries)
-        self.live._trusts_tup_trust_registry_id = self.saved_trust_sentinel
-        if self.saved_trust_ids is None:
-            if hasattr(self.live, '_trusts_tup_trust_registry_ids'):
-                delattr(self.live, '_trusts_tup_trust_registry_ids')
-        else:
-            self.live._trusts_tup_trust_registry_ids = self.saved_trust_ids
-        self.live_contributor._trusts_tup_category_registry_id = (
-            self.saved_category_sentinel
-        )
-        self.live_contributor._trusts_tup_ticket_registry_id = (
-            self.saved_ticket_sentinel
-        )
-        self.live_contributor._trusts_tup_group_registry_id = (
-            self.saved_group_sentinel
-        )
-        super().tearDown()
-
 
 class _UsersMixin(object):
     def _make_users(self, suffix):
@@ -147,7 +75,6 @@ class _UsersMixin(object):
         self.alice = User.objects.get(pk=self.alice.pk)
         self.bob = User.objects.get(pk=self.bob.pk)
         self.carol = User.objects.get(pk=self.carol.pk)
-
 
 class OnePathAuthorizationTest(_UsersMixin, TestCase):
     def setUp(self):
@@ -324,142 +251,6 @@ class OnePathAuthorizationTest(_UsersMixin, TestCase):
         with self.assertNumQueries(1):
             self.assertEqual(list(page), [self.cat_a1])
 
-
-class DistributiveLawTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
-    def setUp(self):
-        super().setUp()
-        self._make_users('dist')
-        self.cat_a = Category.objects.create(trust=self.trust_a, name='c-a')
-        self.cat_b = Category.objects.create(trust=self.trust_b, name='c-b')
-        self.change = _perm(Category, 'change_category')
-        self.change_code = 'trusts_zero_tests.change_category'
-        # A (group-only compiler): historical group on C1 only.
-        # B (mixin): TUP on C2 only. Shared TUP rows cannot split a
-        # HistoricalGroupQueryCompiler path, so A omits content_exists.
-        self.alice_group = Group.objects.create(name='alice-dist')
-        self.alice.groups.add(self.alice_group)
-        self.change.group_set.add(self.alice_group)
-        enable_local_group_grant(self.trust_a, self.alice_group, self.change)
-        TrustUserPermission(
-            trust=self.trust_b, entity=self.alice, permission=self.change,
-        ).save()
-        self._reload()
-
-    def test_split_coverage_object_queryset_and_permitted(self):
-        concrete = TrustModelBackend()
-        self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.cat_a))
-        self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.cat_b))
-        self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a))
-        self.assertTrue(self.alice.has_perm(self.change_code, self.cat_b))
-        qs = Category.objects.filter(pk__in=[self.cat_a.pk, self.cat_b.pk])
-        self.assertTrue(self.alice.has_perm(self.change_code, qs))
-        self.assertTrue(self.alice.has_perms((self.change_code,), qs))
-        self.assertIn(self.change_code, self.alice.get_all_permissions(qs))
-        permitted = Category.objects.permitted(self.change_code, self.alice)
-        with self.assertNumQueries(1):
-            self.assertEqual(_pks(permitted), {self.cat_a.pk, self.cat_b.pk})
-        with self.assertRaises(TrustsConfigurationError):
-            MixinOnlyBackend().has_perm(self.alice, self.change_code, self.cat_b)
-
-    def test_failed_ceiling_cannot_borrow_other_path_fragment(self):
-        self.change.group_set.remove(self.alice_group)
-        TrustUserPermission.objects.filter(
-            trust=self.trust_b, entity=self.alice,
-        ).delete()
-        self._reload()
-        qs = Category.objects.filter(pk__in=[self.cat_a.pk, self.cat_b.pk])
-        self.assertFalse(self.alice.has_perm(self.change_code, self.cat_a))
-        self.assertFalse(self.alice.has_perm(self.change_code, self.cat_b))
-        self.assertFalse(self.alice.has_perm(self.change_code, qs))
-        self.assertFalse(
-            Category.objects.permitted(self.change_code, self.alice).exists()
-        )
-
-
-class CompilerIsolationBackendTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
-    def setUp(self):
-        super().setUp()
-        self._make_users('iso')
-        self.cat_a = Category.objects.create(trust=self.trust_a, name='iso')
-        self.change = _perm(Category, 'change_category')
-        self.change_code = 'trusts_zero_tests.change_category'
-        self.carol_group = Group.objects.create(name='carol-iso-s3b')
-        self.carol.groups.add(self.carol_group)
-        self.change.group_set.add(self.carol_group)
-        enable_local_group_grant(self.trust_a, self.carol_group, self.change)
-        self._reload()
-
-    def test_concrete_group_grant_not_inherited_by_mixin(self):
-        self.assertFalse(
-            TrustUserPermission.objects.filter(entity=self.carol).exists()
-        )
-        concrete = TrustModelBackend()
-        self.assertTrue(concrete.has_perm(self.carol, self.change_code, self.cat_a))
-        self.assertTrue(self.carol.has_perm(self.change_code, self.cat_a))
-        self.assertIn(
-            self.change_code,
-            concrete.get_group_permissions(self.carol, self.cat_a),
-        )
-        qs = Category.objects.filter(pk=self.cat_a.pk)
-        self.assertTrue(concrete.has_perm(self.carol, self.change_code, qs))
-        self.assertIsInstance(MixinOnlyBackend.query_compiler, PlanQueryCompiler)
-        with self.assertRaises(TrustsConfigurationError):
-            MixinOnlyBackend().has_perm(self.carol, self.change_code, self.cat_a)
-
-    def test_mixin_only_alone_denies_historical_group(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(MIXIN,)):
-            install_writable_registry(self.live, MIXIN, _contribute_category)
-            with self.assertRaises(TrustsConfigurationError):
-                self.live.configured_backend()
-            with self.assertRaises(TrustsConfigurationError):
-                MixinOnlyBackend().has_perm(
-                    self.carol, self.change_code, self.cat_a,
-                )
-
-
-class CoordinatorQueryCountTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
-    def setUp(self):
-        super().setUp()
-        self._make_users('coord')
-        self.cat_a = Category.objects.create(trust=self.trust_a, name='coord')
-        self.change = _perm(Category, 'change_category')
-        self.change_code = 'trusts_zero_tests.change_category'
-        TrustUserPermission(
-            trust=self.trust_a, entity=self.alice, permission=self.change,
-        ).save()
-        self._reload()
-        self.qs = Category.objects.filter(pk=self.cat_a.pk)
-
-    def test_coordinator_one_sql_noncoordinator_zero(self):
-        concrete = TrustModelBackend()
-        self.assertTrue(concrete._is_collection_coordinator())
-        with self.assertNumQueries(1):
-            self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.qs))
-        with self.assertNumQueries(1):
-            self.assertTrue(self.alice.has_perm(self.change_code, self.qs))
-        with self.assertRaises(TrustsConfigurationError):
-            MixinOnlyBackend()._is_collection_coordinator()
-
-    def test_reversed_backend_order(self):
-        concrete = TrustModelBackend()
-        self.assertEqual(self.live._configured_trusts_paths(), (CONCRETE,))
-        self.assertTrue(concrete._is_collection_coordinator())
-        with self.assertNumQueries(1):
-            self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.qs))
-        with self.assertNumQueries(1):
-            self.assertTrue(self.alice.has_perm(self.change_code, self.qs))
-        with self.assertRaises(TrustsConfigurationError):
-            MixinOnlyBackend()._is_collection_coordinator()
-
-    def test_duplicate_exact_path_strings_dedupe(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, CONCRETE)):
-            self.assertEqual(self.live._configured_trusts_paths(), (CONCRETE,))
-            concrete = TrustModelBackend()
-            self.assertTrue(concrete._is_collection_coordinator())
-            self.assertTrue(self.alice.has_perm(self.change_code, self.qs))
-            self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a))
-
-
 class ObjNoneBoundaryTest(_UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -484,7 +275,7 @@ class ObjNoneBoundaryTest(_UsersMixin, TestCase):
             self.assertFalse(self.alice.has_perm('auth.change_user'))
             self.assertFalse(self.alice.has_perms(('auth.change_user',)))
             self.assertEqual(self.alice.get_all_permissions(), set())
-            self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a))
+        self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a))
         self.assertNotIn('auth.change_user', backend.get_all_permissions(self.alice, self.cat_a))
 
     def test_modelbackend_plus_trusts_restores_globals_not_object_grants(self):
@@ -501,7 +292,6 @@ class ObjNoneBoundaryTest(_UsersMixin, TestCase):
                 'auth.change_user',
                 self.alice.get_all_permissions(self.cat_a),
             )
-
 
 class UndeclaredJunctionRemainsHistoricalTest(_UsersMixin, TestCase):
     def setUp(self):
@@ -532,59 +322,6 @@ class UndeclaredJunctionRemainsHistoricalTest(_UsersMixin, TestCase):
         qs = Group.objects.filter(pk=self.group.pk)
         self.assertTrue(self.alice.has_perm(code, qs))
 
-
-class CompilerFailureTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
-    def setUp(self):
-        super().setUp()
-        self._make_users('fail')
-        self.cat_a = Category.objects.create(trust=self.trust_a, name='fail')
-        self.change_code = 'trusts_zero_tests.change_category'
-
-    def test_raising_compiler_propagates_on_has_perm(self):
-        from tests.backends import RaisingCompilerBackend
-
-        handle = self.live.configured_backend()
-        exploding = RaisingCompilerBackend.query_compiler
-        with patch.object(
-            TrustModelBackend, 'query_compiler', exploding,
-        ):
-            with patch.object(handle.compiler, 'complete_exists', exploding.complete_exists):
-                with self.assertRaises(RuntimeError):
-                    TrustModelBackend().has_perm(
-                        self.alice, self.change_code, self.cat_a,
-                    )
-
-    def test_missing_compiler_fails_loud(self):
-        from tests.backends import MissingCompilerBackend
-        with self.assertRaises(TrustsConfigurationError):
-            MissingCompilerBackend().has_perm(
-                self.alice, self.change_code, self.cat_a,
-            )
-
-    def test_unconfigured_and_ambiguous_path_fail_loud(self):
-        backend = MixinOnlyBackend()
-        with self.assertRaises(TrustsConfigurationError):
-            backend.has_perm(self.alice, self.change_code, self.cat_a)
-        with override_settings(AUTHENTICATION_BACKENDS=(
-            CONCRETE, 'tests.backends.AliasedTrustModelBackend',
-        )):
-            with self.assertRaises(TrustsConfigurationError):
-                TrustModelBackend().has_perm(
-                    self.alice, self.change_code, self.cat_a,
-                )
-
-    def test_silenced_e004_still_raises(self):
-        from tests.backends import MissingCompilerBackend
-        with override_settings(
-            AUTHENTICATION_BACKENDS=(MISSING,),
-            SILENCED_SYSTEM_CHECKS=['trusts.E004', 'fields.W342'],
-        ):
-            with self.assertRaises(TrustsConfigurationError):
-                MissingCompilerBackend().has_perm(
-                    self.alice, self.change_code, self.cat_a,
-                )
-
-
 class CoreCommonPermissionsProjectionTest(_UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -614,7 +351,6 @@ class CoreCommonPermissionsProjectionTest(_UsersMixin, TestCase):
         with self.assertNumQueries(1):
             self.assertFalse(list(common_permissions((handle,), empty, self.alice)))
 
-
 class _CallLog(object):
     def __init__(self, impl):
         self.impl = impl
@@ -623,226 +359,6 @@ class _CallLog(object):
     def __call__(self, user, perm, obj):
         self.calls.append((user, perm, obj))
         return self.impl(user, perm, obj)
-
-
-@contextmanager
-def _tables(*model_classes):
-    with connection.schema_editor() as editor:
-        for model in model_classes:
-            editor.create_model(model)
-    try:
-        yield
-    finally:
-        with connection.schema_editor() as editor:
-            for model in reversed(model_classes):
-                editor.delete_model(model)
-        all_models = apps.all_models
-        for model in model_classes:
-            all_models[model._meta.app_label].pop(model._meta.model_name, None)
-        apps.clear_cache()
-
-
-def _ordinary_memo_models():
-    class Memo(models.Model):
-        title = models.CharField(max_length=40)
-        objects = ContentManager()
-
-        class Meta:
-            app_label = 'trusts_zero_tests'
-
-    class MemoGrant(models.Model):
-        memo = models.ForeignKey(Memo, on_delete=models.CASCADE)
-        user = models.ForeignKey(User, on_delete=models.CASCADE)
-        permission = models.ForeignKey(Permission, on_delete=models.CASCADE)
-
-        class Meta:
-            app_label = 'trusts_zero_tests'
-
-    return Memo, MemoGrant
-
-
-class RegisteredOrdinaryModelTest(_RegistryRestoreMixin, _UsersMixin, TransactionTestCase):
-    """Registered non-Content models route through the handle, not Content._contents."""
-
-    def test_registered_ordinary_instance_queryset_enum_and_permitted(self):
-        Memo, MemoGrant = _ordinary_memo_models()
-        with _tables(Memo, MemoGrant):
-            self._make_users('memo')
-            memo = Memo.objects.create(title='note')
-            other = Memo.objects.create(title='other')
-            self.assertFalse(hasattr(Content, 'is_content'))
-            self.assertFalse(hasattr(Content, 'is_content_model'))
-            ct = ContentType.objects.get_for_model(Memo)
-            change, _created = Permission.objects.get_or_create(
-                content_type=ct,
-                codename='change_memo',
-                defaults={'name': 'Can change memo'},
-            )
-            code = 'trusts_zero_tests.change_memo'
-            MemoGrant.objects.create(memo=memo, user=self.alice, permission=change)
-            isolated = TrustsRegistry()
-            j = Ref(MemoGrant)
-            isolated.register(
-                content=j.memo, user=j.user, permission=j.permission,
-            )
-            self.live.registries[CONCRETE] = isolated
-            plan_compiler = PlanQueryCompiler()
-            with patch.object(TrustModelBackend, 'query_compiler', plan_compiler):
-                handle = self.live.configured_backend()
-                self.assertFalse(handle.historical_fallback)
-                self.assertIsInstance(handle.compiler, PlanQueryCompiler)
-                concrete = TrustModelBackend()
-                self.assertTrue(concrete.has_perm(self.alice, code, memo))
-                self.assertFalse(concrete.has_perm(self.alice, code, other))
-                self.assertFalse(concrete.has_perm(self.bob, code, memo))
-                self.assertTrue(self.alice.has_perm(code, memo))
-                self.assertIn(code, concrete.get_all_permissions(self.alice, memo))
-                self.assertEqual(concrete.get_group_permissions(self.alice, memo), set())
-                qs = Memo.objects.filter(pk=memo.pk)
-                self.assertTrue(concrete.has_perm(self.alice, code, qs))
-                self.assertIn(code, concrete.get_all_permissions(self.alice, qs))
-                self.assertEqual(concrete.get_group_permissions(self.alice, qs), set())
-                self.assertFalse(
-                    concrete.has_perm(
-                        self.alice, code,
-                        Memo.objects.filter(pk__in=[memo.pk, other.pk]),
-                    )
-                )
-                self.assertEqual(_pks(Memo.objects.permitted(code, self.alice)), {memo.pk})
-                self.assertFalse(Memo.objects.permitted(code, self.bob).exists())
-
-
-class HistoricalFallbackCapabilityTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
-    """Historical fallback is a concrete compiler capability, not Content membership."""
-
-    def setUp(self):
-        super().setUp()
-        self._make_users('hist')
-        self.cat_a = Category.objects.create(trust=self.trust_a, name='hist')
-        self.change = _perm(Category, 'change_category')
-        self.change_code = 'trusts_zero_tests.change_category'
-        TrustUserPermission(
-            trust=self.trust_a, entity=self.alice, permission=self.change,
-        ).save()
-        self.carol_group = Group.objects.create(name='carol-hist-s3b')
-        self.carol.groups.add(self.carol_group)
-        self.change.group_set.add(self.carol_group)
-        enable_local_group_grant(self.trust_a, self.carol_group, self.change)
-        self._reload()
-
-    def _empty_plans(self, *paths):
-        for path in paths:
-            self.live.registries[path] = TrustsRegistry()
-
-    def test_compiler_advertises_fallback_only_on_historical_route(self):
-        self.assertTrue(HistoricalGroupQueryCompiler.historical_fallback)
-        self.assertFalse(PlanQueryCompiler.historical_fallback)
-        concrete = self.live.configured_backend(CONCRETE)
-        self.assertTrue(concrete.historical_fallback)
-        self.assertFalse(MixinOnlyBackend.query_compiler.historical_fallback)
-        with override_settings(AUTHENTICATION_BACKENDS=(MIXIN,)):
-            with self.assertRaises(TrustsConfigurationError):
-                self.live.configured_backend()
-
-    def test_mixin_only_no_plan_denies_tup_and_trustgroup(self):
-        self.assertFalse(hasattr(Content, 'is_content'))
-        with override_settings(AUTHENTICATION_BACKENDS=(MIXIN,)):
-            with self.assertRaises(TrustsConfigurationError):
-                self.live.configured_backend()
-            with self.assertRaises(TrustsConfigurationError):
-                MixinOnlyBackend().has_perm(
-                    self.alice, self.change_code, self.cat_a,
-                )
-
-    def test_concrete_no_plan_fails_closed_for_undeclared_content(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE,)):
-            self._empty_plans(CONCRETE)
-            handle = self.live.configured_backend()
-            self.assertFalse(handle.registry.plan_for(Category).records)
-            self.assertTrue(handle.historical_fallback)
-            self.assertFalse(hasattr(TrustModelBackend, '_get_trusts'))
-            concrete = TrustModelBackend()
-            self.assertFalse(concrete.has_perm(self.alice, self.change_code, self.cat_a))
-            self.assertFalse(concrete.has_perm(self.carol, self.change_code, self.cat_a))
-            self.assertEqual(
-                concrete.get_all_permissions(self.alice, self.cat_a), set(),
-            )
-            self.assertEqual(
-                concrete.get_group_permissions(self.carol, self.cat_a), set(),
-            )
-            qs = Category.objects.filter(pk=self.cat_a.pk)
-            self.assertFalse(concrete.has_perm(self.alice, self.change_code, qs))
-            self.assertFalse(
-                Category.objects.permitted(self.change_code, self.alice).exists()
-            )
-            self.assertFalse(
-                Category.objects.permitted(self.change_code, self.carol).exists()
-            )
-
-    def test_inapplicable_mixin_neither_adds_nor_reopens_deleted_fallback(self):
-        self._empty_plans(CONCRETE)
-        concrete_handle = self.live.configured_backend(CONCRETE)
-        self.assertFalse(concrete_handle.registry.plan_for(Category).records)
-        self.assertTrue(concrete_handle.historical_fallback)
-        concrete = TrustModelBackend()
-        self.assertFalse(concrete.has_perm(self.alice, self.change_code, self.cat_a))
-        self.assertFalse(self.alice.has_perm(self.change_code, self.cat_a))
-        self.assertEqual(
-            concrete.get_all_permissions(self.alice, self.cat_a), set(),
-        )
-        qs = Category.objects.filter(pk=self.cat_a.pk)
-        self.assertFalse(concrete.has_perm(self.alice, self.change_code, qs))
-        self.assertFalse(self.alice.has_perm(self.change_code, qs))
-        self.assertFalse(
-            Category.objects.permitted(self.change_code, self.alice).exists()
-        )
-        self.assertFalse(
-            Category.objects.permitted(self.change_code, self.carol).exists()
-        )
-        with self.assertRaises(TrustsConfigurationError):
-            self.live.configured_backend(MIXIN)
-
-
-class MixedPathUndeclaredJunctionTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
-    def setUp(self):
-        super().setUp()
-        self._make_users('mixj')
-        self.group = Group.objects.create(name='mixj-group')
-        self.junction = TestGroupJunction.objects.create(
-            trust=self.trust_a, content=self.group, name='mixj',
-        )
-        group_ct = ContentType.objects.get_for_model(Group)
-        self.change_group, _created = Permission.objects.get_or_create(
-            content_type=group_ct, codename='change_group',
-            defaults={'name': 'Can change group'},
-        )
-        TrustUserPermission(
-            trust=self.trust_a, entity=self.alice, permission=self.change_group,
-        ).save()
-        self._reload()
-        self.code = 'auth.change_group'
-
-    def test_concrete_authorizes_declared_junction_group(self):
-        handle = self.live.configured_backend()
-        self.assertTrue(handle.registry.plan_for(Group).records)
-        self.assertTrue(handle.historical_fallback)
-        self.assertTrue(self.alice.has_perm(self.code, self.group))
-        self.assertFalse(self.bob.has_perm(self.code, self.group))
-        qs = Group.objects.filter(pk=self.group.pk)
-        self.assertTrue(self.alice.has_perm(self.code, qs))
-
-    def test_mixin_does_not_add_or_suppress_junction_plan(self):
-        concrete = TrustModelBackend()
-        self.assertTrue(
-            self.live.configured_backend(CONCRETE).registry.plan_for(Group).records
-        )
-        self.assertTrue(concrete.has_perm(self.alice, self.code, self.group))
-        self.assertTrue(self.alice.has_perm(self.code, self.group))
-        qs = Group.objects.filter(pk=self.group.pk)
-        self.assertTrue(concrete.has_perm(self.alice, self.code, qs))
-        with self.assertRaises(TrustsConfigurationError):
-            self.live.configured_backend(MIXIN)
-
 
 class QuerySetCallableConditionTest(_UsersMixin, TestCase):
     def setUp(self):

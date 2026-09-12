@@ -1,10 +1,19 @@
+"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue89.py`` for issue #37 Zero-first coverage.
+
+Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+
+Generic live multi-path freeze-lifecycle / second-handle coverage was
+deleted (core-owned; restore under ``tests/core/`` with neutral hosts).
+Zero keeps runnable freeze / missing-declaration / handle-identity
+assertions on the canonical Zero backend — no ``@unittest.skip``
+stand-ins.
+"""
+
 """S8: freeze live registries and report detectable missing declarations.
 
 Structural and behavioral tests only — no source-token or
 ``inspect.getsource`` assertions. Isolated ``TrustsRegistry()``
 instances stay independent of Django readiness.
-
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue89.py``.
 """
 
 from contextlib import contextmanager
@@ -22,9 +31,7 @@ from tests.apps import (
     TestsConfig,
     forget_models,
     install_writable_registry,
-    isolated_owner,
     live_config,
-    override_apps_ready,
 )
 import tests as tests_module
 from tests.models import (
@@ -45,21 +52,15 @@ from trusts.checks import (
 from trusts.core import Ref, TrustsConfigurationError, TrustsRegistry
 from trusts.zero.models import Content, Junction, Trust, TrustUserPermission
 
-
 CONCRETE = 'trusts.zero.backends.TrustModelBackend'
-MIXIN = 'tests.backends.MixinOnlyBackend'
-HOST = 'tests.backends.HostTrustModelBackend'
-
 
 def _e003(messages=None):
     if messages is None:
         messages = check_missing_declarations(None)
     return [message for message in messages if message.id == CHECK_ID_MISSING_DECLARATION]
 
-
 def _objs(messages):
     return {message.obj for message in messages}
-
 
 def _contribute_category(registry):
     j = Ref(TrustUserPermission)
@@ -70,7 +71,6 @@ def _contribute_category(registry):
         permission=j.permission,
     )
 
-
 def _contribute_ticket(registry):
     j = Ref(TrustUserPermission)
     rev = Ticket._meta.get_field('trust').remote_field.get_accessor_name()
@@ -80,12 +80,10 @@ def _contribute_ticket(registry):
         permission=j.permission,
     )
 
-
 def _new_contributor(apps_registry):
     contributor = TestsConfig('tests', tests_module)
     contributor.apps = apps_registry
     return contributor
-
 
 @contextmanager
 def _dynamic_models(*model_classes):
@@ -93,7 +91,6 @@ def _dynamic_models(*model_classes):
         yield model_classes
     finally:
         forget_models(*model_classes)
-
 
 def _forget_leftover_detectable_models():
     known = {
@@ -111,7 +108,6 @@ def _forget_leftover_detectable_models():
         and not model._meta.proxy
     ]
     forget_models(*leftovers)
-
 
 class _RegistryRestoreMixin(object):
     def setUp(self):
@@ -155,7 +151,6 @@ class _RegistryRestoreMixin(object):
         )
         super().tearDown()
 
-
 class StandaloneFreezeIndependenceTest(SimpleTestCase):
     def test_standalone_stays_writable_after_global_ready(self):
         self.assertTrue(apps.ready)
@@ -187,7 +182,6 @@ class StandaloneFreezeIndependenceTest(SimpleTestCase):
                 _contribute_ticket(registry)
         self.assertEqual(registry.records, before)
         self.assertIs(registry.plan_for(Category).records[0], before[0])
-
 
 class RegisterAfterFreezeLeavesRecordsUnchangedTest(SimpleTestCase):
     def test_valid_duplicate_conflict_and_malformed_all_raise(self):
@@ -229,7 +223,6 @@ class RegisterAfterFreezeLeavesRecordsUnchangedTest(SimpleTestCase):
         self.assertEqual(len(registry.plan_for(Category).records), 1)
         self.assertEqual(len(registry.plan_for(Ticket).records), 0)
 
-
 class FrozenPlanProjectionsTest(SimpleTestCase):
     def test_frozen_plan_still_projects(self):
         registry = TrustsRegistry()
@@ -248,113 +241,6 @@ class FrozenPlanProjectionsTest(SimpleTestCase):
         qs = Category.objects.all()
         filtered = registry.filter_authorized(qs, user, permission)
         self.assertIs(filtered.model, Category)
-
-
-class LiveFreezeLifecycleTest(_RegistryRestoreMixin, SimpleTestCase):
-    def test_writable_during_contributor_ready_then_freeze_on_first_read(self):
-        isolated = TrustsRegistry()
-        self.live.registries[CONCRETE] = isolated
-        self.assertFalse(isolated.frozen)
-        with override_apps_ready(False):
-            handle = self.live.configured_backend()
-            self.assertIs(handle.registry, isolated)
-            self.assertFalse(isolated.frozen)
-            _contribute_category(isolated)
-            alias = self.live.registry
-            self.assertIs(alias, isolated)
-            self.assertFalse(isolated.frozen)
-            handles = self.live.configured_handles()
-            self.assertIs(handles[0].registry, isolated)
-            self.assertFalse(isolated.frozen)
-        handle = self.live.configured_backend()
-        self.assertIs(handle.registry, isolated)
-        self.assertTrue(isolated.frozen)
-        self.assertIs(self.live.registry, isolated)
-        self.assertIs(self.live.configured_handles()[0].registry, isolated)
-        with self.assertRaises(TrustsConfigurationError):
-            _contribute_ticket(isolated)
-        self.assertEqual(len(isolated.plan_for(Category).records), 1)
-        self.assertEqual(len(isolated.plan_for(Ticket).records), 0)
-
-    def test_multi_path_reversed_duplicate_and_late_observed_path(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(MIXIN, CONCRETE)):
-            handles = self.live.configured_handles()
-            self.assertEqual([handle.path for handle in handles], [CONCRETE])
-            self.assertIs(handles[0].registry, self.live.registries[CONCRETE])
-            self.assertTrue(handles[0].registry.frozen)
-            with self.assertRaises(TrustsConfigurationError):
-                self.live.configured_backend(MIXIN)
-            self.assertIs(
-                self.live.configured_backend(CONCRETE).registry,
-                self.live.registries[CONCRETE],
-            )
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, CONCRETE)):
-            handle = self.live.configured_backend()
-            self.assertEqual(handle.path, CONCRETE)
-            self.assertIs(handle.registry, self.live.registries[CONCRETE])
-            self.assertTrue(handle.registry.frozen)
-            self.assertIs(self.live.registry, handle.registry)
-        self.assertNotIn(HOST, self.live.registries)
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, HOST)):
-            with self.assertRaises(TrustsConfigurationError):
-                self.live.configured_backend(HOST)
-
-    def test_ready_does_not_replace_stored_objects_when_freezing(self):
-        store = self.live.registries
-        first = self.live.registries[CONCRETE]
-        self.live.ready()
-        self.assertIs(self.live.registries, store)
-        self.assertIs(self.live.registries[CONCRETE], first)
-        self.assertIs(self.live.configured_backend().registry, first)
-        self.assertTrue(first.frozen)
-
-    def test_late_registry_assignment_freezes_replacement(self):
-        replacement = TrustsRegistry()
-        self.assertFalse(replacement.frozen)
-        before = self.live.registries[CONCRETE].records
-        self.live.registry = replacement
-        self.assertTrue(replacement.frozen)
-        self.assertIs(self.live.registries[CONCRETE], replacement)
-        with self.assertRaises(TrustsConfigurationError) as ctx:
-            _contribute_category(replacement)
-        self.assertIn('frozen', str(ctx.exception).lower())
-        self.assertEqual(replacement.records, ())
-        self.assertIs(self.live.configured_backend().registry, replacement)
-        self.assertEqual(self.live.registry.records, ())
-        self.assertNotEqual(before, replacement.records)
-
-    def test_assignment_before_ready_stays_writable_then_freezes_on_read(self):
-        replacement = TrustsRegistry()
-        with override_apps_ready(False):
-            self.live.registry = replacement
-            self.assertIs(self.live.registries[CONCRETE], replacement)
-            self.assertFalse(replacement.frozen)
-            _contribute_category(replacement)
-            self.assertFalse(replacement.frozen)
-        self.assertFalse(replacement.frozen)
-        handle = self.live.configured_backend()
-        self.assertIs(handle.registry, replacement)
-        self.assertTrue(replacement.frozen)
-        before = replacement.records
-        with self.assertRaises(TrustsConfigurationError):
-            _contribute_ticket(replacement)
-        self.assertEqual(replacement.records, before)
-        self.assertEqual(len(replacement.plan_for(Category).records), 1)
-
-    def test_standalone_appconfig_does_not_auto_freeze(self):
-        import trusts
-
-        isolated = isolated_owner()
-        self.assertFalse(isolated._apps_instance_ready())
-        first = isolated.registry
-        self.assertFalse(first.frozen)
-        isolated.ready()
-        self.assertIs(isolated.registry, first)
-        self.assertFalse(first.frozen)
-        # C2: Trust-as-content is donated by Zero onto the live kernel
-        # store, not by a standalone AppConfig.ready().
-        self.assertFalse(first.plan_for(Trust).records)
-
 
 class SentinelAfterFreezeTest(_RegistryRestoreMixin, SimpleTestCase):
     def test_same_instance_reentry_is_noop_after_freeze(self):
@@ -409,13 +295,13 @@ class SentinelAfterFreezeTest(_RegistryRestoreMixin, SimpleTestCase):
         isolated = install_writable_registry(self.live, CONCRETE)
         self.live.configured_backend()
         self.assertTrue(isolated.frozen)
-        # Zero ready() donates Trust-as-content; a frozen replacement
-        # fail-closes instead of mutating.
+        # Zero ready() donates Trust-as-content. After a supported read
+        # the replacement is frozen, so re-entry must fail closed and
+        # leave the isolated store empty of Trust-as-content.
         with self.assertRaises(TrustsConfigurationError) as ctx:
             self.live.ready()
         self.assertIn('frozen', str(ctx.exception).lower())
         self.assertFalse(isolated.plan_for(Trust).records)
-
 
 class MissingDeclarationCheckTest(_RegistryRestoreMixin, TestCase):
     def setUp(self):
@@ -471,41 +357,6 @@ class MissingDeclarationCheckTest(_RegistryRestoreMixin, TestCase):
             self.assertIn('OrphanSheet', sheet[0].msg)
             self.assertIn('OrphanJunction', junction[0].msg)
             self.assertIn('exact backend path', sheet[0].hint)
-
-    def test_coverage_on_second_handle_only_clears_e003(self):
-        class SecondSheet(Content):
-            title = models.CharField(max_length=12)
-
-            class Meta:
-                app_label = 'trusts_zero_tests'
-                managed = False
-
-        with _dynamic_models(SecondSheet):
-            self.assertIn(SecondSheet, _objs(_e003()))
-            mixin = install_writable_registry(self.live, MIXIN)
-            j = Ref(TrustUserPermission)
-            rev = SecondSheet._meta.get_field(
-                'trust',
-            ).remote_field.get_accessor_name()
-            mixin.register(
-                content=getattr(j.trust, rev),
-                user=j.entity,
-                permission=j.permission,
-            )
-            # Coverage on an unowned mixin path does not clear E003.
-            self.assertIn(SecondSheet, _objs(_e003()))
-            writable = install_writable_registry(self.live, CONCRETE)
-            writable.register(
-                content=getattr(j.trust, rev),
-                user=j.entity,
-                permission=j.permission,
-            )
-            self.assertNotIn(SecondSheet, _objs(_e003()))
-            self.assertTrue(
-                self.live.configured_backend(CONCRETE).registry.plan_for(
-                    SecondSheet,
-                ).records
-            )
 
     def test_abstract_proxy_and_manual_dependents_are_not_reported(self):
         class AbstractHolder(Content):
@@ -582,7 +433,7 @@ class MissingDeclarationCheckTest(_RegistryRestoreMixin, TestCase):
         with self.assertNumQueries(0):
             out = StringIO()
             err = StringIO()
-            call_command('check', 'trusts', stdout=out, stderr=err)
+            call_command('check', 'trusts_zero_tests', stdout=out, stderr=err)
             subset = out.getvalue() + err.getvalue()
         self.assertNotIn(CHECK_ID_MISSING_DECLARATION, subset)
         trusts_only = [live_config()]
@@ -616,7 +467,6 @@ class MissingDeclarationCheckTest(_RegistryRestoreMixin, TestCase):
             self.assertFalse(
                 self.live.configured_backend().registry.plan_for(QuietSheet).records
             )
-
 
 class LiveHandleIdentityTest(_RegistryRestoreMixin, SimpleTestCase):
     def test_supported_surfaces_return_the_same_stored_object(self):

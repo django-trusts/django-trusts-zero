@@ -58,6 +58,9 @@ uninstall-isolation scripts must run against that revision without
 skipping modules that formerly imported `kernel_config()` or a core
 `AppConfig`. Historical Zero-owned regressions live under
 `tests/legacy/`; do not add `trusts/tests/` or `trusts/zero/tests/`.
+Generic multi-path / path-store / compiler-protocol classes belong in
+core `tests/core/` with neutral hosts — do not keep them as skipped
+Zero copies or rewrite them as single-path stand-ins.
 
 ## License
 
