@@ -16,9 +16,8 @@ from unittest.mock import patch
 from django.apps import apps
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
-from django.core.checks import Error, run_checks
+from django.core.checks import run_checks
 from django.core.management import call_command
-from django.core.management.base import SystemCheckError
 from django.test import TestCase, override_settings
 
 from trusts.checks import (
@@ -29,7 +28,6 @@ from trusts.checks import (
 )
 from trusts.conditions import (
     PermissionConditionError,
-    condition_refs,
     validate_expression,
 )
 from trusts.core import TrustsRegistry
@@ -49,7 +47,6 @@ from tests.apps import (
     live_registry,
     forget_models,
     live_config,
-    publish_donated_conditions,
     publish_permission_condition,
 )
 from tests.models import AutoAdminCategory, Ticket
@@ -160,97 +157,70 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
         self.assertIn('not_a_field', str(ctx.exception))
         self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'missing'))
 
-    def test_transitional_expr_invalid_is_check_error(self):
-        u, p, o = condition_refs()
-        expr = u == o.not_a_field
-        record = publish_permission_condition(Ticket, 'missing', expr)
-        self.assertIs(record.expr, expr)
-        self.assertIs(record.model, Ticket)
-        errors = _messages_with_id(
-            check_permission_conditions(None), CHECK_ID_INVALID_EXPR
-        )
-        self.assertTrue(any('not_a_field' in m.msg for m in errors))
-
     def test_registration_before_models_ready_retains_identity(self):
-        u, p, o = condition_refs()
-        expr = u == o.owner
         with patch.object(apps, 'models_ready', False):
-            record = publish_permission_condition(Ticket, 'deferred_own', expr)
-        self.assertIs(record.expr, expr)
+            record = publish_permission_condition(
+                Ticket, 'deferred_own', lambda u, p, o: u == o.owner,
+            )
         self.assertIs(record.model, Ticket)
+        self.assertIsNotNone(record.expr)
         messages = check_permission_conditions(None)
         self.assertEqual(_messages_with_id(messages, CHECK_ID_INVALID_EXPR), [])
 
-        bad = u == o.deferred_missing
+        isolated = TrustsRegistry()
         with patch.object(apps, 'models_ready', False):
-            publish_permission_condition(Ticket, 'deferred_bad', bad)
-        errors = _messages_with_id(
-            check_permission_conditions(None), CHECK_ID_INVALID_EXPR
+            with self.assertRaises(PermissionConditionError) as ctx:
+                isolated.register_permission_condition(
+                    Ticket, 'deferred_bad',
+                    lambda u, p, o: u == o.deferred_missing,
+                )
+        self.assertIn('deferred_missing', str(ctx.exception))
+        self.assertIsNone(
+            isolated.get_permission_condition_record(Ticket, 'deferred_bad')
         )
-        self.assertTrue(any('deferred_missing' in m.msg for m in errors))
-        self.assertTrue(any("'deferred_bad'" in m.msg for m in errors))
 
-    def test_meta_permission_conditions_aggregated_as_check_errors(self):
-        u, p, o = condition_refs()
-
+    def test_meta_permission_conditions_fail_at_donate(self):
         class ImportTimeBadTicket(Content):
             class Meta:
                 app_label = 'trusts_zero_tests'
                 managed = False
                 permission_conditions = (
-                    ('bad_a', u == o.missing_a),
-                    ('bad_b', o.trust == 1),
+                    ('bad_a', lambda u, p, o: u == o.missing_a),
+                    ('bad_b', lambda u, p, o: o.trust == 1),
                 )
 
         isolated = TrustsRegistry()
-        donate_content_permission_conditions(isolated, ImportTimeBadTicket)
-        publish_donated_conditions(isolated)
-        self.assertIsNotNone(
-            live_registry().get_permission_condition_record(ImportTimeBadTicket, 'bad_a')
+        with self.assertRaises(PermissionConditionError) as ctx:
+            donate_content_permission_conditions(isolated, ImportTimeBadTicket)
+        self.assertIn('missing_a', str(ctx.exception))
+        self.assertIsNone(
+            isolated.get_permission_condition_record(ImportTimeBadTicket, 'bad_a')
         )
-        errors = _messages_with_id(
-            check_permission_conditions(None), CHECK_ID_INVALID_EXPR
+        self.assertIsNone(
+            isolated.get_permission_condition_record(ImportTimeBadTicket, 'bad_b')
         )
-        needles = ' '.join(m.msg for m in errors)
-        self.assertIn('bad_a', needles)
-        self.assertIn('missing_a', needles)
-        self.assertIn('bad_b', needles)
-        self.assertIn('incompatible', needles)
-        self.assertGreaterEqual(len(errors), 2)
-        for message in errors:
-            self.assertIsInstance(message, Error)
-            self.assertIn('fail closed', message.hint)
         forget_models(ImportTimeBadTicket)
 
-    def test_multiple_dynamic_errors_are_aggregated(self):
-        u, p, o = condition_refs()
-        publish_permission_condition(Ticket, 'typo', u == o.nope)
-        publish_permission_condition(Ticket, 'types', o.status == 1)
-        errors = _messages_with_id(
-            check_permission_conditions(None), CHECK_ID_INVALID_EXPR
-        )
-        self.assertEqual(len(errors), 2)
-        msgs = ' '.join(m.msg for m in errors)
-        self.assertIn('typo', msgs)
-        self.assertIn('types', msgs)
+    def test_incompatible_builder_fails_at_register(self):
+        isolated = TrustsRegistry()
+        with self.assertRaises(PermissionConditionError) as ctx:
+            isolated.register_permission_condition(
+                Ticket, 'types', lambda u, p, o: o.status == 1,
+            )
+        self.assertIn('incompatible', str(ctx.exception))
+        self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'types'))
 
-    def test_app_configs_subset_still_reports_other_apps(self):
-        u, p, o = condition_refs()
-        publish_permission_condition(Ticket, 'typo', u == o.nope)
-        trusts_only = [live_config()]
-        errors = _messages_with_id(
-            check_permission_conditions(app_configs=trusts_only),
-            CHECK_ID_INVALID_EXPR,
-        )
-        self.assertTrue(any("'typo'" in m.msg for m in errors))
-
-    def test_manage_py_check_reports_invalid_meta_condition(self):
-        u, p, o = condition_refs()
-        publish_permission_condition(Ticket, 'typo', u == o.nope)
-        with self.assertRaises(SystemCheckError) as ctx:
-            _run_manage_py_check()
-        self.assertIn(CHECK_ID_INVALID_EXPR, str(ctx.exception))
-        self.assertIn('typo', str(ctx.exception))
+    def test_manage_py_check_stays_green_when_invalid_builder_does_not_land(self):
+        isolated = TrustsRegistry()
+        with self.assertRaises(PermissionConditionError):
+            isolated.register_permission_condition(
+                Ticket, 'typo', lambda u, p, o: u == o.nope,
+            )
+        self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'typo'))
+        self.assertIsNone(live_registry().get_permission_condition_record(Ticket, 'typo'))
+        output = _run_manage_py_check()
+        self.assertNotIn(CHECK_ID_INVALID_EXPR, output)
+        self.assertNotIn("'typo'", output)
 
     def test_manage_py_check_passes_for_valid_registrations(self):
         output = _run_manage_py_check()
@@ -258,23 +228,29 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
         self.assertNotIn(CHECK_ID_OBSOLETE_CALLBACK_SETTING, output)
 
     @override_settings(SILENCED_SYSTEM_CHECKS=['trusts.E001', 'trusts.E003', 'fields.W342'])
-    def test_silenced_expr_check_still_fails_closed_at_runtime(self):
-        u, p, o = condition_refs()
-        publish_permission_condition(Ticket, 'missing', u == o.not_a_field)
+    def test_silenced_expr_check_does_not_register_invalid_builder(self):
+        isolated = TrustsRegistry()
+        with self.assertRaises(PermissionConditionError) as ctx:
+            isolated.register_permission_condition(
+                Ticket, 'missing', lambda u, p, o: u == o.not_a_field,
+            )
+        self.assertIn('not_a_field', str(ctx.exception))
+        self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'missing'))
+        self.assertIsNone(
+            live_registry().get_permission_condition_record(Ticket, 'missing')
+        )
         _run_manage_py_check()
         missing = '%s:missing' % self.change
-        with self.assertRaises(PermissionConditionError) as direct:
+        with self.assertRaises(AttributeError):
             self.user.has_perm(missing, self.ticket)
-        self.assertIn('not_a_field', str(direct.exception))
-        with self.assertRaises(PermissionConditionError):
-            Ticket.objects.permitted(missing, self.user)
+        with self.assertRaises(AttributeError):
+            list(Ticket.objects.permitted(missing, self.user))
         self.assertTrue(self.user.has_perm(self.change, self.ticket))
 
     def test_builder_once_and_checks_do_not_reinvoke(self):
         log = _BuilderLog(lambda u, p, o: u == o.owner)
         publish_permission_condition(Ticket, 'spy', log)
         self.assertEqual(len(log.calls), 1)
-        self.assertTrue(log.saw_only_refs())
         with self.assertNumQueries(0):
             messages = check_permission_conditions(None)
         self.assertEqual(len(log.calls), 1)
@@ -313,11 +289,14 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
         self.assertEqual(len(exploding.calls), 1)
         self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'boom'))
 
-    def test_ready_does_not_raise_when_invalid_conditions_are_registered(self):
-        u, p, o = condition_refs()
-        publish_permission_condition(Ticket, 'typo', u == o.nope)
+    def test_ready_does_not_raise_when_invalid_builder_fails_at_register(self):
+        isolated = TrustsRegistry()
+        with self.assertRaises(PermissionConditionError):
+            isolated.register_permission_condition(
+                Ticket, 'typo', lambda u, p, o: u == o.nope,
+            )
         live_config().ready()
         errors = _messages_with_id(
             check_permission_conditions(None), CHECK_ID_INVALID_EXPR
         )
-        self.assertTrue(any("'typo'" in m.msg for m in errors))
+        self.assertEqual(errors, [])

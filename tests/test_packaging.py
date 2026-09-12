@@ -122,10 +122,14 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         self.assertNotIn('readme = "DEV.md"', text)
         self.assertIn('license = "BSD-2-Clause"', text)
         req = (ROOT / 'requirements.txt').read_text()
-        self.assertIn('5d12fa2fe18097abfe8f4ed30da6dafd1ace60be', req)
+        self.assertIn('710b3ea26778ff069d1f5329adc9f2f481a1ea92', req)
         ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
         self.assertIn(
-            'COMPANION_KERNEL_SHA: 5d12fa2fe18097abfe8f4ed30da6dafd1ace60be',
+            'COMPANION_KERNEL_SHA: 710b3ea26778ff069d1f5329adc9f2f481a1ea92',
+            ci,
+        )
+        self.assertIn(
+            'STAGE_B_KERNEL_SHA: 12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa',
             ci,
         )
 

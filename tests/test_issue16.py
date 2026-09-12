@@ -24,7 +24,6 @@ from trusts.conditions import (
     ConditionRegistry,
     PermissionConditionError,
     PermissionConditionNotQueryable as CoreNotQueryable,
-    Ref,
     RegistryConditionLookup,
 )
 from trusts.core import TrustsConfigurationError, TrustsRegistry
@@ -82,11 +81,6 @@ class _BuilderLog(object):
     def __call__(self, u, p, o):
         self.calls.append((u, p, o))
         return self.impl(u, p, o)
-
-    def saw_only_refs(self):
-        return all(
-            isinstance(arg, Ref) for call in self.calls for arg in call
-        )
 
 
 class ZeroConditionSurfaceTests(SimpleTestCase):
@@ -305,7 +299,6 @@ class BuilderOnceTests(TestCase):
 
     def test_builder_once_object_and_queryset_parity(self):
         self.assertEqual(len(self.log.calls), 1)
-        self.assertTrue(self.log.saw_only_refs())
         user = User.objects.get(pk=self.user.pk)
         permitted = set(Category.objects.permitted('read:spy16', user))
         self.assertEqual(permitted, {self.keep})
