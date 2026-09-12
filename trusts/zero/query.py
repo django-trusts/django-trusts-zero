@@ -5,14 +5,23 @@ so ``models.py`` stays declarative. Manager *attachment* remains on the
 model classes.
 """
 
+from functools import reduce
+from operator import or_
+
 from django.db import models
-from django.db.models import Model, Q
+from django.db.models import Exists, Model, OuterRef, Q
+from django.db.models.query import QuerySet
 
 from trusts.core import (
     TrustsConfigurationError,
     any_plan_records,
-    filter_authorized_scopes,
+    filter_authorized_scopes as core_filter_authorized_scopes,
     granted,
+    _bind_record_qs,
+    _content_model,
+    _plan_for_permission,
+    _require_instance,
+    _scope_prefix_lookups,
 )
 from trusts.conditions import permission_has_condition
 from trusts.query import AuthorizedQuerySet, is_active_principal
@@ -58,13 +67,59 @@ def django_permission_filter(qs, perm, user):
     return qs.authorized(user, permission, extra_q=condition_q)
 
 
+def filter_authorized_scopes(queryset, user, permission, *, content, handles=None):
+    """Prefix projection, including same-model proper prefixes.
+
+    Core ``filter_authorized_scopes`` returns ``none()`` when the scope
+    model equals the content terminal. Trust-as-content is
+    self-referential: the grant lives on a Trust prefix hop of that
+    same model. Those hops are compiled with core's
+    ``_scope_prefix_lookups`` / ``_bind_record_qs`` EXISTS assembly.
+    Different-model prefixes delegate to core unchanged.
+    """
+    if not isinstance(queryset, QuerySet):
+        raise TrustsConfigurationError(
+            'filter_authorized_scopes requires a QuerySet, not %r.'
+            % (queryset,)
+        )
+    content_model = _content_model(content)
+    scope_model = queryset.model._meta.concrete_model
+    if scope_model is not content_model:
+        return core_filter_authorized_scopes(
+            queryset, user, permission, content=content, handles=handles,
+        )
+    user = _require_instance(user, 'user')
+    permission = _require_instance(permission, 'permission')
+    if handles is None:
+        from trusts.apps import configured_implementation_handles
+        handles = configured_implementation_handles()
+    if not handles:
+        return queryset.none()
+    parts = []
+    for handle in handles:
+        plan = _plan_for_permission(handle, content, user, permission)
+        for record in plan.records:
+            for lookup, target_attname in _scope_prefix_lookups(
+                record, scope_model,
+            ):
+                inner = _bind_record_qs(
+                    record, user=user, permission=permission,
+                ).filter(**{lookup: OuterRef(target_attname)})
+                parts.append(Exists(inner))
+    if not parts:
+        return queryset.none()
+    granted_q = parts[0] if len(parts) == 1 else reduce(or_, parts)
+    return queryset.filter(granted_q).distinct()
+
+
 def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kwargs):
     """Zero codec wrapper around ``filter_authorized_scopes``.
 
     Permission is resolved on ``content`` (``add_category``), not on the
     Trust manager model (``add_trust``). Both TGP ceiling alternatives
-    are registered, so the generic prefix projection is the whole
-    create-under-Trust filter. Handles come from ``ZeroConfig``, never
+    are registered. Create-under-Trust is always
+    ``filter_authorized_scopes`` (Zero wrapper: same-model Trust
+    prefixes included). Handles come from ``ZeroConfig``, never
     ``kernel_config()``.
     """
     from trusts.zero.apps import zero_config

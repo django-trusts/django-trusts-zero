@@ -73,7 +73,10 @@ def register_zero_group(registry, content_models, content_via=None):
     g = Ref(TrustGroupPermission)
     for model in content_models:
         content = _content_ref(g.trustgroup, model, content_via)
-        user = g.trustgroup.group.user_set
+        # auth.Group reverse membership is related_query_name="user"
+        # (Python accessor remains group.user_set). Core path validation
+        # uses _meta.get_field, so the hop must be the query name.
+        user = g.trustgroup.group.user
         permission = g.permission
         registry.register(
             content=content,

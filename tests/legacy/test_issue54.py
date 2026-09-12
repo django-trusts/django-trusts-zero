@@ -689,7 +689,7 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
         self._reload()
         self.handles = live_config().configured_handles()
 
-    def test_trust_is_prefix_of_category_for_trustee_not_historical_group(self):
+    def test_trust_is_prefix_of_category_for_trustee_and_registered_group(self):
         qs = filter_authorized_scopes(
             Trust.objects.all(), self.alice, self.add,
             content=Category, handles=self.handles,
@@ -700,7 +700,7 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
             pks = _pks(qs)
         self.assertEqual(pks, {self.trust_a.pk})
         self.assertNotIn(self.trust_b.pk, pks)
-        self.assertFalse(
+        self.assertTrue(
             filter_authorized_scopes(
                 Trust.objects.all(), self.carol, self.add,
                 content=Category, handles=self.handles,

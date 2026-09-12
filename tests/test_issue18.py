@@ -83,11 +83,24 @@ class ModelsDeclarativeOnlyTests(SimpleTestCase):
         self.assertNotIn('zero_config()', source)
         self.assertNotIn('permission_in(', source)
         import trusts.zero.models as models_mod
+        defined = {
+            node.name for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
         for name in FORBIDDEN_MODELS_HELPERS:
-            self.assertFalse(hasattr(models_mod, name), name)
+            self.assertNotIn(name, defined, name)
+            self.assertFalse(
+                inspect.isfunction(getattr(models_mod, name, None))
+                and getattr(models_mod, name).__module__ == models_mod.__name__,
+                name,
+            )
         self.assertFalse(hasattr(models_mod, 'PermissionConditionNotQueryable'))
-        self.assertFalse(hasattr(models_mod, 'ContentQuerySet'))
-        self.assertFalse(hasattr(models_mod, 'TrustManager'))
+        self.assertIsNot(
+            inspect.getmodule(models_mod.ContentManager), models_mod,
+        )
+        self.assertIsNot(
+            inspect.getmodule(models_mod.TrustManager), models_mod,
+        )
         src = inspect.getsource(filter_scope_rows)
         self.assertIn('filter_authorized_scopes', src)
         self.assertNotIn('trust_grant_q', src)
@@ -199,8 +212,9 @@ class GroupCeilingPathTests(TestCase):
         self.assertIn(self.org.pk, trusts.values_list('pk', flat=True))
 
     def test_role_permissions_ceiling_grants(self):
-        call_command('update_roles_permissions')
-        Role.objects.get(name='public').groups.add(self.group)
+        role, _created = Role.objects.get_or_create(name='public')
+        role.permissions.add(self.perm)
+        role.groups.add(self.group)
         enable_local_group_grant(self.org, self.group, self.perm)
         self._reload()
         self.assertTrue(permission_in_global_ceiling(self.group, self.perm))

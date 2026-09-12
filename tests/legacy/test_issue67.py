@@ -37,6 +37,7 @@ from trusts.core import (
 from trusts.zero.models import (
     Content,
     Trust,
+    TrustGroupPermission,
     TrustUserPermission,
 )
 from trusts.zero.query import filter_authorized_scopes
@@ -186,11 +187,14 @@ class ContributorIdempotenceTest(SimpleTestCase):
         self.assertIs(contributor._trusts_tup_category_registry_id, isolated)
         self.assertIs(contributor._trusts_tup_ticket_registry_id, isolated)
         self.assertIs(contributor._trusts_tup_group_registry_id, isolated)
-        self.assertEqual(len(isolated.records), 4)
+        self.assertEqual(len(isolated.records), 10)
         roots = {record.root for record in isolated.records}
-        self.assertEqual(roots, {OtherCategoryGrant, TrustUserPermission})
+        self.assertEqual(
+            roots,
+            {OtherCategoryGrant, TrustUserPermission, TrustGroupPermission},
+        )
         plan = isolated.plan_for(Category)
-        self.assertEqual(len(plan.records), 2)
+        self.assertEqual(len(plan.records), 4)
 
     def test_conflicting_contribution_reaches_register_and_fails_closed(self):
         isolated = TrustsRegistry()
@@ -235,7 +239,7 @@ class ContributorIdempotenceTest(SimpleTestCase):
                 contributor._trusts_tup_group_registry_id,
                 new_trusts.registry,
             )
-            self.assertEqual(len(new_trusts.registry.records), 3)
+            self.assertEqual(len(new_trusts.registry.records), 9)
             terminals = {
                 record.content_model for record in new_trusts.registry.records
             }
@@ -247,8 +251,15 @@ class ContributorIdempotenceTest(SimpleTestCase):
                     Group._meta.concrete_model,
                 },
             )
-            for record in new_trusts.registry.records:
-                self.assertIs(record.root, TrustUserPermission)
+            roots = {record.root for record in new_trusts.registry.records}
+            self.assertEqual(roots, {TrustUserPermission, TrustGroupPermission})
+            self.assertEqual(
+                len([
+                    record for record in new_trusts.registry.records
+                    if record.root is TrustUserPermission
+                ]),
+                3,
+            )
         finally:
             self.live_trusts.registry = original
 

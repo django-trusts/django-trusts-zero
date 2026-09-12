@@ -102,7 +102,11 @@ Supported model imports (`Trust`, `Content`, `Junction`, `Role`,
 `trusts:team_detail`); only the include path changes.
 
 `has_trust_row_perm` now uses `Trust.objects.filter_by_user_content_perm`
-/ `filter_authorized_scopes`. There is no `trust_grant_q` fallback.
+/ `filter_authorized_scopes`. Trust-as-content is self-referential; Zero
+wraps core's prefix projection so same-model proper prefix hops still
+compile (core's function returns empty when scope equals the terminal).
+There is no `trust_grant_q` fallback. Group enumeration uses membership-hop
+records on `PlanQueryCompiler.group_exists` (no historical group SQL).
 
 Zero-only `Meta` option names (`roles`, `content_roles`,
 `content_permission_conditions`, `auto_modeladmin`) are registered when

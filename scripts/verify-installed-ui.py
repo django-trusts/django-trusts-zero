@@ -26,13 +26,12 @@ os.environ.pop("DJANGO_SETTINGS_MODULE", None)
 
 from django.conf import settings
 from django.template.loader import get_template
-from django.urls import include, path, reverse
+from django.urls import include, path, reverse, set_urlconf
 
 settings.configure(
     SECRET_KEY="zero-installed-ui",
     USE_TZ=True,
     DEFAULT_AUTO_FIELD="django.db.models.AutoField",
-    ROOT_URLCONF=__name__,
     INSTALLED_APPS=[
         "django.contrib.contenttypes",
         "django.contrib.auth",
@@ -51,10 +50,12 @@ settings.configure(
     }],
     DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
 )
-urlpatterns = [path("", include("trusts.zero.urls"))]
 
 import django
 django.setup()
+
+urlpatterns = [path("", include("trusts.zero.urls"))]
+set_urlconf(__name__)
 
 assert reverse("trusts:team_create") == "/teams/new/"
 assert reverse("trusts:team_detail", args=[1]) == "/teams/1/"
@@ -82,8 +83,12 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix='trusts-zero-ui-'))
     try:
         site = tmp / 'site'
+        kernel_site = tmp / 'kernel-site'
+        zero_site = tmp / 'zero-site'
         work = tmp / 'work'
         site.mkdir()
+        kernel_site.mkdir()
+        zero_site.mkdir()
         work.mkdir()
         (work / 'templates').mkdir()
         (work / 'templates' / 'base.html').write_text(
@@ -92,15 +97,27 @@ def main() -> int:
         subprocess.check_call(
             [
                 sys.executable, '-m', 'pip', 'install', '-q',
-                '--target', str(site), str(kernel),
+                '--target', str(kernel_site), str(kernel),
             ],
         )
         subprocess.check_call(
             [
                 sys.executable, '-m', 'pip', 'install', '-q',
-                '--target', str(site), str(ROOT),
+                '--target', str(zero_site), '--no-deps', str(ROOT),
             ],
         )
+        # Kernel owns trusts/; Zero contributes trusts/zero/ only.
+        shutil.copytree(kernel_site / 'trusts', site / 'trusts')
+        if (zero_site / 'trusts' / 'zero').is_dir():
+            shutil.copytree(zero_site / 'trusts' / 'zero', site / 'trusts' / 'zero')
+        for extra in zero_site.iterdir():
+            if extra.name in {'trusts', 'bin', 'share'}:
+                continue
+            dest = site / extra.name
+            if extra.is_dir() and not dest.exists():
+                shutil.copytree(extra, dest)
+            elif extra.is_file() and not dest.exists():
+                shutil.copy2(extra, dest)
         if not (site / 'trusts' / 'zero' / 'urls.py').is_file():
             raise SystemExit('installed site missing trusts.zero.urls')
         if not (site / 'trusts' / 'zero' / 'templates' / 'trusts_zero' / 'team_form.html').is_file():

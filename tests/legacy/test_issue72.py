@@ -36,6 +36,7 @@ from trusts.core import (
 from trusts.zero.models import (
     Content,
     Trust,
+    TrustGroupPermission,
     TrustUserPermission,
 )
 from trusts.zero.query import filter_authorized_scopes
@@ -188,10 +189,11 @@ class TicketContributionIdempotenceTest(SimpleTestCase):
         self.assertIs(contributor._trusts_tup_group_registry_id, isolated)
         roots = {record.root for record in isolated.records}
         self.assertEqual(
-            roots, {OtherTicketGrant, TrustUserPermission},
+            roots,
+            {OtherTicketGrant, TrustUserPermission, TrustGroupPermission},
         )
         plan = isolated.plan_for(Ticket)
-        self.assertEqual(len(plan.records), 2)
+        self.assertEqual(len(plan.records), 4)
         self.assertEqual(len(_ticket_rows(isolated)), 1)
         self.assertEqual(len(_category_rows(isolated)), 1)
         self.assertTrue(
@@ -216,7 +218,7 @@ class TicketContributionIdempotenceTest(SimpleTestCase):
         self.assertIsNone(
             getattr(contributor, '_trusts_tup_ticket_registry_id', None)
         )
-        self.assertEqual(len(isolated.records), 2)
+        self.assertEqual(len(isolated.records), 4)
         self.assertEqual(len(_category_rows(isolated)), 1)
         with override_apps_ready(False):
             with self.assertRaises(TrustsConfigurationError):
@@ -225,7 +227,7 @@ class TicketContributionIdempotenceTest(SimpleTestCase):
         self.assertIsNone(
             getattr(contributor, '_trusts_tup_ticket_registry_id', None)
         )
-        self.assertEqual(len(isolated.records), 2)
+        self.assertEqual(len(isolated.records), 4)
 
     def test_new_appconfig_registry_receives_declaration_again(self):
         import trusts
