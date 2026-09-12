@@ -109,7 +109,11 @@ class ZeroConfig(_ZeroBase):
         store.
         """
         from trusts.apps import implementation_for_path
-        from trusts.conditions import RegistryConditionLookup
+        try:
+            from trusts.conditions._ir import RegistryConditionLookup
+        except ImportError:
+            # Merged Core Stage A still exports the lookup on the public module.
+            from trusts.conditions import RegistryConditionLookup
         from trusts.zero.registration import (
             donate_installed_permission_conditions,
             register_zero_relations,

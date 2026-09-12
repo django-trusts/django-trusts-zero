@@ -11,8 +11,8 @@ permissions:
 env:
   # Merged Core Stage A on django-trusts `dev` (#144).
   COMPANION_KERNEL_SHA: 710b3ea26778ff069d1f5329adc9f2f481a1ea92
-  # Core Stage B candidate (no Core PR). Explicit pair-proof only.
-  STAGE_B_KERNEL_SHA: 12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa
+  # Staged Core Stage B six-name candidate (not merged; pair-proof only).
+  STAGE_B_KERNEL_SHA: 30b4878e68883e81a16913e4fd05015f4551e164
 
 jobs:
   tests:
@@ -91,7 +91,7 @@ jobs:
         python scripts/verify-installed-ui.py
 
   pair-stage-b:
-    name: pair with core #142 Stage B candidate
+    name: "pair with core Stage B candidate"
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -107,8 +107,8 @@ jobs:
         python-version: "3.12"
     - name: Exact Stage B candidate head
       run: |
-        test "${STAGE_B_KERNEL_SHA}" = "12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa"
-        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa"
+        test "${STAGE_B_KERNEL_SHA}" = "30b4878e68883e81a16913e4fd05015f4551e164"
+        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "30b4878e68883e81a16913e4fd05015f4551e164"
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
