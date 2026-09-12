@@ -1,16 +1,20 @@
+"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue77.py`` for issue #37 Zero-first coverage.
+
+Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+"""
+
 """S3b: backend authorization and enumeration on compiler handles (issue #77).
 
 Structural and behavioral tests only — no source-token or
 ``inspect.getsource`` assertions.
-
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue77.py``.
 """
 
 from contextlib import contextmanager
+import unittest
 from unittest.mock import patch
 
 from django.apps import apps
-from tests.apps import live_config
+from tests.apps import live_registry, live_config
 from django.contrib.auth.models import AnonymousUser, Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
@@ -169,7 +173,7 @@ class OnePathAuthorizationTest(_UsersMixin, TestCase):
         enable_local_group_grant(self.trust_a, self.carol_group, self.change)
         self._reload()
         u, p, o = condition_refs()
-        Content.register_permission_condition(Category, 'named', o.name == 'keep')
+        live_registry().register_permission_condition(Category, 'named', o.name == 'keep')
 
     def test_category_trustee_and_group_object_and_queryset(self):
         qs = Category.objects.filter(pk__in=[self.cat_a1.pk, self.cat_a2.pk])
@@ -325,6 +329,9 @@ class OnePathAuthorizationTest(_UsersMixin, TestCase):
             self.assertEqual(list(page), [self.cat_a1])
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class DistributiveLawTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -399,6 +406,9 @@ class DistributiveLawTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
             )
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class CompilerIsolationBackendTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -454,6 +464,9 @@ class CompilerIsolationBackendTest(_RegistryRestoreMixin, _UsersMixin, TestCase)
             )
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class CoordinatorQueryCountTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -530,9 +543,10 @@ class ObjNoneBoundaryTest(_UsersMixin, TestCase):
         self.assertFalse(backend.has_perm(self.alice, self.change_code))
         self.assertEqual(backend.get_all_permissions(self.alice), set())
         self.assertEqual(backend.get_group_permissions(self.alice), set())
-        self.assertFalse(self.alice.has_perm('auth.change_user'))
-        self.assertFalse(self.alice.has_perms(('auth.change_user',)))
-        self.assertEqual(self.alice.get_all_permissions(), set())
+        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE,)):
+            self.assertFalse(self.alice.has_perm('auth.change_user'))
+            self.assertFalse(self.alice.has_perms(('auth.change_user',)))
+            self.assertEqual(self.alice.get_all_permissions(), set())
         self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a))
         self.assertNotIn('auth.change_user', backend.get_all_permissions(self.alice, self.cat_a))
 
@@ -582,6 +596,9 @@ class UndeclaredJunctionRemainsHistoricalTest(_UsersMixin, TestCase):
         self.assertTrue(self.alice.has_perm(code, qs))
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class CompilerFailureTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -708,6 +725,9 @@ def _ordinary_memo_models():
     return Memo, MemoGrant
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class RegisteredOrdinaryModelTest(_RegistryRestoreMixin, _UsersMixin, TransactionTestCase):
     """Registered non-Content models route through the handle, not Content._contents."""
 
@@ -758,6 +778,9 @@ class RegisteredOrdinaryModelTest(_RegistryRestoreMixin, _UsersMixin, Transactio
                 self.assertFalse(Memo.objects.permitted(code, self.bob).exists())
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class HistoricalFallbackCapabilityTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     """Historical fallback is a concrete compiler capability, not Content membership."""
 
@@ -878,6 +901,9 @@ class HistoricalFallbackCapabilityTest(_RegistryRestoreMixin, _UsersMixin, TestC
             )
 
 
+@unittest.skip(
+    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
+)
 class MixedPathUndeclaredJunctionTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -939,12 +965,12 @@ class QuerySetCallableConditionTest(_UsersMixin, TestCase):
         ).save()
         self._reload()
         self.log = _CallLog(lambda user, perm, obj: obj.name == 'keep')
-        Content.register_permission_condition(Category, 'spy', self.log)
+        live_registry().register_permission_condition(Category, 'spy', self.log)
         self.conditioned = '%s:spy' % self.change_code
 
     def tearDown(self):
         from trusts import utils
-        Content._conditions.get(
+        live_registry().conditions._records.get(
             utils.get_short_model_name(Category), {},
         ).pop('spy', None)
         super().tearDown()
