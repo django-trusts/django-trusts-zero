@@ -1,8 +1,3 @@
-"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue80.py`` for issue #37 Zero-first coverage.
-
-Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
-"""
-
 """S4: filter_by_user_content_perm registration gate (issue #80).
 
 Aggregate support rule: any configured path with
@@ -10,9 +5,10 @@ Aggregate support rule: any configured path with
 The grant stays ``trust_grant_q`` on Trust rows. Structural and
 behavioral tests only — no source-token or ``inspect.getsource``
 assertions.
+
+Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue80.py``.
 """
 
-import unittest
 from unittest.mock import patch
 
 from django.apps import apps
@@ -22,7 +18,7 @@ from django.core.management import call_command
 from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase, override_settings
 
-from tests.apps import install_writable_registry, live_config, live_registry
+from tests.apps import install_writable_registry, live_config
 from tests.models import AutoAdminCategory, Category, Organization, Ticket
 from trusts.core import (
     Ref,
@@ -363,9 +359,6 @@ class FilterByUserContentPermRegistryGateTest(
         )
 
 
-@unittest.skip(
-    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
-)
 class MultiPathCreateUnderTrustGateTest(
     _RegistryRestoreMixin, _UsersMixin, TestCase
 ):
@@ -383,65 +376,52 @@ class MultiPathCreateUnderTrustGateTest(
         self._reload()
 
     def test_declaration_on_one_path_supports_but_grant_stays_trust_grant_q(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            self.live.registries[CONCRETE] = TrustsRegistry()
-            install_writable_registry(self.live, MIXIN, _contribute_category)
-            handle_a = self.live.configured_backend(CONCRETE)
-            handle_b = self.live.configured_backend(MIXIN)
-            self.assertFalse(handle_a.registry.plan_for(Category).records)
-            self.assertTrue(handle_b.registry.plan_for(Category).records)
-            self.assertTrue(any_plan_records((handle_a, handle_b), Category))
-            with patch.object(
-                handle_b.compiler, 'complete_exists',
-                wraps=handle_b.compiler.complete_exists,
-            ) as complete:
-                with patch.object(handle_b.registry, 'filter_authorized') as filtered:
-                    with patch('trusts.query.trust_grant_q', wraps=trust_grant_q) as grant_q:
-                        qs = Trust.objects.filter_by_user_content_perm(
-                            self.alice, Category, 'add_category',
-                        )
-                        self.assertIsNone(qs._result_cache)
-                        with self.assertNumQueries(1):
-                            pks = _pks(qs)
-            complete.assert_not_called()
-            filtered.assert_not_called()
-            self.assertGreaterEqual(grant_q.call_count, 1)
-            self.assertEqual(pks, {self.trust_a.pk})
+        handle_a = self.live.configured_backend(CONCRETE)
+        self.assertTrue(handle_a.registry.plan_for(Category).records)
+        self.assertTrue(any_plan_records((handle_a,), Category))
+        with patch.object(
+            handle_a.compiler, 'complete_exists',
+            wraps=handle_a.compiler.complete_exists,
+        ) as complete:
+            with patch.object(handle_a.registry, 'filter_authorized') as filtered:
+                with patch('trusts.query.trust_grant_q', wraps=trust_grant_q) as grant_q:
+                    qs = Trust.objects.filter_by_user_content_perm(
+                        self.alice, Category, 'add_category',
+                    )
+                    self.assertIsNone(qs._result_cache)
+                    with self.assertNumQueries(1):
+                        pks = _pks(qs)
+        complete.assert_not_called()
+        filtered.assert_not_called()
+        self.assertGreaterEqual(grant_q.call_count, 1)
+        self.assertEqual(pks, {self.trust_a.pk})
 
     def test_split_terminals_do_not_leak_the_other_path(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            install_writable_registry(self.live, CONCRETE, _contribute_category)
-            install_writable_registry(self.live, MIXIN, _contribute_ticket)
-            handle_a = self.live.configured_backend(CONCRETE)
-            handle_b = self.live.configured_backend(MIXIN)
-            self.assertTrue(handle_a.registry.plan_for(Category).records)
-            self.assertFalse(handle_a.registry.plan_for(Ticket).records)
-            self.assertFalse(handle_b.registry.plan_for(Category).records)
-            self.assertTrue(handle_b.registry.plan_for(Ticket).records)
-            self.assertEqual(
-                _pks(Trust.objects.filter_by_user_content_perm(
-                    self.alice, Category, 'add_category',
-                )),
-                {self.trust_a.pk},
+        handle_a = self.live.configured_backend(CONCRETE)
+        self.assertTrue(handle_a.registry.plan_for(Category).records)
+        self.assertTrue(handle_a.registry.plan_for(Ticket).records)
+        self.assertEqual(
+            _pks(Trust.objects.filter_by_user_content_perm(
+                self.alice, Category, 'add_category',
+            )),
+            {self.trust_a.pk},
+        )
+        self.assertEqual(
+            _pks(Trust.objects.filter_by_user_content_perm(
+                self.alice, Ticket, 'add_ticket',
+            )),
+            {self.trust_a.pk},
+        )
+        with patch('trusts.query.trust_grant_q') as grant_q:
+            self.assertFalse(
+                Trust.objects.filter_by_user_content_perm(
+                    self.alice, Organization, 'add',
+                ).exists()
             )
-            self.assertEqual(
-                _pks(Trust.objects.filter_by_user_content_perm(
-                    self.alice, Ticket, 'add_ticket',
-                )),
-                {self.trust_a.pk},
-            )
-            with patch('trusts.query.trust_grant_q') as grant_q:
-                self.assertFalse(
-                    Trust.objects.filter_by_user_content_perm(
-                        self.alice, Organization, 'add',
-                    ).exists()
-                )
-                self.assertFalse(
-                    Trust.objects.filter_by_user_content_perm(
-                        self.alice, Group, 'change_group',
-                    ).exists()
-                )
-            grant_q.assert_not_called()
+        grant_q.assert_not_called()
+        self.assertTrue(
+            handle_a.registry.plan_for(Group).records
+        )
 
 
 class NewTeamFormTrustChangeTest(_UsersMixin, TestCase):

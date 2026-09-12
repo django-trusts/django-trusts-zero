@@ -241,3 +241,10 @@ class TrustAsContentMixin(ContentModel):
         return content
 
 
+def forget_condition(model, cond_code):
+    """Drop one live handle-registry condition record (test isolation)."""
+    from tests.apps import live_registry
+
+    live_registry().conditions._records.pop((model._meta.label, cond_code), None)
+
+

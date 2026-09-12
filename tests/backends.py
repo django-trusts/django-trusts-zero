@@ -5,6 +5,7 @@ from django.db.models import Q
 
 from trusts.backends import TrustModelBackendMixin
 from trusts.query import group_local_grant_exists
+from trusts.zero.backends import TrustModelBackend
 
 
 class GroupOnlyQueryCompiler(object):
@@ -39,8 +40,8 @@ class GroupOnlyBackend(TrustModelBackendMixin, ModelBackend):
     query_compiler = GroupOnlyQueryCompiler()
 
 
-# Same class under a second import path (alias-ambiguity tests).
-AliasedTrustModelBackend = HostTrustModelBackend
+# Same owned Zero backend class under a second import path (alias tests).
+AliasedTrustModelBackend = TrustModelBackend
 
 
 class MissingCompilerBackend(TrustModelBackendMixin, ModelBackend):

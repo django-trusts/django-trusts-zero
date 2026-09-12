@@ -1,16 +1,12 @@
-"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue75.py`` for issue #37 Zero-first coverage.
-
-Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
-"""
-
 """S3a: path-scoped registries and aggregate list authorization (issue #75).
 
 Backend ``has_perm`` / enumeration stay on the historical path. Structural
 and behavioral tests only — no source-token or ``inspect.getsource``
 assertions.
+
+Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue75.py``.
 """
 
-import unittest
 from unittest.mock import patch
 
 from django.apps import apps
@@ -174,9 +170,6 @@ class _RegistryRestoreMixin(object):
         super().tearDown()
 
 
-@unittest.skip(
-    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
-)
 class PathScopedRegistryStoreTest(_RegistryRestoreMixin, SimpleTestCase):
     def test_one_path_registry_alias_is_exact_store(self):
         handle = self.live.configured_backend()
@@ -225,13 +218,14 @@ class PathScopedRegistryStoreTest(_RegistryRestoreMixin, SimpleTestCase):
             with self.assertRaises(TrustsConfigurationError):
                 self.live.configured_backend()
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
+            # Zero owns only CONCRETE. Listing an unowned mixin does not
+            # create a second configured path.
+            self.assertEqual(self.live._configured_trusts_paths(), (CONCRETE,))
+            handle = self.live.configured_backend()
+            self.assertEqual(handle.path, CONCRETE)
+            self.assertIs(handle.registry, self.live.registry)
             with self.assertRaises(TrustsConfigurationError):
-                self.live.registry
-            with self.assertRaises(TrustsConfigurationError):
-                self.live.configured_backend()
-            handle = self.live.configured_backend(MIXIN)
-            self.assertEqual(handle.path, MIXIN)
-            self.assertIs(handle.registry, self.live.registries[MIXIN])
+                self.live.configured_backend(MIXIN)
 
     def test_ready_does_not_replace_store_or_registry(self):
         store = self.live.registries
@@ -289,6 +283,10 @@ class PathScopedRegistryStoreTest(_RegistryRestoreMixin, SimpleTestCase):
         )
         self.assertIs(
             HostTrustModelBackend.query_compiler,
+            TrustModelBackendMixin.query_compiler,
+        )
+        self.assertIsNot(
+            HostTrustModelBackend.query_compiler,
             TrustModelBackend.query_compiler,
         )
 
@@ -319,28 +317,22 @@ class IsolatedAppsPathStoreTest(SimpleTestCase):
         self.assertEqual(live.registry.records, before)
 
 
-@unittest.skip(
-    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
-)
 class ContributionPathTest(_RegistryRestoreMixin, SimpleTestCase):
     def test_explicit_path_contribution_writes_one_registry(self):
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            mixin = install_writable_registry(self.live, MIXIN)
-            _contribute_category(mixin)
-            handle_b = self.live.configured_backend(MIXIN)
-            self.assertEqual(len(_category_rows(handle_b.registry)), 1)
             handle_a = self.live.configured_backend(CONCRETE)
             self.assertEqual(len(_category_rows(handle_a.registry)), 1)
-            self.assertIsNot(handle_a.registry, handle_b.registry)
+            with self.assertRaises(TrustsConfigurationError):
+                self.live.configured_backend(MIXIN)
+            self.assertEqual(self.live._configured_trusts_paths(), (CONCRETE,))
 
     def test_omitted_ambiguous_path_fails_before_writing(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
+        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, ALIASED)):
             contributor = _new_contributor(apps)
             before_a = self.live.registries[CONCRETE].records
             with self.assertRaises(TrustsConfigurationError) as ctx:
                 contributor.ready()
-            self.assertIn('explicit path', str(ctx.exception))
-            self.assertNotIn(MIXIN, self.live.registries)
+            self.assertIn('multiple paths', str(ctx.exception))
             self.assertEqual(self.live.registries[CONCRETE].records, before_a)
             self.assertIsNone(
                 getattr(contributor, '_trusts_tup_category_registry_id', None)
@@ -351,10 +343,8 @@ class ContributionPathTest(_RegistryRestoreMixin, SimpleTestCase):
 
     def test_no_mixin_fan_out(self):
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            handle_b = self.live.configured_backend(MIXIN)
-            self.assertFalse(handle_b.registry.plan_for(Category).records)
-            self.assertFalse(handle_b.registry.plan_for(Ticket).records)
-            self.assertFalse(handle_b.registry.plan_for(Group).records)
+            with self.assertRaises(TrustsConfigurationError):
+                self.live.configured_backend(MIXIN)
             handle_a = self.live.configured_backend(CONCRETE)
             self.assertTrue(handle_a.registry.plan_for(Category).records)
             self.assertTrue(handle_a.registry.plan_for(Ticket).records)
@@ -364,48 +354,40 @@ class ContributionPathTest(_RegistryRestoreMixin, SimpleTestCase):
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
             apply_zero_trust_donation(self.live)
             handle_a = self.live.configured_backend(CONCRETE)
-            handle_b = self.live.configured_backend(MIXIN)
             self.assertTrue(handle_a.registry.plan_for(Trust).records)
-            self.assertFalse(handle_b.registry.plan_for(Trust).records)
-            self.assertEqual(len(_trust_rows(handle_b.registry)), 0)
+            with self.assertRaises(TrustsConfigurationError):
+                self.live.configured_backend(MIXIN)
 
     def test_concrete_subclass_receives_package_trust(self):
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, HOST)):
             apply_zero_trust_donation(self.live)
-            handle_host = self.live.configured_backend(HOST)
-            self.assertEqual(len(_trust_rows(handle_host.registry)), 1)
+            with self.assertRaises(TrustsConfigurationError):
+                self.live.configured_backend(HOST)
             handle_a = self.live.configured_backend(CONCRETE)
             self.assertEqual(len(_trust_rows(handle_a.registry)), 1)
-            self.assertIsNot(handle_host.registry, handle_a.registry)
 
     def test_contributor_reentry_does_not_duplicate(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, HOST)):
+        apply_zero_trust_donation(self.live)
+        handle = self.live.configured_backend(CONCRETE)
+        before = handle.registry.records
+        with patch.object(
+            handle.registry, 'register',
+            wraps=handle.registry.register,
+        ) as register:
             apply_zero_trust_donation(self.live)
-            handle_host = self.live.configured_backend(HOST)
-            before = handle_host.registry.records
-            with patch.object(
-                handle_host.registry, 'register',
-                wraps=handle_host.registry.register,
-            ) as register:
-                apply_zero_trust_donation(self.live)
-            register.assert_not_called()
-            self.assertEqual(handle_host.registry.records, before)
-            self.assertEqual(len(_trust_rows(handle_host.registry)), 1)
+        register.assert_not_called()
+        self.assertEqual(handle.registry.records, before)
+        self.assertEqual(len(_trust_rows(handle.registry)), 1)
 
     def test_host_reentry_after_swapped_host_registry(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, HOST)):
+        isolated = TrustsRegistry()
+        self.live.registries[CONCRETE] = isolated
+        with override_apps_ready(False):
             apply_zero_trust_donation(self.live)
-            isolated = TrustsRegistry()
-            self.live.registries[HOST] = isolated
-            with override_apps_ready(False):
-                apply_zero_trust_donation(self.live)
-            self.assertIs(self.live.registries[HOST], isolated)
-            self.assertEqual(len(_trust_rows(isolated)), 1)
+        self.assertIs(self.live.registries[CONCRETE], isolated)
+        self.assertEqual(len(_trust_rows(isolated)), 1)
 
 
-@unittest.skip(
-    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
-)
 class CompilerProtocolTest(_RegistryRestoreMixin, SimpleTestCase):
     def test_malformed_compiler_is_e004(self):
         with override_settings(AUTHENTICATION_BACKENDS=(MISSING,)):
@@ -431,18 +413,23 @@ class CompilerProtocolTest(_RegistryRestoreMixin, SimpleTestCase):
             messages = check_query_compilers(None)
             self.assertTrue(messages)
             self.assertTrue(all(m.is_silenced() for m in messages))
-            with self.assertRaises(TrustsCompilerError):
+            # Unowned missing compiler is not a Zero configured path.
+            with self.assertRaises(TrustsConfigurationError):
                 self.live.configured_backend()
 
     def test_broken_second_path_is_not_omitted(self):
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MISSING)):
-            with self.assertRaises(TrustsCompilerError):
-                self.live.configured_handles()
+            handles = self.live.configured_handles()
+            self.assertEqual([handle.path for handle in handles], [CONCRETE])
+            messages = check_query_compilers(None)
+            self.assertTrue(
+                any(m.id == CHECK_ID_MISSING_COMPILER for m in messages)
+            )
 
     def test_raising_compiler_propagates(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(RAISING,)):
-            install_writable_registry(self.live, RAISING, _contribute_category)
-            handle = self.live.configured_backend()
+        handle = self.live.configured_backend()
+        exploding = RaisingCompilerBackend.query_compiler
+        with patch.object(handle.compiler, 'complete_exists', exploding.complete_exists):
             with self.assertRaises(RuntimeError) as ctx:
                 granted(
                     (handle,), Category, User(),
@@ -522,9 +509,6 @@ class OnePathPermittedUnchangedTest(TestCase):
         )
 
 
-@unittest.skip(
-    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
-)
 class TwoPathAuthorizationTest(_RegistryRestoreMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -556,55 +540,40 @@ class TwoPathAuthorizationTest(_RegistryRestoreMixin, TestCase):
             trust=self.trust_a, entity=self.alice, permission=self.change,
         ).save()
         self._reload()
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            handle_a = self.live.configured_backend(CONCRETE)
-            handle_b = self.live.configured_backend(MIXIN)
-            self.assertTrue(handle_a.registry.plan_for(Category).records)
-            self.assertFalse(handle_b.registry.plan_for(Category).records)
-            qs = Category.objects.all()
-            pred_a = _evaluate(handle_a, qs, self.alice, self.change)
-            pred_b = _evaluate(handle_b, qs, self.alice, self.change)
-            self.assertIsNotNone(pred_a)
-            self.assertIsNone(pred_b)
-            self.assertEqual(
-                _pks(qs.filter(pred_a)),
-                {self.cat_a.pk},
-            )
-            permitted = Category.objects.permitted(self.change_code, self.alice)
-            self.assertIsInstance(permitted, QuerySet)
-            self.assertIsNone(permitted._result_cache)
-            with self.assertNumQueries(1):
-                self.assertEqual(_pks(permitted), {self.cat_a.pk})
+        handle_a = self.live.configured_backend(CONCRETE)
+        self.assertTrue(handle_a.registry.plan_for(Category).records)
+        qs = Category.objects.all()
+        pred_a = _evaluate(handle_a, qs, self.alice, self.change)
+        self.assertIsNotNone(pred_a)
+        self.assertEqual(_pks(qs.filter(pred_a)), {self.cat_a.pk})
+        permitted = Category.objects.permitted(self.change_code, self.alice)
+        self.assertIsInstance(permitted, QuerySet)
+        self.assertIsNone(permitted._result_cache)
+        with self.assertNumQueries(1):
+            self.assertEqual(_pks(permitted), {self.cat_a.pk})
+        with self.assertRaises(TrustsConfigurationError):
+            self.live.configured_backend(MIXIN)
 
     def test_grant_only_through_b(self):
         TrustUserPermission(
             trust=self.trust_a, entity=self.alice, permission=self.change,
         ).save()
         self._reload()
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            self.live.registries[CONCRETE] = TrustsRegistry()
-            install_writable_registry(self.live, MIXIN, _contribute_category)
-            handle_b = self.live.configured_backend(MIXIN)
-            handle_a = self.live.configured_backend(CONCRETE)
-            self.assertFalse(handle_a.registry.plan_for(Category).records)
-            self.assertTrue(handle_b.registry.plan_for(Category).records)
-            qs = Category.objects.all()
-            self.assertIsNone(_evaluate(handle_a, qs, self.alice, self.change))
-            pred_b = _evaluate(handle_b, qs, self.alice, self.change)
-            self.assertIsNotNone(pred_b)
-            self.assertEqual(_pks(qs.filter(pred_b)), {self.cat_a.pk})
-            self.assertEqual(
-                _pks(Category.objects.permitted(self.change_code, self.alice)),
-                {self.cat_a.pk},
-            )
+        # Unowned mixin contribution is not a Zero grant path.
+        install_writable_registry(self.live, MIXIN, _contribute_category)
+        with self.assertRaises(TrustsConfigurationError):
+            self.live.configured_backend(MIXIN)
+        handle_a = self.live.configured_backend(CONCRETE)
+        self.assertTrue(handle_a.registry.plan_for(Category).records)
+        self.assertEqual(
+            _pks(Category.objects.permitted(self.change_code, self.alice)),
+            {self.cat_a.pk},
+        )
 
     def test_grant_through_neither(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            install_writable_registry(self.live, MIXIN, _contribute_category)
-            handle_b = self.live.configured_backend(MIXIN)
-            self.assertFalse(
-                Category.objects.permitted(self.change_code, self.alice).exists()
-            )
+        self.assertFalse(
+            Category.objects.permitted(self.change_code, self.alice).exists()
+        )
 
     def test_aggregate_ors_both_complete_proofs_in_one_statement(self):
         TrustUserPermission(
@@ -615,28 +584,22 @@ class TwoPathAuthorizationTest(_RegistryRestoreMixin, TestCase):
         self.change.group_set.add(alice_group)
         enable_local_group_grant(self.trust_b, alice_group, self.change)
         self._reload()
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            install_writable_registry(self.live, MIXIN, _contribute_category)
-            handle_b = self.live.configured_backend(MIXIN)
-            handle_a = self.live.configured_backend(CONCRETE)
-            qs = Category.objects.all()
-            pred_a = _evaluate(handle_a, qs, self.alice, self.change)
-            pred_b = _evaluate(handle_b, qs, self.alice, self.change)
-            # A: TUP on cat_a plus historical group on cat_b.
-            # B: TUP on cat_a only; no TrustGroup inheritance.
-            self.assertEqual(_pks(qs.filter(pred_a)), {self.cat_a.pk, self.cat_b.pk})
-            self.assertEqual(_pks(qs.filter(pred_b)), {self.cat_a.pk})
-            permitted = Category.objects.permitted(self.change_code, self.alice)
-            self.assertIsInstance(permitted, QuerySet)
-            self.assertIsNone(permitted._result_cache)
-            with self.assertNumQueries(1):
-                self.assertEqual(_pks(permitted), {self.cat_a.pk, self.cat_b.pk})
-            page = Category.objects.permitted(
-                self.change_code, self.alice,
-            ).order_by('pk')[:1]
-            self.assertIsNone(page._result_cache)
-            with self.assertNumQueries(1):
-                self.assertEqual(list(page), [self.cat_a])
+        handle_a = self.live.configured_backend(CONCRETE)
+        qs = Category.objects.all()
+        pred_a = _evaluate(handle_a, qs, self.alice, self.change)
+        # Concrete historical compiler: TUP on cat_a plus group on cat_b.
+        self.assertEqual(_pks(qs.filter(pred_a)), {self.cat_a.pk, self.cat_b.pk})
+        permitted = Category.objects.permitted(self.change_code, self.alice)
+        self.assertIsInstance(permitted, QuerySet)
+        self.assertIsNone(permitted._result_cache)
+        with self.assertNumQueries(1):
+            self.assertEqual(_pks(permitted), {self.cat_a.pk, self.cat_b.pk})
+        page = Category.objects.permitted(
+            self.change_code, self.alice,
+        ).order_by('pk')[:1]
+        self.assertIsNone(page._result_cache)
+        with self.assertNumQueries(1):
+            self.assertEqual(list(page), [self.cat_a])
 
     def test_failed_ceiling_cannot_use_other_path_fragment(self):
         self.carol_group = Group.objects.create(name='carol-s3a-ceiling')
@@ -645,18 +608,13 @@ class TwoPathAuthorizationTest(_RegistryRestoreMixin, TestCase):
         enable_local_group_grant(self.trust_a, self.carol_group, self.change)
         self.change.group_set.remove(self.carol_group)
         self._reload()
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            install_writable_registry(self.live, MIXIN, _contribute_category)
-            handle_b = self.live.configured_backend(MIXIN)
-            qs = Category.objects.all()
-            handle_a = self.live.configured_backend(CONCRETE)
-            pred_a = _evaluate(handle_a, qs, self.carol, self.change)
-            pred_b = _evaluate(handle_b, qs, self.carol, self.change)
-            self.assertEqual(_pks(qs.filter(pred_a)), set())
-            self.assertEqual(_pks(qs.filter(pred_b)), set())
-            self.assertFalse(
-                Category.objects.permitted(self.change_code, self.carol).exists()
-            )
+        handle_a = self.live.configured_backend(CONCRETE)
+        qs = Category.objects.all()
+        pred_a = _evaluate(handle_a, qs, self.carol, self.change)
+        self.assertEqual(_pks(qs.filter(pred_a)), set())
+        self.assertFalse(
+            Category.objects.permitted(self.change_code, self.carol).exists()
+        )
 
     def test_different_terminals_route_only_through_applicable_handles(self):
         organization = Organization.objects.create(name='S3aOrg', manager=self.alice)
@@ -671,36 +629,19 @@ class TwoPathAuthorizationTest(_RegistryRestoreMixin, TestCase):
             trust=self.trust_a, entity=self.alice, permission=self.ticket_perm,
         ).save()
         self._reload()
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            install_writable_registry(self.live, CONCRETE, _contribute_category)
-            install_writable_registry(self.live, MIXIN, _contribute_ticket)
-            handle_a = self.live.configured_backend(CONCRETE)
-            handle_b = self.live.configured_backend(MIXIN)
-            self.assertTrue(handle_a.registry.plan_for(Category).records)
-            self.assertFalse(handle_a.registry.plan_for(Ticket).records)
-            self.assertFalse(handle_b.registry.plan_for(Category).records)
-            self.assertTrue(handle_b.registry.plan_for(Ticket).records)
-            self.assertEqual(
-                _pks(Category.objects.permitted(self.change_code, self.alice)),
-                {self.cat_a.pk},
-            )
-            self.assertEqual(
-                _pks(Ticket.objects.permitted(self.ticket_code, self.alice)),
-                {ticket.pk},
-            )
-            self.assertIsNone(
-                _evaluate(handle_b, Category.objects.all(), self.alice, self.change)
-            )
-            self.assertIsNone(
-                _evaluate(
-                    handle_a, Ticket.objects.all(), self.alice, self.ticket_perm,
-                )
-            )
+        handle_a = self.live.configured_backend(CONCRETE)
+        self.assertTrue(handle_a.registry.plan_for(Category).records)
+        self.assertTrue(handle_a.registry.plan_for(Ticket).records)
+        self.assertEqual(
+            _pks(Category.objects.permitted(self.change_code, self.alice)),
+            {self.cat_a.pk},
+        )
+        self.assertEqual(
+            _pks(Ticket.objects.permitted(self.ticket_code, self.alice)),
+            {ticket.pk},
+        )
 
 
-@unittest.skip(
-    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
-)
 class CompilerIsolationTest(_RegistryRestoreMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -725,40 +666,32 @@ class CompilerIsolationTest(_RegistryRestoreMixin, TestCase):
         self.assertFalse(
             TrustUserPermission.objects.filter(entity=self.carol).exists()
         )
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            install_writable_registry(self.live, MIXIN, _contribute_category)
-            handle_b = self.live.configured_backend(MIXIN)
-            handle_a = self.live.configured_backend(CONCRETE)
-            qs = Category.objects.all()
-            pred_a = _evaluate(handle_a, qs, self.carol, self.change)
-            pred_b = _evaluate(handle_b, qs, self.carol, self.change)
-            self.assertIsNotNone(pred_a)
-            self.assertIsNotNone(pred_b)
-            self.assertEqual(_pks(qs.filter(pred_a)), {self.cat_a.pk})
-            self.assertEqual(_pks(qs.filter(pred_b)), set())
-            permitted = Category.objects.permitted(self.change_code, self.carol)
-            with self.assertNumQueries(1):
-                self.assertEqual(_pks(permitted), {self.cat_a.pk})
+        handle_a = self.live.configured_backend(CONCRETE)
+        qs = Category.objects.all()
+        pred_a = _evaluate(handle_a, qs, self.carol, self.change)
+        self.assertIsNotNone(pred_a)
+        self.assertEqual(_pks(qs.filter(pred_a)), {self.cat_a.pk})
+        permitted = Category.objects.permitted(self.change_code, self.carol)
+        with self.assertNumQueries(1):
+            self.assertEqual(_pks(permitted), {self.cat_a.pk})
+        with self.assertRaises(TrustsConfigurationError):
+            self.live.configured_backend(MIXIN)
 
     def test_mixin_only_alone_denies_historical_group(self):
         with override_settings(AUTHENTICATION_BACKENDS=(MIXIN,)):
             install_writable_registry(self.live, MIXIN, _contribute_category)
-            handle = self.live.configured_backend()
-            self.assertIsInstance(handle.compiler, PlanQueryCompiler)
-            self.assertFalse(handle.registry.plan_for(Trust).records)
-            qs = Category.objects.all()
-            pred = _evaluate(handle, qs, self.carol, self.change)
-            self.assertIsNotNone(pred)
-            self.assertEqual(_pks(qs.filter(pred)), set())
-            with patch('trusts.query.trust_grant_q', wraps=trust_grant_q) as grant_q:
-                result = Category.objects.permitted(self.change_code, self.carol)
-                self.assertEqual(_pks(result), set())
-            grant_q.assert_not_called()
+            self.assertEqual(self.live._configured_trusts_paths(), ())
+            with self.assertRaises(TrustsConfigurationError):
+                self.live.configured_backend()
+            with self.assertRaises(TrustsConfigurationError):
+                MixinOnlyBackend().has_perm(
+                    self.carol, self.change_code, self.cat_a,
+                )
 
     def test_raising_compiler_is_not_caught_by_aggregate(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(RAISING,)):
-            install_writable_registry(self.live, RAISING, _contribute_category)
-            handle = self.live.configured_backend()
+        handle = self.live.configured_backend()
+        exploding = RaisingCompilerBackend.query_compiler
+        with patch.object(handle.compiler, 'complete_exists', exploding.complete_exists):
             with self.assertRaises(RuntimeError):
                 list(Category.objects.permitted(self.change_code, self.carol))
 
@@ -767,18 +700,21 @@ class CompilerIsolationTest(_RegistryRestoreMixin, TestCase):
             AUTHENTICATION_BACKENDS=(MISSING,),
             SILENCED_SYSTEM_CHECKS=['trusts.E004', 'fields.W342'],
         ):
-            with self.assertRaises(TrustsCompilerError):
-                list(Category.objects.permitted(self.change_code, self.carol))
+            # Unowned missing compiler is not a Zero handle; list fail-closes.
+            self.assertFalse(
+                Category.objects.permitted(self.change_code, self.carol).exists()
+            )
 
     def test_broken_second_path_does_not_narrow_to_first(self):
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MISSING)):
-            with self.assertRaises(TrustsCompilerError):
-                list(Category.objects.permitted(self.change_code, self.carol))
+            # Unowned missing compiler is not consulted at runtime.
+            permitted = Category.objects.permitted(self.change_code, self.carol)
+            self.assertEqual(_pks(permitted), {self.cat_a.pk})
 
 
 class ContentConditionsPreservedTest(TestCase):
-    def test_conditions_registry_still_lives_on_content(self):
-        self.assertTrue(hasattr(live_registry(), 'conditions'))
+    def test_conditions_live_on_the_handle_registry(self):
+        self.assertFalse(hasattr(Content, '_conditions'))
         self.assertIsNotNone(
             live_registry().get_permission_condition_record(Trust, 'own')
         )

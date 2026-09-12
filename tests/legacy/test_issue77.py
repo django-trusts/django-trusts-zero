@@ -1,20 +1,16 @@
-"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue77.py`` for issue #37 Zero-first coverage.
-
-Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
-"""
-
 """S3b: backend authorization and enumeration on compiler handles (issue #77).
 
 Structural and behavioral tests only — no source-token or
 ``inspect.getsource`` assertions.
+
+Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue77.py``.
 """
 
 from contextlib import contextmanager
-import unittest
 from unittest.mock import patch
 
 from django.apps import apps
-from tests.apps import live_registry, live_config
+from tests.apps import install_writable_registry, live_config, live_registry
 from django.contrib.auth.models import AnonymousUser, Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
@@ -22,7 +18,6 @@ from django.db import connection, models
 from django.db.models.query import QuerySet
 from django.test import TestCase, TransactionTestCase, override_settings
 
-from tests.apps import install_writable_registry, live_config
 from tests.backends import GroupOnlyBackend, MixinOnlyBackend
 from tests.models import Category, Organization, Ticket, TestGroupJunction
 from trusts.zero.backends import HistoricalGroupQueryCompiler, TrustModelBackend
@@ -45,6 +40,7 @@ from trusts.zero.models import (
 from trusts.query import is_active_principal, trust_grant_q
 from tests.legacy.helpers import (
     enable_local_group_grant,
+    forget_condition,
     get_or_create_root_user,
 )
 
@@ -329,9 +325,6 @@ class OnePathAuthorizationTest(_UsersMixin, TestCase):
             self.assertEqual(list(page), [self.cat_a1])
 
 
-@unittest.skip(
-    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
-)
 class DistributiveLawTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -352,35 +345,21 @@ class DistributiveLawTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
         ).save()
         self._reload()
 
-    def _two_path(self):
-        return override_settings(AUTHENTICATION_BACKENDS=(GROUP_ONLY, MIXIN))
-
     def test_split_coverage_object_queryset_and_permitted(self):
-        with self._two_path():
-            install_writable_registry(self.live, GROUP_ONLY, _contribute_category)
-            install_writable_registry(self.live, MIXIN, _contribute_category)
-            handle_a = self.live.configured_backend(GROUP_ONLY)
-            handle_b = self.live.configured_backend(MIXIN)
-            group_only = GroupOnlyBackend()
-            mixin = MixinOnlyBackend()
-            self.assertTrue(group_only.has_perm(self.alice, self.change_code, self.cat_a))
-            self.assertFalse(group_only.has_perm(self.alice, self.change_code, self.cat_b))
-            self.assertFalse(mixin.has_perm(self.alice, self.change_code, self.cat_a))
-            self.assertTrue(mixin.has_perm(self.alice, self.change_code, self.cat_b))
-            self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a))
-            self.assertTrue(self.alice.has_perm(self.change_code, self.cat_b))
-            qs = Category.objects.filter(pk__in=[self.cat_a.pk, self.cat_b.pk])
-            self.assertTrue(self.alice.has_perm(self.change_code, qs))
-            self.assertTrue(self.alice.has_perms((self.change_code,), qs))
-            self.assertIn(
-                self.change_code,
-                group_only.get_all_permissions(self.alice, qs),
-            )
-            self.assertEqual(mixin.get_all_permissions(self.alice, qs), set())
-            self.assertIn(self.change_code, self.alice.get_all_permissions(qs))
-            permitted = Category.objects.permitted(self.change_code, self.alice)
-            with self.assertNumQueries(1):
-                self.assertEqual(_pks(permitted), {self.cat_a.pk, self.cat_b.pk})
+        concrete = TrustModelBackend()
+        self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.cat_a))
+        self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.cat_b))
+        self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a))
+        self.assertTrue(self.alice.has_perm(self.change_code, self.cat_b))
+        qs = Category.objects.filter(pk__in=[self.cat_a.pk, self.cat_b.pk])
+        self.assertTrue(self.alice.has_perm(self.change_code, qs))
+        self.assertTrue(self.alice.has_perms((self.change_code,), qs))
+        self.assertIn(self.change_code, self.alice.get_all_permissions(qs))
+        permitted = Category.objects.permitted(self.change_code, self.alice)
+        with self.assertNumQueries(1):
+            self.assertEqual(_pks(permitted), {self.cat_a.pk, self.cat_b.pk})
+        with self.assertRaises(TrustsConfigurationError):
+            MixinOnlyBackend().has_perm(self.alice, self.change_code, self.cat_b)
 
     def test_failed_ceiling_cannot_borrow_other_path_fragment(self):
         self.change.group_set.remove(self.alice_group)
@@ -388,27 +367,15 @@ class DistributiveLawTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
             trust=self.trust_b, entity=self.alice,
         ).delete()
         self._reload()
-        with self._two_path():
-            install_writable_registry(self.live, GROUP_ONLY, _contribute_category)
-            install_writable_registry(self.live, MIXIN, _contribute_category)
-            handle_a = self.live.configured_backend(GROUP_ONLY)
-            handle_b = self.live.configured_backend(MIXIN)
-            qs = Category.objects.filter(pk__in=[self.cat_a.pk, self.cat_b.pk])
-            self.assertFalse(self.alice.has_perm(self.change_code, self.cat_a))
-            self.assertFalse(self.alice.has_perm(self.change_code, self.cat_b))
-            self.assertFalse(self.alice.has_perm(self.change_code, qs))
-            self.assertNotIn(
-                self.change_code,
-                GroupOnlyBackend().get_all_permissions(self.alice, qs),
-            )
-            self.assertFalse(
-                Category.objects.permitted(self.change_code, self.alice).exists()
-            )
+        qs = Category.objects.filter(pk__in=[self.cat_a.pk, self.cat_b.pk])
+        self.assertFalse(self.alice.has_perm(self.change_code, self.cat_a))
+        self.assertFalse(self.alice.has_perm(self.change_code, self.cat_b))
+        self.assertFalse(self.alice.has_perm(self.change_code, qs))
+        self.assertFalse(
+            Category.objects.permitted(self.change_code, self.alice).exists()
+        )
 
 
-@unittest.skip(
-    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
-)
 class CompilerIsolationBackendTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -426,47 +393,30 @@ class CompilerIsolationBackendTest(_RegistryRestoreMixin, _UsersMixin, TestCase)
         self.assertFalse(
             TrustUserPermission.objects.filter(entity=self.carol).exists()
         )
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            install_writable_registry(self.live, MIXIN, _contribute_category)
-            handle_b = self.live.configured_backend(MIXIN)
-            concrete = TrustModelBackend()
-            mixin = MixinOnlyBackend()
-            self.assertTrue(concrete.has_perm(self.carol, self.change_code, self.cat_a))
-            self.assertFalse(mixin.has_perm(self.carol, self.change_code, self.cat_a))
-            self.assertTrue(self.carol.has_perm(self.change_code, self.cat_a))
-            self.assertIn(
-                self.change_code,
-                concrete.get_group_permissions(self.carol, self.cat_a),
-            )
-            self.assertEqual(
-                mixin.get_group_permissions(self.carol, self.cat_a),
-                set(),
-            )
-            qs = Category.objects.filter(pk=self.cat_a.pk)
-            self.assertTrue(concrete.has_perm(self.carol, self.change_code, qs))
-            with self.assertNumQueries(0):
-                self.assertFalse(mixin.has_perm(self.carol, self.change_code, qs))
-            self.assertIsInstance(mixin.query_compiler, PlanQueryCompiler)
+        concrete = TrustModelBackend()
+        self.assertTrue(concrete.has_perm(self.carol, self.change_code, self.cat_a))
+        self.assertTrue(self.carol.has_perm(self.change_code, self.cat_a))
+        self.assertIn(
+            self.change_code,
+            concrete.get_group_permissions(self.carol, self.cat_a),
+        )
+        qs = Category.objects.filter(pk=self.cat_a.pk)
+        self.assertTrue(concrete.has_perm(self.carol, self.change_code, qs))
+        self.assertIsInstance(MixinOnlyBackend.query_compiler, PlanQueryCompiler)
+        with self.assertRaises(TrustsConfigurationError):
+            MixinOnlyBackend().has_perm(self.carol, self.change_code, self.cat_a)
 
     def test_mixin_only_alone_denies_historical_group(self):
         with override_settings(AUTHENTICATION_BACKENDS=(MIXIN,)):
             install_writable_registry(self.live, MIXIN, _contribute_category)
-            handle = self.live.configured_backend()
-            mixin = MixinOnlyBackend()
-            self.assertFalse(mixin.has_perm(self.carol, self.change_code, self.cat_a))
-            self.assertFalse(self.carol.has_perm(self.change_code, self.cat_a))
-            self.assertEqual(
-                mixin.get_group_permissions(self.carol, self.cat_a),
-                set(),
-            )
-            self.assertFalse(
-                Category.objects.permitted(self.change_code, self.carol).exists()
-            )
+            with self.assertRaises(TrustsConfigurationError):
+                self.live.configured_backend()
+            with self.assertRaises(TrustsConfigurationError):
+                MixinOnlyBackend().has_perm(
+                    self.carol, self.change_code, self.cat_a,
+                )
 
 
-@unittest.skip(
-    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
-)
 class CoordinatorQueryCountTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -481,38 +431,25 @@ class CoordinatorQueryCountTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
         self.qs = Category.objects.filter(pk=self.cat_a.pk)
 
     def test_coordinator_one_sql_noncoordinator_zero(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            install_writable_registry(self.live, MIXIN, _contribute_category)
-            handle_b = self.live.configured_backend(MIXIN)
-            concrete = TrustModelBackend()
-            mixin = MixinOnlyBackend()
-            self.assertTrue(concrete._is_collection_coordinator())
-            self.assertFalse(mixin._is_collection_coordinator())
-            with self.assertNumQueries(1):
-                self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.qs))
-            with self.assertNumQueries(0):
-                self.assertFalse(mixin.has_perm(self.alice, self.change_code, self.qs))
-            with self.assertNumQueries(0):
-                self.assertEqual(mixin.get_all_permissions(self.alice, self.qs), set())
-            with self.assertNumQueries(0):
-                self.assertEqual(mixin.get_group_permissions(self.alice, self.qs), set())
-            with self.assertNumQueries(1):
-                self.assertTrue(self.alice.has_perm(self.change_code, self.qs))
+        concrete = TrustModelBackend()
+        self.assertTrue(concrete._is_collection_coordinator())
+        with self.assertNumQueries(1):
+            self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.qs))
+        with self.assertNumQueries(1):
+            self.assertTrue(self.alice.has_perm(self.change_code, self.qs))
+        with self.assertRaises(TrustsConfigurationError):
+            MixinOnlyBackend()._is_collection_coordinator()
 
     def test_reversed_backend_order(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(MIXIN, CONCRETE)):
-            install_writable_registry(self.live, MIXIN, _contribute_category)
-            handle_b = self.live.configured_backend(MIXIN)
-            concrete = TrustModelBackend()
-            mixin = MixinOnlyBackend()
-            self.assertTrue(mixin._is_collection_coordinator())
-            self.assertFalse(concrete._is_collection_coordinator())
-            with self.assertNumQueries(1):
-                self.assertTrue(mixin.has_perm(self.alice, self.change_code, self.qs))
-            with self.assertNumQueries(0):
-                self.assertFalse(concrete.has_perm(self.alice, self.change_code, self.qs))
-            with self.assertNumQueries(1):
-                self.assertTrue(self.alice.has_perm(self.change_code, self.qs))
+        concrete = TrustModelBackend()
+        self.assertEqual(self.live._configured_trusts_paths(), (CONCRETE,))
+        self.assertTrue(concrete._is_collection_coordinator())
+        with self.assertNumQueries(1):
+            self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.qs))
+        with self.assertNumQueries(1):
+            self.assertTrue(self.alice.has_perm(self.change_code, self.qs))
+        with self.assertRaises(TrustsConfigurationError):
+            MixinOnlyBackend()._is_collection_coordinator()
 
     def test_duplicate_exact_path_strings_dedupe(self):
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, CONCRETE)):
@@ -547,7 +484,7 @@ class ObjNoneBoundaryTest(_UsersMixin, TestCase):
             self.assertFalse(self.alice.has_perm('auth.change_user'))
             self.assertFalse(self.alice.has_perms(('auth.change_user',)))
             self.assertEqual(self.alice.get_all_permissions(), set())
-        self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a))
+            self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a))
         self.assertNotIn('auth.change_user', backend.get_all_permissions(self.alice, self.cat_a))
 
     def test_modelbackend_plus_trusts_restores_globals_not_object_grants(self):
@@ -596,9 +533,6 @@ class UndeclaredJunctionRemainsHistoricalTest(_UsersMixin, TestCase):
         self.assertTrue(self.alice.has_perm(code, qs))
 
 
-@unittest.skip(
-    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
-)
 class CompilerFailureTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -609,21 +543,23 @@ class CompilerFailureTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     def test_raising_compiler_propagates_on_has_perm(self):
         from tests.backends import RaisingCompilerBackend
 
-        with override_settings(AUTHENTICATION_BACKENDS=(RAISING,)):
-            install_writable_registry(self.live, RAISING, _contribute_category)
-            handle = self.live.configured_backend()
-            with self.assertRaises(RuntimeError):
-                RaisingCompilerBackend().has_perm(
-                    self.alice, self.change_code, self.cat_a,
-                )
+        handle = self.live.configured_backend()
+        exploding = RaisingCompilerBackend.query_compiler
+        with patch.object(
+            TrustModelBackend, 'query_compiler', exploding,
+        ):
+            with patch.object(handle.compiler, 'complete_exists', exploding.complete_exists):
+                with self.assertRaises(RuntimeError):
+                    TrustModelBackend().has_perm(
+                        self.alice, self.change_code, self.cat_a,
+                    )
 
     def test_missing_compiler_fails_loud(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(MISSING,)):
-            with self.assertRaises(TrustsCompilerError):
-                from tests.backends import MissingCompilerBackend
-                MissingCompilerBackend().has_perm(
-                    self.alice, self.change_code, self.cat_a,
-                )
+        from tests.backends import MissingCompilerBackend
+        with self.assertRaises(TrustsConfigurationError):
+            MissingCompilerBackend().has_perm(
+                self.alice, self.change_code, self.cat_a,
+            )
 
     def test_unconfigured_and_ambiguous_path_fail_loud(self):
         backend = MixinOnlyBackend()
@@ -638,12 +574,12 @@ class CompilerFailureTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
                 )
 
     def test_silenced_e004_still_raises(self):
+        from tests.backends import MissingCompilerBackend
         with override_settings(
             AUTHENTICATION_BACKENDS=(MISSING,),
             SILENCED_SYSTEM_CHECKS=['trusts.E004', 'fields.W342'],
         ):
-            from tests.backends import MissingCompilerBackend
-            with self.assertRaises(TrustsCompilerError):
+            with self.assertRaises(TrustsConfigurationError):
                 MissingCompilerBackend().has_perm(
                     self.alice, self.change_code, self.cat_a,
                 )
@@ -725,9 +661,6 @@ def _ordinary_memo_models():
     return Memo, MemoGrant
 
 
-@unittest.skip(
-    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
-)
 class RegisteredOrdinaryModelTest(_RegistryRestoreMixin, _UsersMixin, TransactionTestCase):
     """Registered non-Content models route through the handle, not Content._contents."""
 
@@ -747,29 +680,30 @@ class RegisteredOrdinaryModelTest(_RegistryRestoreMixin, _UsersMixin, Transactio
             )
             code = 'trusts_zero_tests.change_memo'
             MemoGrant.objects.create(memo=memo, user=self.alice, permission=change)
-            with override_settings(AUTHENTICATION_BACKENDS=(MIXIN,)):
-                isolated = TrustsRegistry()
-                j = Ref(MemoGrant)
-                isolated.register(
-                    content=j.memo, user=j.user, permission=j.permission,
-                )
-                self.live.registries[MIXIN] = isolated
+            isolated = TrustsRegistry()
+            j = Ref(MemoGrant)
+            isolated.register(
+                content=j.memo, user=j.user, permission=j.permission,
+            )
+            self.live.registries[CONCRETE] = isolated
+            plan_compiler = PlanQueryCompiler()
+            with patch.object(TrustModelBackend, 'query_compiler', plan_compiler):
                 handle = self.live.configured_backend()
                 self.assertFalse(handle.historical_fallback)
                 self.assertIsInstance(handle.compiler, PlanQueryCompiler)
-                mixin = MixinOnlyBackend()
-                self.assertTrue(mixin.has_perm(self.alice, code, memo))
-                self.assertFalse(mixin.has_perm(self.alice, code, other))
-                self.assertFalse(mixin.has_perm(self.bob, code, memo))
+                concrete = TrustModelBackend()
+                self.assertTrue(concrete.has_perm(self.alice, code, memo))
+                self.assertFalse(concrete.has_perm(self.alice, code, other))
+                self.assertFalse(concrete.has_perm(self.bob, code, memo))
                 self.assertTrue(self.alice.has_perm(code, memo))
-                self.assertIn(code, mixin.get_all_permissions(self.alice, memo))
-                self.assertEqual(mixin.get_group_permissions(self.alice, memo), set())
+                self.assertIn(code, concrete.get_all_permissions(self.alice, memo))
+                self.assertEqual(concrete.get_group_permissions(self.alice, memo), set())
                 qs = Memo.objects.filter(pk=memo.pk)
-                self.assertTrue(mixin.has_perm(self.alice, code, qs))
-                self.assertIn(code, mixin.get_all_permissions(self.alice, qs))
-                self.assertEqual(mixin.get_group_permissions(self.alice, qs), set())
+                self.assertTrue(concrete.has_perm(self.alice, code, qs))
+                self.assertIn(code, concrete.get_all_permissions(self.alice, qs))
+                self.assertEqual(concrete.get_group_permissions(self.alice, qs), set())
                 self.assertFalse(
-                    mixin.has_perm(
+                    concrete.has_perm(
                         self.alice, code,
                         Memo.objects.filter(pk__in=[memo.pk, other.pk]),
                     )
@@ -778,9 +712,6 @@ class RegisteredOrdinaryModelTest(_RegistryRestoreMixin, _UsersMixin, Transactio
                 self.assertFalse(Memo.objects.permitted(code, self.bob).exists())
 
 
-@unittest.skip(
-    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
-)
 class HistoricalFallbackCapabilityTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     """Historical fallback is a concrete compiler capability, not Content membership."""
 
@@ -808,39 +739,20 @@ class HistoricalFallbackCapabilityTest(_RegistryRestoreMixin, _UsersMixin, TestC
         self.assertFalse(PlanQueryCompiler.historical_fallback)
         concrete = self.live.configured_backend(CONCRETE)
         self.assertTrue(concrete.historical_fallback)
+        self.assertFalse(MixinOnlyBackend.query_compiler.historical_fallback)
         with override_settings(AUTHENTICATION_BACKENDS=(MIXIN,)):
-            mixin = self.live.configured_backend()
-            self.assertFalse(mixin.historical_fallback)
+            with self.assertRaises(TrustsConfigurationError):
+                self.live.configured_backend()
 
     def test_mixin_only_no_plan_denies_tup_and_trustgroup(self):
         self.assertFalse(hasattr(Content, 'is_content'))
         with override_settings(AUTHENTICATION_BACKENDS=(MIXIN,)):
-            handle = self.live.configured_backend()
-            self.assertFalse(handle.registry.plan_for(Category).records)
-            self.assertFalse(handle.historical_fallback)
-            mixin = MixinOnlyBackend()
-            self.assertFalse(mixin.has_perm(self.alice, self.change_code, self.cat_a))
-            self.assertFalse(mixin.has_perm(self.carol, self.change_code, self.cat_a))
-            self.assertFalse(self.alice.has_perm(self.change_code, self.cat_a))
-            self.assertFalse(self.carol.has_perm(self.change_code, self.cat_a))
-            self.assertEqual(
-                mixin.get_all_permissions(self.alice, self.cat_a), set(),
-            )
-            self.assertEqual(
-                mixin.get_group_permissions(self.carol, self.cat_a), set(),
-            )
-            qs = Category.objects.filter(pk=self.cat_a.pk)
-            self.assertFalse(mixin.has_perm(self.alice, self.change_code, qs))
-            self.assertEqual(mixin.get_all_permissions(self.alice, qs), set())
-            self.assertEqual(mixin.get_group_permissions(self.carol, qs), set())
-            with patch('trusts.query.trust_grant_q', wraps=trust_grant_q) as grant_q:
-                self.assertFalse(
-                    Category.objects.permitted(self.change_code, self.alice).exists()
+            with self.assertRaises(TrustsConfigurationError):
+                self.live.configured_backend()
+            with self.assertRaises(TrustsConfigurationError):
+                MixinOnlyBackend().has_perm(
+                    self.alice, self.change_code, self.cat_a,
                 )
-                self.assertFalse(
-                    Category.objects.permitted(self.change_code, self.carol).exists()
-                )
-            grant_q.assert_not_called()
 
     def test_concrete_no_plan_fails_closed_for_undeclared_content(self):
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE,)):
@@ -868,42 +780,29 @@ class HistoricalFallbackCapabilityTest(_RegistryRestoreMixin, _UsersMixin, TestC
             )
 
     def test_inapplicable_mixin_neither_adds_nor_reopens_deleted_fallback(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(MIXIN, CONCRETE)):
-            self._empty_plans(MIXIN, CONCRETE)
-            mixin_handle = self.live.configured_backend(MIXIN)
-            concrete_handle = self.live.configured_backend(CONCRETE)
-            self.assertFalse(mixin_handle.registry.plan_for(Category).records)
-            self.assertFalse(concrete_handle.registry.plan_for(Category).records)
-            self.assertFalse(mixin_handle.historical_fallback)
-            self.assertTrue(concrete_handle.historical_fallback)
-            mixin = MixinOnlyBackend()
-            concrete = TrustModelBackend()
-            self.assertFalse(mixin.has_perm(self.alice, self.change_code, self.cat_a))
-            self.assertFalse(concrete.has_perm(self.alice, self.change_code, self.cat_a))
-            self.assertFalse(self.alice.has_perm(self.change_code, self.cat_a))
-            self.assertEqual(mixin.get_all_permissions(self.alice, self.cat_a), set())
-            self.assertEqual(
-                concrete.get_all_permissions(self.alice, self.cat_a), set(),
-            )
-            qs = Category.objects.filter(pk=self.cat_a.pk)
-            self.assertTrue(mixin._is_collection_coordinator())
-            self.assertFalse(mixin.has_perm(self.alice, self.change_code, qs))
-            with self.assertNumQueries(0):
-                self.assertFalse(concrete.has_perm(self.alice, self.change_code, qs))
-            self.assertFalse(self.alice.has_perm(self.change_code, qs))
-            self.assertEqual(mixin.get_all_permissions(self.alice, qs), set())
-            self.assertEqual(concrete.get_all_permissions(self.alice, qs), set())
-            self.assertFalse(
-                Category.objects.permitted(self.change_code, self.alice).exists()
-            )
-            self.assertFalse(
-                Category.objects.permitted(self.change_code, self.carol).exists()
-            )
+        self._empty_plans(CONCRETE)
+        concrete_handle = self.live.configured_backend(CONCRETE)
+        self.assertFalse(concrete_handle.registry.plan_for(Category).records)
+        self.assertTrue(concrete_handle.historical_fallback)
+        concrete = TrustModelBackend()
+        self.assertFalse(concrete.has_perm(self.alice, self.change_code, self.cat_a))
+        self.assertFalse(self.alice.has_perm(self.change_code, self.cat_a))
+        self.assertEqual(
+            concrete.get_all_permissions(self.alice, self.cat_a), set(),
+        )
+        qs = Category.objects.filter(pk=self.cat_a.pk)
+        self.assertFalse(concrete.has_perm(self.alice, self.change_code, qs))
+        self.assertFalse(self.alice.has_perm(self.change_code, qs))
+        self.assertFalse(
+            Category.objects.permitted(self.change_code, self.alice).exists()
+        )
+        self.assertFalse(
+            Category.objects.permitted(self.change_code, self.carol).exists()
+        )
+        with self.assertRaises(TrustsConfigurationError):
+            self.live.configured_backend(MIXIN)
 
 
-@unittest.skip(
-    'core STAGE 2: multi-path / mixin-host lifecycle; Zero has one canonical backend'
-)
 class MixedPathUndeclaredJunctionTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
@@ -933,23 +832,16 @@ class MixedPathUndeclaredJunctionTest(_RegistryRestoreMixin, _UsersMixin, TestCa
         self.assertTrue(self.alice.has_perm(self.code, qs))
 
     def test_mixin_does_not_add_or_suppress_junction_plan(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(MIXIN, CONCRETE)):
-            mixin = MixinOnlyBackend()
-            concrete = TrustModelBackend()
-            self.assertFalse(
-                self.live.configured_backend(MIXIN).registry.plan_for(Group).records
-            )
-            self.assertTrue(
-                self.live.configured_backend(CONCRETE).registry.plan_for(Group).records
-            )
-            self.assertFalse(mixin.has_perm(self.alice, self.code, self.group))
-            self.assertTrue(concrete.has_perm(self.alice, self.code, self.group))
-            self.assertTrue(self.alice.has_perm(self.code, self.group))
-            qs = Group.objects.filter(pk=self.group.pk)
-            self.assertTrue(mixin._is_collection_coordinator())
-            self.assertTrue(mixin.has_perm(self.alice, self.code, qs))
-            with self.assertNumQueries(0):
-                self.assertFalse(concrete.has_perm(self.alice, self.code, qs))
+        concrete = TrustModelBackend()
+        self.assertTrue(
+            self.live.configured_backend(CONCRETE).registry.plan_for(Group).records
+        )
+        self.assertTrue(concrete.has_perm(self.alice, self.code, self.group))
+        self.assertTrue(self.alice.has_perm(self.code, self.group))
+        qs = Group.objects.filter(pk=self.group.pk)
+        self.assertTrue(concrete.has_perm(self.alice, self.code, qs))
+        with self.assertRaises(TrustsConfigurationError):
+            self.live.configured_backend(MIXIN)
 
 
 class QuerySetCallableConditionTest(_UsersMixin, TestCase):
@@ -969,10 +861,7 @@ class QuerySetCallableConditionTest(_UsersMixin, TestCase):
         self.conditioned = '%s:spy' % self.change_code
 
     def tearDown(self):
-        from trusts import utils
-        live_registry().conditions._records.get(
-            utils.get_short_model_name(Category), {},
-        ).pop('spy', None)
+        forget_condition(Category, 'spy')
         super().tearDown()
 
     def _assert_zero_queryset_callbacks(self):
