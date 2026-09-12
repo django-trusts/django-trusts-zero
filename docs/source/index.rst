@@ -7,8 +7,8 @@ Unrelated to Zero Trust network architecture.
 
 Package version is exactly ``1.0.0.dev0``. Core floor is
 ``django-trusts>=1.0.0.dev3,<2`` (merged
-`#118 <https://github.com/django-trusts/django-trusts/pull/118>`_ at
-``9993f7b102b8b0d5844c208d22f52e9a22df18b2``).
+`#118 <https://github.com/django-trusts/django-trusts/pull/118>`_ merge
+``948d6666342377b9472debb57d4a1e26e81402d1``).
 
 Public APIs consumed
 --------------------

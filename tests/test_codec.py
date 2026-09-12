@@ -177,10 +177,15 @@ class RegistrationAndCodecTests(TestCase):
             raise AssertionError('callable must not run')
         handle = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
         handle.registry.register_permission_condition(Category, 'cb', never_called)
-        cat = Category(name='n', trust=self.org)
-        cat.save()
-        with self.assertRaises(PermissionConditionNotQueryable):
-            list(Category.objects.permitted('read:cb', self.user))
+        try:
+            cat = Category(name='n', trust=self.org)
+            cat.save()
+            with self.assertRaises(PermissionConditionNotQueryable):
+                list(Category.objects.permitted('read:cb', self.user))
+        finally:
+            handle.registry.conditions._records.pop(
+                (Category._meta.label, 'cb'), None,
+            )
 
     def test_group_local_grant_still_authorizes_via_zero_compiler(self):
         group = Group.objects.create(name='writers')

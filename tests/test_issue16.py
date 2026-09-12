@@ -1,7 +1,7 @@
 """Zero #16: donate Meta conditions to the core handle registry.
 
-Paired against django-trusts#118 HEAD
-``9993f7b102b8b0d5844c208d22f52e9a22df18b2``.
+Paired against django-trusts#118 merge
+``948d6666342377b9472debb57d4a1e26e81402d1``.
 """
 
 import inspect

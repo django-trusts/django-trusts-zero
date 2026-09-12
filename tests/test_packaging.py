@@ -1,5 +1,6 @@
 """Source-tree proofs that Zero does not own kernel paths or copy compilers."""
 
+import importlib.util
 from pathlib import Path
 
 from django.test import SimpleTestCase
@@ -82,6 +83,31 @@ class ZeroSourceLayoutTests(SimpleTestCase):
         self.assertIn('class TrustModelBackend', backends)
         self.assertNotIn('from trusts.backends import TrustModelBackend\n', backends)
         self.assertNotIn('TrustModelBackend = ', backends)
+
+    def test_no_test_modules_under_installable_zero_package(self):
+        zero_dir = ROOT / 'trusts' / 'zero'
+        offenders = [
+            path.relative_to(ROOT).as_posix()
+            for path in zero_dir.rglob('*.py')
+            if path.name == 'tests.py' or path.name.startswith('test_')
+            or path.parent.name in {'tests', 'test'}
+        ]
+        self.assertEqual(offenders, [])
+        self.assertIsNone(importlib.util.find_spec('trusts.zero.tests'))
+        # Core still ships trusts/tests.py until STAGE 2. Pair CI puts
+        # KERNEL_CHECKOUT on sys.path, so find_spec('trusts.tests') may
+        # resolve to the paired core module. Assert only that this Zero
+        # tree does not ship it.
+        spec = importlib.util.find_spec('trusts.tests')
+        if spec is not None:
+            origin = spec.origin or ''
+            self.assertFalse(
+                origin.startswith(str(ROOT / 'trusts')),
+                'Zero must not ship trusts.tests; found %s' % origin,
+            )
+        self.assertTrue((ROOT / 'tests' / 'legacy' / 'test_historical.py').is_file())
+        self.assertFalse((ROOT / 'trusts' / 'tests.py').exists())
+        self.assertFalse((ROOT / 'trusts' / 'zero' / 'tests.py').exists())
 
 
 class ZeroPublishMetadataTests(SimpleTestCase):
