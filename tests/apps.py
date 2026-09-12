@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from django.apps import AppConfig
 
 from trusts.apps import TrustsImplementationConfig
-from trusts.core import Ref, TrustsConfigurationError
+from trusts.core import TrustsConfigurationError
 from trusts.zero.apps import CANONICAL_BACKEND_PATH
 
 
@@ -89,40 +89,32 @@ class TestsConfig(AppConfig):
             return
 
         try:
+            from django.contrib.auth.models import Group
             from tests.models import Category, TestGroupJunction, Ticket
-            from trusts.zero.models import TrustUserPermission
+            from trusts.zero.registration import register_zero_content
         except ImportError:
             return
 
         registry = owner.configured_backend(CANONICAL_BACKEND_PATH).registry
-        j = Ref(TrustUserPermission)
 
         donated_category = getattr(self, '_trusts_tup_category_registry_id', None)
         if donated_category is not registry:
-            rev = Category._meta.get_field('trust').remote_field.get_accessor_name()
-            registry.register(
-                content=getattr(j.trust, rev),
-                user=j.entity,
-                permission=j.permission,
-            )
+            register_zero_content(registry, Category)
             self._trusts_tup_category_registry_id = registry
 
         donated_ticket = getattr(self, '_trusts_tup_ticket_registry_id', None)
         if donated_ticket is not registry:
-            rev = Ticket._meta.get_field('trust').remote_field.get_accessor_name()
-            registry.register(
-                content=getattr(j.trust, rev),
-                user=j.entity,
-                permission=j.permission,
-            )
+            register_zero_content(registry, Ticket)
             self._trusts_tup_ticket_registry_id = registry
 
         donated_group = getattr(self, '_trusts_tup_group_registry_id', None)
         if donated_group is not registry:
-            registry.register(
-                content=junction_group_content_ref(j, TestGroupJunction),
-                user=j.entity,
-                permission=j.permission,
+            register_zero_content(
+                registry,
+                Group,
+                content_via=lambda root, model: junction_group_content_ref(
+                    root, TestGroupJunction,
+                ),
             )
             self._trusts_tup_group_registry_id = registry
 
@@ -175,7 +167,7 @@ def apply_zero_trust_donation(config):
     from django.utils.module_loading import import_string
 
     from trusts.zero.backends import TrustModelBackend
-    from trusts.zero.models import register_zero_relations
+    from trusts.zero.registration import register_zero_relations
 
     paths = config._configured_trusts_paths()
     for path in paths:

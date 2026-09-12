@@ -34,10 +34,10 @@ from trusts.conditions import (
 )
 from trusts.zero.models import (
     Content,
-    PermissionConditionNotQueryable,
     Trust,
     TrustUserPermission,
 )
+from trusts.conditions import PermissionConditionNotQueryable
 from tests.legacy.helpers import (
     create_test_users,
     get_or_create_root_user,

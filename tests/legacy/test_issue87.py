@@ -7,7 +7,7 @@ Final-state adaptations: Zero test app label, core registry APIs, no Content._co
 
 Structural and behavioral tests only — no source-token or
 ``inspect.getsource`` assertions. Conditions and
-``HistoricalGroupQueryCompiler`` stay; the static content map does not.
+``PlanQueryCompiler`` is the object/list compiler; the static content map does not.
 """
 
 from contextlib import contextmanager
@@ -27,7 +27,8 @@ from tests.apps import live_registry, clone_writable_registry, forget_models, ov
 from tests.backends import MixinOnlyBackend
 from tests.models import Category, TestGroupJunction, Ticket
 from trusts.backends import TrustModelBackendMixin
-from trusts.zero.backends import HistoricalGroupQueryCompiler, TrustModelBackend
+from trusts.core import PlanQueryCompiler
+from trusts.zero.backends import TrustModelBackend
 from trusts.checks import check_permission_conditions
 from trusts.conditions import condition_refs, validate_expression
 from trusts.core import (
@@ -37,14 +38,18 @@ from trusts.core import (
     common_permissions,
 )
 from trusts.zero.models import (
-    donate_content_permission_conditions,
-    donate_junction_content_permission_conditions,
     Content,
-    ContentManager,
     Junction,
     Trust,
-    TrustManager,
     TrustUserPermission,
+)
+from trusts.zero.registration import (
+    donate_content_permission_conditions,
+    donate_junction_content_permission_conditions,
+)
+from trusts.zero.query import (
+    ContentManager,
+    TrustManager,
 )
 from tests.legacy.helpers import (
     enable_local_group_grant,
@@ -175,6 +180,13 @@ def dependent_content_ref(root_ref, content_model, *suffixes):
     return node
 
 
+def _related_by_accessor(model, name):
+    for field in model._meta.related_objects:
+        if field.get_accessor_name() == name:
+            return field.related_model
+    raise LookupError('%s has no reverse accessor %r' % (model._meta.label, name))
+
+
 class DependentHostConfig(AppConfig):
     """Isolated host AppConfig that contributes both documented levels."""
 
@@ -196,21 +208,27 @@ class DependentHostConfig(AppConfig):
         if self.holder_model is None:
             return
         registry = live_config(self.apps).configured_backend(CONCRETE).registry
-        j = Ref(TrustUserPermission)
+        from trusts.zero.registration import register_zero_content
+
         donated_image = getattr(self, '_trusts_tup_image_registry_id', None)
         if donated_image is not registry:
-            registry.register(
-                content=dependent_content_ref(j, self.holder_model, 'image'),
-                user=j.entity,
-                permission=j.permission,
+            register_zero_content(
+                registry,
+                _related_by_accessor(self.holder_model, 'image'),
+                content_via=lambda root, model: dependent_content_ref(
+                    root, self.holder_model, 'image',
+                ),
             )
             self._trusts_tup_image_registry_id = registry
         donated_meta = getattr(self, '_trusts_tup_meta_registry_id', None)
         if donated_meta is not registry:
-            registry.register(
-                content=dependent_content_ref(j, self.holder_model, 'image', 'image'),
-                user=j.entity,
-                permission=j.permission,
+            image_model = _related_by_accessor(self.holder_model, 'image')
+            register_zero_content(
+                registry,
+                _related_by_accessor(image_model, 'image'),
+                content_via=lambda root, model: dependent_content_ref(
+                    root, self.holder_model, 'image', 'image',
+                ),
             )
             self._trusts_tup_meta_registry_id = registry
 
@@ -399,17 +417,16 @@ class ConditionRegistryPreservedTest(_ConditionIsolationMixin, TestCase):
 
 class HistoricalCompilerPreservedTest(SimpleTestCase):
     def test_concrete_compiler_identity_and_mixin_isolation(self):
-        self.assertTrue(HistoricalGroupQueryCompiler.historical_fallback)
         self.assertFalse(PlanQueryCompiler.historical_fallback)
         self.assertIsInstance(
-            TrustModelBackend.query_compiler, HistoricalGroupQueryCompiler,
+            TrustModelBackend.query_compiler, PlanQueryCompiler,
         )
         self.assertIsInstance(
             MixinOnlyBackend.query_compiler, PlanQueryCompiler,
         )
         handle = live_config().configured_backend()
-        self.assertTrue(handle.historical_fallback)
-        self.assertIsInstance(handle.compiler, HistoricalGroupQueryCompiler)
+        self.assertFalse(handle.historical_fallback)
+        self.assertIsInstance(handle.compiler, PlanQueryCompiler)
 
 
 class LiveTerminalParityTest(_UsersMixin, TestCase):
@@ -493,8 +510,8 @@ class DependentHostContributionTest(_RegistryRestoreMixin, SimpleTestCase):
         register.assert_not_called()
         self.assertEqual(isolated.records, before)
         self.assertEqual(len(isolated.plan_for(Receipt).records), 0)
-        self.assertEqual(len(isolated.plan_for(Image).records), 1)
-        self.assertEqual(len(isolated.plan_for(Meta).records), 1)
+        self.assertEqual(len(isolated.plan_for(Image).records), 3)
+        self.assertEqual(len(isolated.plan_for(Meta).records), 3)
 
         isolated_meta = TrustsRegistry()
         self.live.registries[CONCRETE] = isolated_meta
@@ -505,7 +522,7 @@ class DependentHostContributionTest(_RegistryRestoreMixin, SimpleTestCase):
         self.assertIs(partial._trusts_tup_image_registry_id, isolated_meta)
         self.assertIs(partial._trusts_tup_meta_registry_id, isolated_meta)
         self.assertEqual(len(isolated_meta.plan_for(Image).records), 0)
-        self.assertEqual(len(isolated_meta.plan_for(Meta).records), 1)
+        self.assertEqual(len(isolated_meta.plan_for(Meta).records), 3)
         forget_models(Receipt, Image, Meta, _orphan)
 
 

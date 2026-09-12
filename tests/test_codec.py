@@ -7,18 +7,22 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from trusts.conditions import RegistryConditionLookup
-from trusts.core import TrustsConfigurationError, TrustsRegistry
+from trusts.core import TrustsRegistry
 from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
 from trusts.query import AuthorizedQuerySet
 from trusts.zero.models import (
     Content,
-    ContentQuerySet,
-    PermissionConditionNotQueryable,
     Trust,
     TrustGroup,
     TrustGroupPermission,
     TrustUserPermission,
+)
+from trusts.zero.query import (
+    ContentQuerySet,
     django_permission_filter,
+)
+from trusts.conditions import PermissionConditionNotQueryable
+from trusts.zero.registration import (
     register_zero_direct,
     register_zero_group,
 )
@@ -57,16 +61,16 @@ class RegistrationAndCodecTests(TestCase):
         self.assertIs(records[0].content_model, Trust)
         self.assertEqual(records[0].user_field, 'entity')
 
-    def test_tgp_register_uses_only_c1_public_grammar(self):
+    def test_tgp_register_uses_two_ceiling_alternatives(self):
         registry = TrustsRegistry()
-        try:
-            register_zero_group(registry, (Trust,))
-        except TrustsConfigurationError:
-            self.assertEqual(registry.records, ())
-            return
+        register_zero_group(registry, (Trust,))
         records = registry.records_for_root(TrustGroupPermission)
-        self.assertTrue(records)
+        self.assertEqual(len(records), 2)
         self.assertIs(records[0].content_model, Trust)
+        self.assertIs(records[1].content_model, Trust)
+        self.assertEqual(records[0].user_path, records[1].user_path)
+        self.assertEqual(records[0].permission_path, records[1].permission_path)
+        self.assertNotEqual(records[0].condition, records[1].condition)
 
     def test_live_registry_has_tup_trust_and_bound_condition_lookup(self):
         handle = zero_config().configured_backend(CANONICAL_BACKEND_PATH)

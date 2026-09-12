@@ -2,7 +2,7 @@
 
 Aggregate support rule: any configured path with
 ``plan_for(content).records`` establishes that the terminal is known.
-The grant stays ``trust_grant_q`` on Trust rows. Structural and
+The grant is ``filter_authorized_scopes`` on Trust rows. Structural and
 behavioral tests only — no source-token or ``inspect.getsource``
 assertions.
 
@@ -27,16 +27,16 @@ from trusts.core import (
 )
 from trusts.zero.models import (
     Content,
-    PermissionConditionNotQueryable,
     Trust,
     TrustUserPermission,
 )
-from trusts.query import trust_grant_q
+from trusts.conditions import PermissionConditionNotQueryable
+from trusts.zero.query import filter_authorized_scopes
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
 )
-from trusts.views import NewTeamForm
+from trusts.zero.views import NewTeamForm
 
 
 CONCRETE = 'trusts.zero.backends.TrustModelBackend'
@@ -274,16 +274,16 @@ class FilterByUserContentPermRegistryGateTest(
         self.alice.is_active = False
         self.alice.save()
         self._reload()
-        with patch('trusts.zero.models.any_plan_records') as gate:
-            with patch('trusts.query.trust_grant_q') as grant_q:
+        with patch('trusts.zero.query.any_plan_records') as gate:
+            with patch('trusts.zero.query.filter_authorized_scopes') as grant_q:
                 self.assertFalse(self._filter(self.alice).exists())
                 self.assertFalse(self._filter(AnonymousUser()).exists())
         gate.assert_not_called()
         grant_q.assert_not_called()
 
     def test_condition_raises_before_gate_or_grant(self):
-        with patch('trusts.zero.models.any_plan_records') as gate:
-            with patch('trusts.query.trust_grant_q') as grant_q:
+        with patch('trusts.zero.query.any_plan_records') as gate:
+            with patch('trusts.zero.query.filter_authorized_scopes') as grant_q:
                 with self.assertRaises(PermissionConditionNotQueryable):
                     self._filter(self.alice, Category, 'add_category:own')
                 with self.assertRaises(PermissionConditionNotQueryable):
@@ -292,23 +292,23 @@ class FilterByUserContentPermRegistryGateTest(
         grant_q.assert_not_called()
 
     def test_unknown_model_is_none_and_does_not_run_grant(self):
-        with patch('trusts.query.trust_grant_q') as grant_q:
+        with patch('trusts.zero.query.filter_authorized_scopes') as grant_q:
             qs = self._filter(self.alice, Organization, 'add')
             self.assertIsInstance(qs, QuerySet)
             self.assertIsNone(qs._result_cache)
             grant_q.assert_not_called()
             with self.assertNumQueries(0):
                 self.assertFalse(qs.exists())
-        with patch('trusts.query.trust_grant_q') as grant_q:
+        with patch('trusts.zero.query.filter_authorized_scopes') as grant_q:
             self.assertFalse(self._filter(self.alice, User, 'add_user').exists())
             grant_q.assert_not_called()
 
     def test_declared_group_opens_the_gate_emptied_content_does_not_use_fallback(self):
         self.assertFalse(hasattr(Content, 'is_content_model'))
         handle = self.live.configured_backend()
-        self.assertTrue(handle.historical_fallback)
+        self.assertFalse(handle.historical_fallback)
         self.assertTrue(handle.registry.plan_for(Group).records)
-        with patch('trusts.query.trust_grant_q', wraps=trust_grant_q) as grant_q:
+        with patch('trusts.zero.query.filter_authorized_scopes', wraps=filter_authorized_scopes) as grant_q:
             self.assertFalse(
                 self._filter(self.alice, Group, 'change_group').exists()
             )
@@ -317,8 +317,8 @@ class FilterByUserContentPermRegistryGateTest(
             self.live.registries[CONCRETE] = TrustsRegistry()
             emptied = self.live.configured_backend()
             self.assertFalse(emptied.registry.plan_for(Category).records)
-            self.assertTrue(emptied.historical_fallback)
-            with patch('trusts.query.trust_grant_q') as grant_q:
+            self.assertFalse(emptied.historical_fallback)
+            with patch('trusts.zero.query.filter_authorized_scopes') as grant_q:
                 qs = self._filter(self.alice, Category, 'add_category')
                 grant_q.assert_not_called()
             self.assertFalse(qs.exists())
@@ -328,7 +328,7 @@ class FilterByUserContentPermRegistryGateTest(
         self.assertFalse(hasattr(Content, '_contents'))
         self.assertFalse(hasattr(Content, 'is_content_model'))
         with patch.object(registry, 'filter_authorized') as filtered:
-            with patch('trusts.query.trust_grant_q', wraps=trust_grant_q) as grant_q:
+            with patch('trusts.zero.query.filter_authorized_scopes', wraps=filter_authorized_scopes) as grant_q:
                 pks = _pks(self._filter(self.alice))
         filtered.assert_not_called()
         self.assertGreaterEqual(grant_q.call_count, 1)
@@ -375,7 +375,7 @@ class MultiPathCreateUnderTrustGateTest(
         ).save()
         self._reload()
 
-    def test_declaration_on_one_path_supports_but_grant_stays_trust_grant_q(self):
+    def test_declaration_on_one_path_supports_via_filter_authorized_scopes(self):
         handle_a = self.live.configured_backend(CONCRETE)
         self.assertTrue(handle_a.registry.plan_for(Category).records)
         self.assertTrue(any_plan_records((handle_a,), Category))
@@ -384,7 +384,7 @@ class MultiPathCreateUnderTrustGateTest(
             wraps=handle_a.compiler.complete_exists,
         ) as complete:
             with patch.object(handle_a.registry, 'filter_authorized') as filtered:
-                with patch('trusts.query.trust_grant_q', wraps=trust_grant_q) as grant_q:
+                with patch('trusts.zero.query.filter_authorized_scopes', wraps=filter_authorized_scopes) as grant_q:
                     qs = Trust.objects.filter_by_user_content_perm(
                         self.alice, Category, 'add_category',
                     )
@@ -412,7 +412,7 @@ class MultiPathCreateUnderTrustGateTest(
             )),
             {self.trust_a.pk},
         )
-        with patch('trusts.query.trust_grant_q') as grant_q:
+        with patch('trusts.zero.query.filter_authorized_scopes') as grant_q:
             self.assertFalse(
                 Trust.objects.filter_by_user_content_perm(
                     self.alice, Organization, 'add',

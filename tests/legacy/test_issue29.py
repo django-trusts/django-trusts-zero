@@ -35,11 +35,11 @@ from trusts.conditions import (
 from trusts.conditions import legacy_permission_callbacks_allowed
 from trusts.zero.models import (
     Content,
-    PermissionConditionNotQueryable,
     Trust,
     TrustUserPermission,
-    donate_content_permission_conditions,
 )
+from trusts.conditions import PermissionConditionNotQueryable
+from trusts.zero.registration import donate_content_permission_conditions
 from tests.legacy.test_issue4 import _CallLog
 from tests.legacy.helpers import (
     create_test_users,

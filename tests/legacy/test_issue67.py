@@ -37,9 +37,10 @@ from trusts.core import (
 from trusts.zero.models import (
     Content,
     Trust,
+    TrustGroupPermission,
     TrustUserPermission,
 )
-from trusts.query import trust_grant_q
+from trusts.zero.query import filter_authorized_scopes
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
@@ -186,11 +187,14 @@ class ContributorIdempotenceTest(SimpleTestCase):
         self.assertIs(contributor._trusts_tup_category_registry_id, isolated)
         self.assertIs(contributor._trusts_tup_ticket_registry_id, isolated)
         self.assertIs(contributor._trusts_tup_group_registry_id, isolated)
-        self.assertEqual(len(isolated.records), 4)
+        self.assertEqual(len(isolated.records), 10)
         roots = {record.root for record in isolated.records}
-        self.assertEqual(roots, {OtherCategoryGrant, TrustUserPermission})
+        self.assertEqual(
+            roots,
+            {OtherCategoryGrant, TrustUserPermission, TrustGroupPermission},
+        )
         plan = isolated.plan_for(Category)
-        self.assertEqual(len(plan.records), 2)
+        self.assertEqual(len(plan.records), 4)
 
     def test_conflicting_contribution_reaches_register_and_fails_closed(self):
         isolated = TrustsRegistry()
@@ -235,7 +239,7 @@ class ContributorIdempotenceTest(SimpleTestCase):
                 contributor._trusts_tup_group_registry_id,
                 new_trusts.registry,
             )
-            self.assertEqual(len(new_trusts.registry.records), 3)
+            self.assertEqual(len(new_trusts.registry.records), 9)
             terminals = {
                 record.content_model for record in new_trusts.registry.records
             }
@@ -247,8 +251,15 @@ class ContributorIdempotenceTest(SimpleTestCase):
                     Group._meta.concrete_model,
                 },
             )
-            for record in new_trusts.registry.records:
-                self.assertIs(record.root, TrustUserPermission)
+            roots = {record.root for record in new_trusts.registry.records}
+            self.assertEqual(roots, {TrustUserPermission, TrustGroupPermission})
+            self.assertEqual(
+                len([
+                    record for record in new_trusts.registry.records
+                    if record.root is TrustUserPermission
+                ]),
+                3,
+            )
         finally:
             self.live_trusts.registry = original
 
@@ -459,7 +470,7 @@ class CategoryPermittedRegistryTest(TestCase):
             self._direct_pks(conditioned, self.alice),
         )
 
-    def test_registered_terminals_skip_trust_grant_q(self):
+    def test_registered_terminals_skip_filter_authorized_scopes(self):
         registry = live_config().registry
         self.assertTrue(registry.plan_for(Category).records)
         self.assertTrue(registry.plan_for(Trust).records)
@@ -480,7 +491,7 @@ class CategoryPermittedRegistryTest(TestCase):
         ).save()
         self._reload()
 
-        with patch('trusts.query.trust_grant_q', wraps=trust_grant_q) as grant_q:
+        with patch('trusts.zero.query.filter_authorized_scopes', wraps=filter_authorized_scopes) as grant_q:
             list(Category.objects.permitted(self.change_code, self.alice))
             self.assertEqual(grant_q.call_count, 0)
             list(Trust.objects.permitted('trusts.change_trust', self.alice))

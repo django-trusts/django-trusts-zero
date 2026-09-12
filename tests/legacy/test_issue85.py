@@ -43,9 +43,10 @@ from trusts.core import (
 from trusts.zero.models import (
     Content,
     Trust,
+    TrustGroupPermission,
     TrustUserPermission,
 )
-from trusts.query import trust_grant_q
+from trusts.zero.query import filter_authorized_scopes
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
@@ -257,9 +258,12 @@ class GroupContributionIdempotenceTest(SimpleTestCase):
             contributor.ready()
         self.assertIs(contributor._trusts_tup_group_registry_id, isolated)
         roots = {record.root for record in isolated.records}
-        self.assertEqual(roots, {OtherGroupGrant, TrustUserPermission})
+        self.assertEqual(
+            roots,
+            {OtherGroupGrant, TrustUserPermission, TrustGroupPermission},
+        )
         plan = isolated.plan_for(Group)
-        self.assertEqual(len(plan.records), 2)
+        self.assertEqual(len(plan.records), 4)
         self.assertEqual(len(_group_rows(isolated)), 1)
 
     def test_conflicting_contribution_fails_closed_without_group_sentinel(self):
@@ -280,7 +284,7 @@ class GroupContributionIdempotenceTest(SimpleTestCase):
         self.assertIsNone(
             getattr(contributor, '_trusts_tup_group_registry_id', None)
         )
-        self.assertEqual(len(isolated.records), 3)
+        self.assertEqual(len(isolated.records), 7)
         self.assertEqual(len(_group_rows(isolated)), 1)
         with override_apps_ready(False):
             with self.assertRaises(TrustsConfigurationError):
@@ -288,7 +292,7 @@ class GroupContributionIdempotenceTest(SimpleTestCase):
         self.assertIsNone(
             getattr(contributor, '_trusts_tup_group_registry_id', None)
         )
-        self.assertEqual(len(isolated.records), 3)
+        self.assertEqual(len(isolated.records), 7)
 
     def test_new_appconfig_registry_receives_declaration_again(self):
         import trusts
@@ -635,7 +639,7 @@ class GroupAuthorizationRegistryTest(_UsersMixin, TestCase):
             )
 
     def test_create_under_trust_gate_opens_for_declared_group(self):
-        with patch('trusts.query.trust_grant_q', wraps=trust_grant_q) as grant_q:
+        with patch('trusts.zero.query.filter_authorized_scopes', wraps=filter_authorized_scopes) as grant_q:
             pks = _pks(Trust.objects.filter_by_user_content_perm(
                 self.alice, Group, 'change_group',
             ))

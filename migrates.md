@@ -15,9 +15,164 @@ Those surfaces are gone on the supported core library.
 | Item | Value |
 | --- | --- |
 | Authoritative Zero metadata | this repo `pyproject.toml` (`1.0.0.dev0` + `django-trusts>=1.0.0.dev3,<2`) |
-| Paired core #16 registry | [django-trusts#118](https://github.com/django-trusts/django-trusts/pull/118) merge [`948d6666342377b9472debb57d4a1e26e81402d1`](https://github.com/django-trusts/django-trusts/commit/948d6666342377b9472debb57d4a1e26e81402d1) |
-| Previous merged core floor | [django-trusts#112](https://github.com/django-trusts/django-trusts/pull/112) [`11058641b533e0f8489598e0b1f5cbe5d42a81db`](https://github.com/django-trusts/django-trusts/commit/11058641b533e0f8489598e0b1f5cbe5d42a81db) (`django-trusts==1.0.0.dev3`) |
-| Zero #16 baseline | [`f0b25c5562c4f9803d861503dd2acac21613119d`](https://github.com/django-trusts/django-trusts-zero/commit/f0b25c5562c4f9803d861503dd2acac21613119d) |
+| Paired core #18/#120 | [django-trusts#121](https://github.com/django-trusts/django-trusts/pull/121) head [`a0104be138f5fbcc7d74ce1fce8054c3e1e89634`](https://github.com/django-trusts/django-trusts/commit/a0104be138f5fbcc7d74ce1fce8054c3e1e89634) |
+| Previous merged core floor | [django-trusts#119](https://github.com/django-trusts/django-trusts/pull/119) merge [`6c705e284d37b10b7c29196a9ece88996273758e`](https://github.com/django-trusts/django-trusts/commit/6c705e284d37b10b7c29196a9ece88996273758e) |
+| Zero #18 baseline | [`73b74b4213f6040f0e71c4c46d7a509804975672`](https://github.com/django-trusts/django-trusts-zero/commit/73b74b4213f6040f0e71c4c46d7a509804975672) |
+
+# Zero #18: declarative models + receive core #120 UI
+
+This is the Zero half of
+[django-trusts-zero #18](https://github.com/django-trusts/django-trusts-zero/issues/18),
+paired with [django-trusts#120](https://github.com/django-trusts/django-trusts/issues/120)
+/ [django-trusts#121](https://github.com/django-trusts/django-trusts/pull/121).
+Package version stays **1.0.0.dev0**. No model, field, table,
+migration-loader key, content type, permission row, app label, or
+authorization-semantic change. Group ceiling / reachability / condition
+/ create-under-Trust stay the same; only the representation moves.
+
+Core #120 stays open until this pair merges.
+
+## Old → new imports
+
+```python
+# Old (trusts.zero.models / core leftovers)
+from trusts.zero.models import (
+    compile_registered_condition_q,
+    django_permission_filter,
+    donate_content_permission_conditions,
+    donate_installed_permission_conditions,
+    donate_junction_content_permission_conditions,
+    filter_scope_rows,
+    get_group_global_ceiling,
+    permission_in_global_ceiling,
+    register_zero_direct,
+    register_zero_group,
+    register_zero_relations,
+    reject_queryable_condition,
+    resolve_content_permission,
+    ContentQuerySet, ContentManager, TrustManager,
+    PermissionConditionNotQueryable,
+)
+from trusts.zero.backends import HistoricalGroupQueryCompiler
+from trusts.authorization import AuthorizationDenied, has_trust_row_perm
+from trusts.views import NewTeamView, TeamView, newteam, team
+from trusts.urls import urlpatterns
+from trusts.admin import register_auto_modeladmins
+from django.urls import include, path
+urlpatterns = [path('', include('trusts.urls'))]
+
+# New
+from trusts.zero.registration import (
+    donate_content_permission_conditions,
+    donate_installed_permission_conditions,
+    donate_junction_content_permission_conditions,
+    register_zero_content,
+    register_zero_direct,
+    register_zero_group,
+    register_zero_relations,
+)
+from trusts.zero.query import (
+    ContentQuerySet, ContentManager, TrustManager,
+    compile_registered_condition_q,
+    django_permission_filter,
+    filter_scope_rows,
+)
+from trusts.zero.policy import (
+    get_group_global_ceiling,
+    permission_in_global_ceiling,
+    reject_queryable_condition,
+    resolve_content_permission,
+)
+from trusts.conditions import PermissionConditionNotQueryable
+from trusts.core import PlanQueryCompiler
+from trusts.zero.authorization import AuthorizationDenied, has_trust_row_perm
+from trusts.zero.views import NewTeamView, TeamView, newteam, team
+from trusts.zero.admin import register_auto_modeladmins
+from django.urls import include, path
+urlpatterns = [path('', include('trusts.zero.urls'))]
+# HistoricalGroupQueryCompiler: removed; use PlanQueryCompiler
+# Template overrides: auth/group_{detail,form}.html
+#   → trusts_zero/team_{detail,form}.html
+```
+
+Supported model imports (`Trust`, `Content`, `Junction`, `Role`,
+`TrustUserPermission`, `TrustGroup`, `TrustGroupPermission`,
+`ReadonlyFieldsMixin`) stay on `trusts.zero.models`. URL namespace
+`app_name = 'trusts'` is unchanged (`trusts:team_create`,
+`trusts:team_detail`); only the include path changes.
+
+`has_trust_row_perm` now uses `Trust.objects.filter_by_user_content_perm`
+/ public core `filter_authorized_scopes`. Trust-as-content is
+self-referential; core includes proper prefixes of the terminal model
+(terminal-only same-model still `none()`). There is no Zero wrapper and
+no `trust_grant_q` fallback. Group enumeration uses core
+`PlanQueryCompiler.group_exists` on membership-hop records (no Zero
+import-time patch, no historical group SQL).
+
+Zero-only `Meta` option names (`roles`, `content_roles`,
+`content_permission_conditions`, `auto_modeladmin`) are registered when
+`trusts.zero.apps` is imported, not in `ZeroConfig.ready()` and not by
+importing `trusts.zero.models`. Generic `permission_conditions` is
+registered by core `trusts.conditions`.
+
+## Removed (no alias)
+
+| Name | Note |
+| --- | --- |
+| `_has_tgp_records` | Internal. Create-under-Trust always uses `filter_authorized_scopes`. |
+| `_content_via_trust` | Internal to `trusts.zero.registration`. |
+| `HistoricalGroupQueryCompiler` / `historical_fallback` | Deleted. Isolation is records present vs absent. |
+| `trusts.zero.models.PermissionConditionNotQueryable` | Import `trusts.conditions.PermissionConditionNotQueryable`. |
+| core `trusts.authorization` / `trusts.views` / `trusts.urls` / `trusts.admin` | Zero owns these concrete surfaces. |
+| core `trust_grant_q` / `historical_group_grant_exists` / `group_local_grant_exists` / `permission_granted_via_group_exists` | Deleted on the core half. Use registered plans + `granted` / `filter_authorized_scopes`. |
+
+## Host AppConfig note
+
+Hosts that previously donated only TUP and relied on
+`HistoricalGroupQueryCompiler` must call `register_zero_content(registry, Model)`
+(TUP + both TGP alternatives) for each terminal. `register_zero_relations`
+still donates Trust-as-content only.
+
+## Migration-bot search list
+
+```text
+from trusts.zero.models import compile_registered_condition_q
+from trusts.zero.models import django_permission_filter
+from trusts.zero.models import donate_
+from trusts.zero.models import filter_scope_rows
+from trusts.zero.models import get_group_global_ceiling
+from trusts.zero.models import permission_in_global_ceiling
+from trusts.zero.models import register_zero_
+from trusts.zero.models import reject_queryable_condition
+from trusts.zero.models import resolve_content_permission
+from trusts.zero.models import ContentQuerySet
+from trusts.zero.models import ContentManager
+from trusts.zero.models import TrustManager
+from trusts.zero.models import PermissionConditionNotQueryable
+from trusts.zero.backends import HistoricalGroupQueryCompiler
+from trusts.authorization import
+from trusts.views import
+from trusts.urls import
+from trusts.admin import
+include('trusts.urls')
+auth/group_detail.html
+auth/group_form.html
+historical_fallback
+historical_group_grant_exists
+group_local_grant_exists
+permission_granted_via_group_exists
+_record_group_grant_exists
+_trust_group_model
+trust_grant_q
+_has_tgp_records
+```
+
+Unchanged public calls: `User.has_perm`,
+`ContentQuerySet.permitted(perm, user)`,
+`Trust.objects.filter_by_user_content_perm(...)`,
+`Meta.permission_conditions` / `content_permission_conditions` /
+`Trust:own`, `TrustGroupPermission.clean` fail-closed, create-under-Trust
+resolving the **content** permission (`add_category`, not `add_trust`).
 
 Earlier unpublished Zero snapshots used `2.0.0.dev0` / `dev1` / `dev2`.
 They are not a public compatibility line and are not a downgrade path.
@@ -285,9 +440,8 @@ forwarding on `Content` or `Junction`.
 | `ContentConditionLookup` | `trusts.conditions.RegistryConditionLookup` |
 | Zero `legacy_permission_callbacks_allowed` | `trusts.conditions.legacy_permission_callbacks_allowed` |
 
-`PermissionConditionNotQueryable` remains importable from
-`trusts.zero.models` as the core class (same object as
-`trusts.conditions.PermissionConditionNotQueryable`).
+`PermissionConditionNotQueryable` is imported from
+`trusts.conditions` only. There is no `trusts.zero.models` alias.
 
 ## Old vs new behavior
 

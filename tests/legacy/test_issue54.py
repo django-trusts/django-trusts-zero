@@ -31,7 +31,7 @@ from django.test.utils import isolate_apps
 from tests.apps import live_config, live_registry
 from tests.models import Category, Organization, Ticket
 from trusts.apps import TrustsImplementationConfig
-from trusts.zero.backends import HistoricalGroupQueryCompiler
+from trusts.core import PlanQueryCompiler
 from trusts.core import (
     ConditionLookup,
     PlanQueryCompiler,
@@ -41,16 +41,15 @@ from trusts.core import (
     filter_authorized_scopes,
 )
 from trusts.zero.models import (
-    ContentQuerySet,
-    PermissionConditionNotQueryable,
     Trust,
     TrustUserPermission,
 )
+from trusts.zero.query import ContentQuerySet
+from trusts.conditions import PermissionConditionNotQueryable
 from trusts.query import (
     AuthorizedManager,
     AuthorizedQuerySet,
     is_active_principal,
-    trust_grant_q,
 )
 from tests.legacy.helpers import (
     enable_local_group_grant,
@@ -191,16 +190,22 @@ class KernelConfigTest(TestCase):
         self.assertFalse(hasattr(apps_mod, 'kernel_config'))
         self.assertFalse(hasattr(apps_mod, 'AppConfig'))
 
-    def test_legacy_helpers_and_compiler_remain_importable(self):
-        from trusts.query import (
-            group_local_grant_exists,
-            historical_group_grant_exists,
-            trust_grant_q,
+    def test_historical_compiler_and_grant_q_are_gone_from_zero(self):
+        import trusts.zero.backends as zero_backends
+        import trusts.zero.models as zero_models
+        import trusts.zero.query as zero_query
+
+        self.assertFalse(hasattr(zero_backends, 'HistoricalGroupQueryCompiler'))
+        self.assertFalse(hasattr(zero_models, 'trust_grant_q'))
+        self.assertFalse(hasattr(zero_query, 'trust_grant_q'))
+        self.assertIsInstance(
+            zero_backends.TrustModelBackend.query_compiler, PlanQueryCompiler,
         )
-        self.assertTrue(callable(trust_grant_q))
-        self.assertTrue(callable(group_local_grant_exists))
-        self.assertTrue(callable(historical_group_grant_exists))
-        self.assertTrue(getattr(HistoricalGroupQueryCompiler(), 'historical_fallback', False))
+        self.assertFalse(getattr(
+            zero_backends.TrustModelBackend.query_compiler,
+            'historical_fallback',
+            False,
+        ))
 
 
 class LegacyMatrixBPairTest(TestCase):
@@ -684,7 +689,7 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
         self._reload()
         self.handles = live_config().configured_handles()
 
-    def test_trust_is_prefix_of_category_for_trustee_not_historical_group(self):
+    def test_trust_is_prefix_of_category_for_trustee_and_registered_group(self):
         qs = filter_authorized_scopes(
             Trust.objects.all(), self.alice, self.add,
             content=Category, handles=self.handles,
@@ -695,7 +700,7 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
             pks = _pks(qs)
         self.assertEqual(pks, {self.trust_a.pk})
         self.assertNotIn(self.trust_b.pk, pks)
-        self.assertFalse(
+        self.assertTrue(
             filter_authorized_scopes(
                 Trust.objects.all(), self.carol, self.add,
                 content=Category, handles=self.handles,

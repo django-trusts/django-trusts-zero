@@ -38,7 +38,8 @@ from tests.backends import (
 import tests as tests_module
 from tests.models import Category, Organization, Ticket
 from trusts.backends import TrustModelBackendMixin
-from trusts.zero.backends import HistoricalGroupQueryCompiler, TrustModelBackend
+from trusts.core import PlanQueryCompiler
+from trusts.zero.backends import TrustModelBackend
 from trusts.checks import CHECK_ID_MISSING_COMPILER, check_query_compilers
 from trusts.core import (
     BackendHandle,
@@ -51,7 +52,6 @@ from trusts.core import (
     granted,
 )
 from trusts.zero.models import Content, Trust, TrustUserPermission
-from trusts.query import trust_grant_q
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
@@ -178,7 +178,7 @@ class PathScopedRegistryStoreTest(_RegistryRestoreMixin, SimpleTestCase):
         self.assertIs(self.live.registry, self.live.registries[CONCRETE])
         self.assertIsInstance(handle, BackendHandle)
         self.assertIs(handle.compiler, TrustModelBackend.query_compiler)
-        self.assertIsInstance(handle.compiler, HistoricalGroupQueryCompiler)
+        self.assertIsInstance(handle.compiler, PlanQueryCompiler)
 
     def test_duplicate_identical_paths_dedupe(self):
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, CONCRETE)):
