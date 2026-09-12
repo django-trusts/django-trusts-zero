@@ -103,8 +103,10 @@ class ZeroConfig(_ZeroBase):
         """Register TUP/TGP, donate Meta conditions, bind generic lookup.
 
         Uses the public owner/resolver API. Never calls
-        ``kernel_config()``. Conditions go onto this handle's core
-        registry; there is no Zero-owned ``Content._conditions`` store.
+        ``kernel_config()``. Named conditions are donated through
+        ``handle.register_permission_condition`` while ``apps.ready``
+        is still false. There is no Zero-owned ``Content._conditions``
+        store.
         """
         from trusts.apps import implementation_for_path
         from trusts.conditions import RegistryConditionLookup
@@ -119,7 +121,7 @@ class ZeroConfig(_ZeroBase):
         handle = owner.configured_backend(CANONICAL_BACKEND_PATH)
         register_zero_relations(handle.registry)
         donate_installed_permission_conditions(
-            handle.registry, apps_registry=self.apps,
+            handle, apps_registry=self.apps,
         )
         handle.registry.set_condition_lookup(
             RegistryConditionLookup(handle.registry),

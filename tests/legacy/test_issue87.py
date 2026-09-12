@@ -23,14 +23,14 @@ from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_
 from django.test.utils import isolate_apps
 
 import tests as tests_module
-from tests.apps import live_registry, clone_writable_registry, forget_models, override_apps_ready, live_config
+from tests.apps import live_registry, clone_writable_registry, forget_models, override_apps_ready, live_config, publish_donated_conditions, publish_permission_condition
 from tests.backends import MixinOnlyBackend
 from tests.models import Category, TestGroupJunction, Ticket
 from trusts.backends import TrustModelBackendMixin
 from trusts.core import PlanQueryCompiler
 from trusts.zero.backends import TrustModelBackend
 from trusts.checks import check_permission_conditions
-from trusts.conditions import condition_refs, validate_expression
+from trusts.conditions import validate_expression
 from trusts.core import (
     PlanQueryCompiler,
     Ref,
@@ -59,7 +59,14 @@ from tests.legacy.helpers import (
 
 CONCRETE = 'trusts.zero.backends.TrustModelBackend'
 MIXIN = 'tests.backends.MixinOnlyBackend'
-_u, _p, _o = condition_refs()
+def _sheet_own(u, p, o):
+    return o.trust != None
+
+
+def _junc_own(u, p, o):
+    return o.trust != None
+
+
 _IMPORT_CONDITIONS = dict(live_registry().conditions._records)
 
 
@@ -319,7 +326,7 @@ class LegacyContentRegistryDeletedTest(SimpleTestCase):
                     app_label = 'trusts_zero_tests'
                     managed = False
 
-            donate_content_permission_conditions(live_registry(), BareNote)
+            donate_content_permission_conditions(TrustsRegistry(), BareNote)
             self.assertFalse(hasattr(Content, '_contents'))
             self.assertFalse(
                 live_config().registry.plan_for(BareNote).records
@@ -338,10 +345,12 @@ class LegacyContentRegistryDeletedTest(SimpleTestCase):
                     app_label = 'trusts_zero_tests'
                     managed = False
                     permission_conditions = (
-                        ('sheet_own', _o.trust != None),
+                        ('sheet_own', _sheet_own),
                     )
 
-            donate_content_permission_conditions(live_registry(), IsolatedSheet)
+            isolated = TrustsRegistry()
+            donate_content_permission_conditions(isolated, IsolatedSheet)
+            publish_donated_conditions(isolated)
             self.assertFalse(hasattr(Content, '_contents'))
             self.assertFalse(live.plan_for(IsolatedSheet).records)
             record = live_registry().get_permission_condition_record(
@@ -350,7 +359,7 @@ class LegacyContentRegistryDeletedTest(SimpleTestCase):
             self.assertIsNotNone(record)
             self.assertIs(record.model, IsolatedSheet)
             validate_expression(record.expr, IsolatedSheet)
-            donate_content_permission_conditions(live_registry(), IsolatedSheet)
+            donate_content_permission_conditions(isolated, IsolatedSheet)
             self.assertFalse(hasattr(Content, '_contents'))
             self.assertFalse(live.plan_for(IsolatedSheet).records)
         finally:
@@ -372,10 +381,12 @@ class LegacyContentRegistryDeletedTest(SimpleTestCase):
                     app_label = 'trusts_zero_tests'
                     managed = False
                     content_permission_conditions = (
-                        ('junc_own', _o.trust != None),
+                        ('junc_own', _junc_own),
                     )
 
-            donate_junction_content_permission_conditions(live_registry(), IsolatedJunction)
+            isolated = TrustsRegistry()
+            donate_junction_content_permission_conditions(isolated, IsolatedJunction)
+            publish_donated_conditions(isolated)
             self.assertFalse(hasattr(Content, '_contents'))
             self.assertEqual(live.plan_for(Group).records, group_before)
             record = live_registry().get_permission_condition_record(
@@ -405,7 +416,9 @@ class ConditionRegistryPreservedTest(_ConditionIsolationMixin, TestCase):
     def test_duplicate_condition_overwrites_same_identity(self):
         before = dict(live_registry().conditions._records)
         try:
-            live_registry().register_permission_condition(Ticket, 'meta_own', _u == _o.owner)
+            publish_permission_condition(
+                Ticket, 'meta_own', lambda u, p, o: u == o.owner,
+            )
             record = live_registry().get_permission_condition_record(Ticket, 'meta_own')
             self.assertIsNotNone(record)
             self.assertIs(record.model, Ticket)

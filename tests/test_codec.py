@@ -7,7 +7,7 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from trusts.conditions import RegistryConditionLookup
-from trusts.core import TrustsRegistry
+from trusts.core import TrustsConfigurationError, TrustsRegistry
 from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
 from trusts.query import AuthorizedQuerySet
 from trusts.zero.models import (
@@ -26,6 +26,7 @@ from trusts.zero.registration import (
     register_zero_direct,
     register_zero_group,
 )
+from tests.apps import publish_permission_condition
 from tests.models import Category, Ticket
 
 
@@ -176,18 +177,45 @@ class RegistrationAndCodecTests(TestCase):
         with self.assertRaises(AttributeError):
             list(Ticket.objects.permitted('read:nope', self.user))
 
-    def test_callable_condition_raises_before_sql(self):
-        def never_called(user, perm, obj):
-            raise AssertionError('callable must not run')
+    def test_frozen_live_register_does_not_invoke_builder(self):
+        calls = []
+
+        def boom(u, p, o):
+            calls.append((u, p, o))
+            return o.name == 'n'
+
         handle = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
-        handle.registry.register_permission_condition(Category, 'cb', never_called)
+        with self.assertRaises(TrustsConfigurationError) as ctx:
+            handle.register_permission_condition(Category, 'cb', boom)
+        self.assertIn('frozen', str(ctx.exception).lower())
+        self.assertEqual(calls, [])
+
+    def test_builder_condition_is_queryable_without_reinvoke(self):
+        calls = []
+
+        def named_keep(u, p, o):
+            calls.append((u, p, o))
+            return o.name == 'n'
+
+        publish_permission_condition(Category, 'cb', named_keep)
         try:
             cat = Category(name='n', trust=self.org)
             cat.save()
-            with self.assertRaises(PermissionConditionNotQueryable):
-                list(Category.objects.permitted('read:cb', self.user))
+            other = Category(name='other', trust=self.org)
+            other.save()
+            read = Category.objects.get_permission('read')
+            TrustUserPermission(
+                trust=self.org, entity=self.user, permission=read,
+            ).save()
+            self.assertEqual(len(calls), 1)
+            permitted = list(Category.objects.permitted('read:cb', self.user))
+            self.assertIn(cat, permitted)
+            self.assertNotIn(other, permitted)
+            self.assertEqual(len(calls), 1)
         finally:
-            handle.registry.conditions._records.pop(
+            zero_config().configured_backend(
+                CANONICAL_BACKEND_PATH,
+            ).registry.conditions._records.pop(
                 (Category._meta.label, 'cb'), None,
             )
 

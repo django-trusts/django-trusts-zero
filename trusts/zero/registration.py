@@ -109,45 +109,57 @@ def register_zero_relations(registry):
     registry._zero_z1_relation_ids = registry
 
 
-def donate_content_permission_conditions(registry, model):
-    """Walk ``Meta.permission_conditions`` onto a core handle registry.
+def donate_content_permission_conditions(handle_or_registry, model):
+    """Walk ``Meta.permission_conditions`` onto a handle or registry.
 
-    Model-specific collection only. Does not keep a Zero-owned store.
-    Abstract and proxy models are skipped.
+    Application donation uses ``BackendHandle.register_permission_condition``
+    in the pre-finalization ``ready()`` window. Isolated tests may pass
+    an unfrozen ``TrustsRegistry()``. Abstract and proxy models are skipped.
     """
     if model._meta.proxy or model._meta.abstract:
         return
     conditions = getattr(model._meta, 'permission_conditions', ()) or ()
     for cond_code, condition in conditions:
-        registry.register_permission_condition(model, cond_code, condition)
+        handle_or_registry.register_permission_condition(
+            model, cond_code, condition,
+        )
 
 
-def donate_junction_content_permission_conditions(registry, model):
-    """Walk Junction ``Meta.content_permission_conditions`` onto ``registry``."""
+def donate_junction_content_permission_conditions(handle_or_registry, model):
+    """Walk Junction ``Meta.content_permission_conditions`` onto a handle."""
     if model._meta.proxy or model._meta.abstract:
         return
     conditions = getattr(model._meta, 'content_permission_conditions', ()) or ()
     for cond_code, condition in conditions:
-        registry.register_permission_condition(model, cond_code, condition)
+        handle_or_registry.register_permission_condition(
+            model, cond_code, condition,
+        )
 
 
-def donate_installed_permission_conditions(registry, apps_registry=None):
+def _condition_store(handle_or_registry):
+    return getattr(handle_or_registry, 'registry', handle_or_registry)
+
+
+def donate_installed_permission_conditions(handle_or_registry, apps_registry=None):
     """Donate every installed Content/Junction Meta declaration.
 
-    Idempotent per registry instance so repeated ``ZeroConfig.ready()``
-    does not create a second source of truth. ``Trust:own``, Content
-    Meta, and Junction Meta each become one record on this handle.
+    Idempotent per underlying registry so repeated ``ZeroConfig.ready()``
+    does not invoke builders again. ``Trust:own``, Content Meta, and
+    Junction Meta each become one IR record on this handle.
     """
     from django.apps import apps as django_apps
     from trusts.zero.models import Content, Junction
 
-    donated = getattr(registry, '_zero_condition_donation_id', None)
-    if donated is registry:
+    store = _condition_store(handle_or_registry)
+    donated = getattr(store, '_zero_condition_donation_id', None)
+    if donated is store:
         return
     apps = django_apps if apps_registry is None else apps_registry
     for model in apps.get_models():
         if issubclass(model, Junction):
-            donate_junction_content_permission_conditions(registry, model)
+            donate_junction_content_permission_conditions(
+                handle_or_registry, model,
+            )
         elif issubclass(model, Content):
-            donate_content_permission_conditions(registry, model)
-    registry._zero_condition_donation_id = registry
+            donate_content_permission_conditions(handle_or_registry, model)
+    store._zero_condition_donation_id = store

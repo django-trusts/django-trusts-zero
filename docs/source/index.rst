@@ -119,9 +119,15 @@ paths combine by OR. ``register_zero_relations`` performs only Zero's
 Trust-as-content donation; host applications remain responsible for donating
 their own content models.
 
-Registered ``Meta.permission_conditions`` are bound through
-``RegistryConditionLookup``. Explicit condition registration uses the
-configured registry's ``register_permission_condition`` method.
+Registered ``Meta.permission_conditions`` (including built-in
+``Trust:own``) are builder callables donated through
+``handle.register_permission_condition`` in ``ZeroConfig.ready()`` while
+``apps.ready`` is still false, then bound through
+``RegistryConditionLookup``. Explicit named-condition registration uses
+the same handle method in that pre-finalization window. After ready, the
+live handle is frozen; further condition writes raise
+``TrustsConfigurationError`` before a builder runs. Isolated tests use
+an unfrozen ``TrustsRegistry()``.
 
 Edit grants
 -----------
@@ -172,7 +178,9 @@ Supported versions and limits
 * Python 3.12, 3.13, and 3.14
 * Django 6.1
 * ``django-trusts>=1.0.0.dev3,<2``
-* Callable conditions remain object-only; queryset APIs reject them.
+* Named permission conditions are registration-time builders. Core
+  invokes the callable once with symbolic ``(u, p, o)``, stores IR only,
+  and never runs it during ``has_perm`` or ``.permitted()``.
 * Configured group and permission model substitutions are not supported.
 * This development release preserves the 0.x persisted identity, but not
   every historical convenience method or import path.

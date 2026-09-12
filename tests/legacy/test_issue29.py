@@ -6,8 +6,8 @@ Final-state adaptations: Zero test app label, core registry APIs, no Content._co
 """Early validation of permission conditions via Django system checks (#29).
 
 Follow-up to #28. Does not close #4. Construction-time operator errors stay
-exceptions; model-aware semantic failures and the legacy-callback policy
-are ``CheckMessage``s with stable IDs.
+exceptions; model-aware semantic failures are ``CheckMessage``s with
+stable IDs. Callables are registration-time builders.
 """
 
 from io import StringIO
@@ -16,15 +16,15 @@ from unittest.mock import patch
 from django.apps import apps
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
-from django.core.checks import Error, Warning as CheckWarning, run_checks
+from django.core.checks import Error, run_checks
 from django.core.management import call_command
 from django.core.management.base import SystemCheckError
 from django.test import TestCase, override_settings
 
 from trusts.checks import (
     CHECK_ID_INVALID_EXPR,
-    CHECK_ID_LEGACY_CALLBACK,
-    CHECK_ID_LEGACY_CALLBACK_WARNING,
+    CHECK_ID_OBSOLETE_CALLBACK_SETTING,
+    check_obsolete_legacy_callback_setting,
     check_permission_conditions,
 )
 from trusts.conditions import (
@@ -32,21 +32,26 @@ from trusts.conditions import (
     condition_refs,
     validate_expression,
 )
-from trusts.conditions import legacy_permission_callbacks_allowed
+from trusts.core import TrustsRegistry
 from trusts.zero.models import (
     Content,
     Trust,
     TrustUserPermission,
 )
-from trusts.conditions import PermissionConditionNotQueryable
 from trusts.zero.registration import donate_content_permission_conditions
-from tests.legacy.test_issue4 import _CallLog
+from tests.legacy.test_issue4 import _BuilderLog
 from tests.legacy.helpers import (
     create_test_users,
     get_or_create_root_user,
     reload_test_users,
 )
-from tests.apps import live_registry, forget_models, live_config
+from tests.apps import (
+    live_registry,
+    forget_models,
+    live_config,
+    publish_donated_conditions,
+    publish_permission_condition,
+)
 from tests.models import AutoAdminCategory, Ticket
 
 
@@ -124,7 +129,7 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
 
         messages = check_permission_conditions(None)
         self.assertEqual(_messages_with_id(messages, CHECK_ID_INVALID_EXPR), [])
-        self.assertEqual(_messages_with_id(messages, CHECK_ID_LEGACY_CALLBACK), [])
+        self.assertEqual(_messages_with_id(messages, CHECK_ID_OBSOLETE_CALLBACK_SETTING), [])
         self.assertTrue(self.user.has_perm('%s:meta_own' % self.change, self.ticket))
         self.assertIn(
             self.ticket.pk,
@@ -133,11 +138,10 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
             ),
         )
 
-    def test_valid_custom_expr_proxy_and_cross_app_fk_pass_check(self):
-        u, p, o = condition_refs()
-        live_registry().register_permission_condition(Ticket, 'owned', u == o.owner)
-        live_registry().register_permission_condition(
-            AutoAdminCategory, 'named', o.name == 'ok'
+    def test_valid_custom_builder_proxy_and_cross_app_fk_pass_check(self):
+        publish_permission_condition(Ticket, 'owned', lambda u, p, o: u == o.owner)
+        publish_permission_condition(
+            AutoAdminCategory, 'named', lambda u, p, o: o.name == 'ok',
         )
         with self.assertNumQueries(0):
             messages = check_permission_conditions(None)
@@ -147,20 +151,31 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
         named = live_registry().get_permission_condition_record(AutoAdminCategory, 'named')
         self.assertIs(named.model, AutoAdminCategory)
 
-    def test_semantic_invalid_expr_does_not_raise_at_registration(self):
+    def test_builder_unresolved_field_fails_at_register(self):
+        isolated = TrustsRegistry()
+        with self.assertRaises(PermissionConditionError) as ctx:
+            isolated.register_permission_condition(
+                Ticket, 'missing', lambda u, p, o: u == o.not_a_field,
+            )
+        self.assertIn('not_a_field', str(ctx.exception))
+        self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'missing'))
+
+    def test_transitional_expr_invalid_is_check_error(self):
         u, p, o = condition_refs()
         expr = u == o.not_a_field
-        live_registry().register_permission_condition(Ticket, 'missing', expr)
-        record = live_registry().get_permission_condition_record(Ticket, 'missing')
+        record = publish_permission_condition(Ticket, 'missing', expr)
         self.assertIs(record.expr, expr)
         self.assertIs(record.model, Ticket)
+        errors = _messages_with_id(
+            check_permission_conditions(None), CHECK_ID_INVALID_EXPR
+        )
+        self.assertTrue(any('not_a_field' in m.msg for m in errors))
 
     def test_registration_before_models_ready_retains_identity(self):
         u, p, o = condition_refs()
         expr = u == o.owner
         with patch.object(apps, 'models_ready', False):
-            live_registry().register_permission_condition(Ticket, 'deferred_own', expr)
-        record = live_registry().get_permission_condition_record(Ticket, 'deferred_own')
+            record = publish_permission_condition(Ticket, 'deferred_own', expr)
         self.assertIs(record.expr, expr)
         self.assertIs(record.model, Ticket)
         messages = check_permission_conditions(None)
@@ -168,7 +183,7 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
 
         bad = u == o.deferred_missing
         with patch.object(apps, 'models_ready', False):
-            live_registry().register_permission_condition(Ticket, 'deferred_bad', bad)
+            publish_permission_condition(Ticket, 'deferred_bad', bad)
         errors = _messages_with_id(
             check_permission_conditions(None), CHECK_ID_INVALID_EXPR
         )
@@ -187,7 +202,9 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
                     ('bad_b', o.trust == 1),
                 )
 
-        donate_content_permission_conditions(live_registry(), ImportTimeBadTicket)
+        isolated = TrustsRegistry()
+        donate_content_permission_conditions(isolated, ImportTimeBadTicket)
+        publish_donated_conditions(isolated)
         self.assertIsNotNone(
             live_registry().get_permission_condition_record(ImportTimeBadTicket, 'bad_a')
         )
@@ -207,8 +224,8 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
 
     def test_multiple_dynamic_errors_are_aggregated(self):
         u, p, o = condition_refs()
-        live_registry().register_permission_condition(Ticket, 'typo', u == o.nope)
-        live_registry().register_permission_condition(Ticket, 'types', o.status == 1)
+        publish_permission_condition(Ticket, 'typo', u == o.nope)
+        publish_permission_condition(Ticket, 'types', o.status == 1)
         errors = _messages_with_id(
             check_permission_conditions(None), CHECK_ID_INVALID_EXPR
         )
@@ -219,7 +236,7 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
 
     def test_app_configs_subset_still_reports_other_apps(self):
         u, p, o = condition_refs()
-        live_registry().register_permission_condition(Ticket, 'typo', u == o.nope)
+        publish_permission_condition(Ticket, 'typo', u == o.nope)
         trusts_only = [live_config()]
         errors = _messages_with_id(
             check_permission_conditions(app_configs=trusts_only),
@@ -229,7 +246,7 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
 
     def test_manage_py_check_reports_invalid_meta_condition(self):
         u, p, o = condition_refs()
-        live_registry().register_permission_condition(Ticket, 'typo', u == o.nope)
+        publish_permission_condition(Ticket, 'typo', u == o.nope)
         with self.assertRaises(SystemCheckError) as ctx:
             _run_manage_py_check()
         self.assertIn(CHECK_ID_INVALID_EXPR, str(ctx.exception))
@@ -238,12 +255,12 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
     def test_manage_py_check_passes_for_valid_registrations(self):
         output = _run_manage_py_check()
         self.assertNotIn(CHECK_ID_INVALID_EXPR, output)
-        self.assertNotIn(CHECK_ID_LEGACY_CALLBACK, output)
+        self.assertNotIn(CHECK_ID_OBSOLETE_CALLBACK_SETTING, output)
 
     @override_settings(SILENCED_SYSTEM_CHECKS=['trusts.E001', 'trusts.E003', 'fields.W342'])
     def test_silenced_expr_check_still_fails_closed_at_runtime(self):
         u, p, o = condition_refs()
-        live_registry().register_permission_condition(Ticket, 'missing', u == o.not_a_field)
+        publish_permission_condition(Ticket, 'missing', u == o.not_a_field)
         _run_manage_py_check()
         missing = '%s:missing' % self.change
         with self.assertRaises(PermissionConditionError) as direct:
@@ -253,81 +270,51 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
             Ticket.objects.permitted(missing, self.user)
         self.assertTrue(self.user.has_perm(self.change, self.ticket))
 
-    def test_default_legacy_callback_is_check_error_and_runtime_fail_closed(self):
-        self.assertFalse(legacy_permission_callbacks_allowed())
-        log = _CallLog(lambda user, perm, obj: True)
-        live_registry().register_permission_condition(Ticket, 'spy', log)
-        errors = _messages_with_id(
-            check_permission_conditions(None), CHECK_ID_LEGACY_CALLBACK
-        )
-        self.assertEqual(len(errors), 1)
-        self.assertIsInstance(errors[0], Error)
-        self.assertIn('spy', errors[0].msg)
-        self.assertEqual(log.calls, [])
-
-        spy = '%s:spy' % self.change
-        with self.assertRaises(PermissionConditionError) as ctx:
-            self.user.has_perm(spy, self.ticket)
-        self.assertIn('TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS', str(ctx.exception))
-        self.assertEqual(log.calls, [])
-        with self.assertRaises(PermissionConditionNotQueryable):
-            Ticket.objects.permitted(spy, self.user)
-        self.assertEqual(log.calls, [])
-        self.assertTrue(self.user.has_perm(self.change, self.ticket))
-
-    @override_settings(SILENCED_SYSTEM_CHECKS=['trusts.E002', 'trusts.E003', 'fields.W342'])
-    def test_silenced_legacy_check_still_does_not_invoke_callback(self):
-        log = _CallLog(lambda user, perm, obj: True)
-        live_registry().register_permission_condition(Ticket, 'spy', log)
-        _run_manage_py_check()
-        self.assertEqual(log.calls, [])
-        with self.assertRaises(PermissionConditionError):
-            self.user.has_perm('%s:spy' % self.change, self.ticket)
-        self.assertEqual(log.calls, [])
-
-    @override_settings(TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS=True)
-    def test_legacy_opt_in_emits_warning_and_keeps_object_only_behavior(self):
-        self.assertTrue(legacy_permission_callbacks_allowed())
-        log = _CallLog(lambda user, perm, obj: user == obj.owner)
-        live_registry().register_permission_condition(Ticket, 'spy', log)
-        warnings = _messages_with_id(
-            check_permission_conditions(None), CHECK_ID_LEGACY_CALLBACK_WARNING
-        )
-        self.assertEqual(len(warnings), 1)
-        self.assertIsInstance(warnings[0], CheckWarning)
-        self.assertEqual(
-            _messages_with_id(check_permission_conditions(None), CHECK_ID_LEGACY_CALLBACK),
-            [],
-        )
-        self.assertEqual(log.calls, [])
-
-        spy = '%s:spy' % self.change
-        with self.assertRaises(PermissionConditionNotQueryable):
-            Ticket.objects.permitted(spy, self.user)
-        self.assertEqual(log.calls, [])
-        self.assertTrue(self.user.has_perm(spy, self.ticket))
+    def test_builder_once_and_checks_do_not_reinvoke(self):
+        log = _BuilderLog(lambda u, p, o: u == o.owner)
+        publish_permission_condition(Ticket, 'spy', log)
         self.assertEqual(len(log.calls), 1)
-        self.assertFalse(log.saw_ref())
-
-        output = _run_manage_py_check()
-        self.assertIn(CHECK_ID_LEGACY_CALLBACK_WARNING, output)
-        self.assertEqual(log.calls, [log.calls[0]])
-
-    def test_checks_never_invoke_callables(self):
-        exploding = _CallLog(lambda user, perm, obj: (_ for _ in ()).throw(
-            AssertionError('callable must not run during checks')
-        ))
-        live_registry().register_permission_condition(Ticket, 'boom', exploding)
+        self.assertTrue(log.saw_only_refs())
         with self.assertNumQueries(0):
             messages = check_permission_conditions(None)
-        self.assertEqual(exploding.calls, [])
-        self.assertEqual(len(_messages_with_id(messages, CHECK_ID_LEGACY_CALLBACK)), 1)
+        self.assertEqual(len(log.calls), 1)
+        self.assertEqual(
+            _messages_with_id(messages, CHECK_ID_OBSOLETE_CALLBACK_SETTING),
+            [],
+        )
+        spy = '%s:spy' % self.change
+        self.assertTrue(self.user.has_perm(spy, self.ticket))
+        self.assertIn(
+            self.ticket.pk,
+            Ticket.objects.permitted(spy, self.user).values_list('pk', flat=True),
+        )
+        self.assertEqual(len(log.calls), 1)
         run_checks()
-        self.assertEqual(exploding.calls, [])
+        self.assertEqual(len(log.calls), 1)
+
+    @override_settings(TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS=True)
+    def test_leftover_setting_is_error_and_does_not_reinvoke_builder(self):
+        log = _BuilderLog(lambda u, p, o: u == o.owner)
+        publish_permission_condition(Ticket, 'spy', log)
+        leftover = check_obsolete_legacy_callback_setting(None)
+        self.assertEqual(len(leftover), 1)
+        self.assertEqual(leftover[0].id, CHECK_ID_OBSOLETE_CALLBACK_SETTING)
+        self.assertTrue(self.user.has_perm('%s:spy' % self.change, self.ticket))
+        self.assertEqual(len(log.calls), 1)
+
+    def test_boolean_builder_fails_at_register(self):
+        isolated = TrustsRegistry()
+        exploding = _BuilderLog(lambda u, p, o: (_ for _ in ()).throw(
+            AssertionError('callable must not run during checks')
+        ))
+        with self.assertRaises(AssertionError):
+            isolated.register_permission_condition(Ticket, 'boom', exploding)
+        self.assertEqual(len(exploding.calls), 1)
+        self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'boom'))
 
     def test_ready_does_not_raise_when_invalid_conditions_are_registered(self):
         u, p, o = condition_refs()
-        live_registry().register_permission_condition(Ticket, 'typo', u == o.nope)
+        publish_permission_condition(Ticket, 'typo', u == o.nope)
         live_config().ready()
         errors = _messages_with_id(
             check_permission_conditions(None), CHECK_ID_INVALID_EXPR

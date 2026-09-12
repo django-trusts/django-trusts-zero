@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 from django.apps import apps
-from tests.apps import install_writable_registry, live_config, live_registry
+from tests.apps import install_writable_registry, live_config, live_registry, publish_permission_condition, publish_permission_condition
 from django.contrib.auth.models import AnonymousUser, Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
@@ -22,7 +22,7 @@ from tests.backends import GroupOnlyBackend, MixinOnlyBackend
 from tests.models import Category, Organization, Ticket, TestGroupJunction
 from trusts.core import PlanQueryCompiler
 from trusts.zero.backends import TrustModelBackend
-from trusts.conditions import condition_refs
+from trusts.conditions import Ref
 from trusts.core import (
     PlanQueryCompiler,
     Ref,
@@ -37,7 +37,6 @@ from trusts.zero.models import (
     TrustUserPermission,
 )
 from trusts.zero.query import ContentManager
-from trusts.conditions import PermissionConditionNotQueryable
 from trusts.query import is_active_principal
 from tests.legacy.helpers import (
     enable_local_group_grant,
@@ -169,8 +168,9 @@ class OnePathAuthorizationTest(_UsersMixin, TestCase):
         self.change.group_set.add(self.carol_group)
         enable_local_group_grant(self.trust_a, self.carol_group, self.change)
         self._reload()
-        u, p, o = condition_refs()
-        live_registry().register_permission_condition(Category, 'named', o.name == 'keep')
+        publish_permission_condition(
+            Category, 'named', lambda u, p, o: o.name == 'keep',
+        )
 
     def test_category_trustee_and_group_object_and_queryset(self):
         qs = Category.objects.filter(pk__in=[self.cat_a1.pk, self.cat_a2.pk])
@@ -615,14 +615,19 @@ class CoreCommonPermissionsProjectionTest(_UsersMixin, TestCase):
             self.assertFalse(list(common_permissions((handle,), empty, self.alice)))
 
 
-class _CallLog(object):
+class _BuilderLog(object):
     def __init__(self, impl):
         self.impl = impl
         self.calls = []
 
-    def __call__(self, user, perm, obj):
-        self.calls.append((user, perm, obj))
-        return self.impl(user, perm, obj)
+    def __call__(self, u, p, o):
+        self.calls.append((u, p, o))
+        return self.impl(u, p, o)
+
+    def saw_only_refs(self):
+        return all(
+            isinstance(arg, Ref) for call in self.calls for arg in call
+        )
 
 
 @contextmanager
@@ -855,37 +860,23 @@ class QuerySetCallableConditionTest(_UsersMixin, TestCase):
             trust=self.trust_a, entity=self.alice, permission=self.change,
         ).save()
         self._reload()
-        self.log = _CallLog(lambda user, perm, obj: obj.name == 'keep')
-        live_registry().register_permission_condition(Category, 'spy', self.log)
+        self.log = _BuilderLog(lambda u, p, o: o.name == 'keep')
+        publish_permission_condition(Category, 'spy', self.log)
         self.conditioned = '%s:spy' % self.change_code
 
     def tearDown(self):
         forget_condition(Category, 'spy')
         super().tearDown()
 
-    def _assert_zero_queryset_callbacks(self):
-        qs = Category.objects.filter(pk__in=[self.cat_a.pk, self.cat_b.pk])
-        backend = TrustModelBackend()
-        with self.assertNumQueries(0):
-            with self.assertRaises(PermissionConditionNotQueryable):
-                backend.has_perm(self.alice, self.conditioned, qs)
-        self.assertEqual(self.log.calls, [])
-        with self.assertRaises(PermissionConditionNotQueryable):
-            self.alice.has_perm(self.conditioned, qs)
-        self.assertEqual(self.log.calls, [])
-        with self.assertNumQueries(0):
-            with self.assertRaises(PermissionConditionNotQueryable):
-                self.alice.has_perms((self.conditioned,), qs)
-        self.assertEqual(self.log.calls, [])
-
-    @override_settings(TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS=True)
-    def test_queryset_callable_raises_before_sql_or_callback(self):
-        self._assert_zero_queryset_callbacks()
-        self.assertTrue(self.alice.has_perm(self.conditioned, self.cat_a))
+    def test_builder_once_object_and_queryset_parity(self):
         self.assertEqual(len(self.log.calls), 1)
+        self.assertTrue(self.log.saw_only_refs())
+        self.assertTrue(self.alice.has_perm(self.conditioned, self.cat_a))
         self.assertFalse(self.alice.has_perm(self.conditioned, self.cat_b))
-        self.assertEqual(len(self.log.calls), 2)
-
-    def test_queryset_callable_raises_when_callbacks_disabled(self):
-        self._assert_zero_queryset_callbacks()
-        self.assertEqual(self.log.calls, [])
+        permitted = set(
+            Category.objects.permitted(self.conditioned, self.alice).values_list(
+                'pk', flat=True,
+            )
+        )
+        self.assertEqual(permitted, {self.cat_a.pk})
+        self.assertEqual(len(self.log.calls), 1)
