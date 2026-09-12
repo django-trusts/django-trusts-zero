@@ -1,7 +1,28 @@
+import importlib
+
 from django.apps import AppConfig as DjangoAppConfig
 from django.core.exceptions import ImproperlyConfigured
 
 from trusts.zero.registration import register_zero_meta_option_names
+
+
+_IR_MODULE = 'trusts.conditions._ir'
+
+
+def _load_conditions_implementation():
+    """Return Core's condition implementation module.
+
+    Stage B keeps store/compiler types on ``trusts.conditions._ir``.
+    Merged Stage A has no such submodule. Only that exact module
+    absence is a compatibility fallback onto ``trusts.conditions``.
+    Any other import failure is a Core defect and must propagate.
+    """
+    try:
+        return importlib.import_module(_IR_MODULE)
+    except ModuleNotFoundError as exc:
+        if getattr(exc, 'name', None) != _IR_MODULE:
+            raise
+        return importlib.import_module('trusts.conditions')
 
 
 # Phase-1: Zero-only Meta option names must exist before host models
@@ -115,12 +136,10 @@ class ZeroConfig(_ZeroBase):
         )
 
         # Implementation lookup. Private on Core's six-name
-        # ``trusts.conditions``; not an application API. Merged Stage A
-        # still exports the same type on the public module.
-        try:
-            from trusts.conditions._ir import RegistryConditionLookup
-        except ImportError:
-            from trusts.conditions import RegistryConditionLookup
+        # ``trusts.conditions``; not an application API.
+        RegistryConditionLookup = (
+            _load_conditions_implementation().RegistryConditionLookup
+        )
 
         owner = implementation_for_path(
             CANONICAL_BACKEND_PATH, apps_registry=self.apps,
