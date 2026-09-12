@@ -43,6 +43,11 @@ def live_config(apps_registry=None):
     )
 
 
+def live_registry(apps_registry=None):
+    """Configured Zero handle registry."""
+    return live_config(apps_registry).configured_backend(CANONICAL_BACKEND_PATH).registry
+
+
 def junction_content_field(junction_model):
     """Return the Junction→content field from the concrete Junction contract."""
     content_model = junction_model.get_content_model()._meta.concrete_model
@@ -81,36 +86,49 @@ class TestsConfig(AppConfig):
                 CANONICAL_BACKEND_PATH, apps_registry=self.apps,
             )
         except (TrustsConfigurationError, ImportError, LookupError):
-            # isolate_apps() / owner-absent hosts must not donate onto
-            # a live registry. Fail closed; do not call kernel_config().
             return
 
-        from tests.models import Category, TestGroupJunction, Ticket
-        from trusts.zero.models import TrustUserPermission
+        try:
+            from tests.models import Category, TestGroupJunction, Ticket
+            from trusts.zero.models import TrustUserPermission
+        except ImportError:
+            return
 
         registry = owner.configured_backend(CANONICAL_BACKEND_PATH).registry
-        donated = getattr(self, '_zero_host_registry_id', None)
-        if donated is registry:
-            return
         j = Ref(TrustUserPermission)
-        for model in (Category, Ticket):
-            rev = model._meta.get_field('trust').remote_field.get_accessor_name()
+
+        donated_category = getattr(self, '_trusts_tup_category_registry_id', None)
+        if donated_category is not registry:
+            rev = Category._meta.get_field('trust').remote_field.get_accessor_name()
             registry.register(
                 content=getattr(j.trust, rev),
                 user=j.entity,
                 permission=j.permission,
             )
-        registry.register(
-            content=junction_group_content_ref(j, TestGroupJunction),
-            user=j.entity,
-            permission=j.permission,
-        )
-        self._zero_host_registry_id = registry
+            self._trusts_tup_category_registry_id = registry
+
+        donated_ticket = getattr(self, '_trusts_tup_ticket_registry_id', None)
+        if donated_ticket is not registry:
+            rev = Ticket._meta.get_field('trust').remote_field.get_accessor_name()
+            registry.register(
+                content=getattr(j.trust, rev),
+                user=j.entity,
+                permission=j.permission,
+            )
+            self._trusts_tup_ticket_registry_id = registry
+
+        donated_group = getattr(self, '_trusts_tup_group_registry_id', None)
+        if donated_group is not registry:
+            registry.register(
+                content=junction_group_content_ref(j, TestGroupJunction),
+                user=j.entity,
+                permission=j.permission,
+            )
+            self._trusts_tup_group_registry_id = registry
 
 
 @contextmanager
 def override_apps_ready(ready, apps_registry=None):
-    """Temporarily set ``Apps.ready`` so tests can simulate populate."""
     from django.apps import apps as django_apps
 
     target = django_apps if apps_registry is None else apps_registry
@@ -123,7 +141,6 @@ def override_apps_ready(ready, apps_registry=None):
 
 
 def isolate_live_registry(config, registry, path=None):
-    """Swap a standalone registry into the live store without freezing."""
     if path is None:
         paths = config._configured_trusts_paths()
         path = paths[0]
@@ -132,7 +149,6 @@ def isolate_live_registry(config, registry, path=None):
 
 
 def install_writable_registry(config, path, contribute=None):
-    """Install a standalone registry on a live path for test isolation."""
     from trusts.core import TrustsRegistry
 
     registry = TrustsRegistry()
@@ -143,7 +159,6 @@ def install_writable_registry(config, path, contribute=None):
 
 
 def forget_models(*model_classes):
-    """Drop dynamically created models from the default Apps registry."""
     from django.apps import apps as django_apps
 
     all_models = django_apps.all_models
@@ -157,7 +172,6 @@ def forget_models(*model_classes):
 
 
 def apply_zero_trust_donation(config):
-    """Donate package Trust-as-content the way Zero does."""
     from django.utils.module_loading import import_string
 
     from trusts.zero.backends import TrustModelBackend
@@ -179,7 +193,6 @@ def apply_zero_trust_donation(config):
 
 
 def clone_writable_registry(registry):
-    """Copy records onto a new unfrozen registry for test isolation."""
     from trusts.core import TrustsRegistry
 
     cloned = TrustsRegistry()

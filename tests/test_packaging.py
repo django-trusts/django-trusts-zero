@@ -94,7 +94,17 @@ class ZeroSourceLayoutTests(SimpleTestCase):
         ]
         self.assertEqual(offenders, [])
         self.assertIsNone(importlib.util.find_spec('trusts.zero.tests'))
-        self.assertIsNone(importlib.util.find_spec('trusts.tests'))
+        # Core still ships trusts/tests.py until STAGE 2. Pair CI puts
+        # KERNEL_CHECKOUT on sys.path, so find_spec('trusts.tests') may
+        # resolve to the paired core module. Assert only that this Zero
+        # tree does not ship it.
+        spec = importlib.util.find_spec('trusts.tests')
+        if spec is not None:
+            origin = spec.origin or ''
+            self.assertFalse(
+                origin.startswith(str(ROOT / 'trusts')),
+                'Zero must not ship trusts.tests; found %s' % origin,
+            )
         self.assertTrue((ROOT / 'tests' / 'legacy' / 'test_historical.py').is_file())
         self.assertFalse((ROOT / 'trusts' / 'tests.py').exists())
         self.assertFalse((ROOT / 'trusts' / 'zero' / 'tests.py').exists())
