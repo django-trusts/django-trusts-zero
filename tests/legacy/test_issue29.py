@@ -5,9 +5,9 @@ Final-state adaptations: Zero test app label, core registry APIs, no Content._co
 
 """Early validation of permission conditions via Django system checks (#29).
 
-Follow-up to #28. Does not close #4. Construction-time operator errors stay
-exceptions; model-aware semantic failures are ``CheckMessage``s with
-stable IDs. Callables are registration-time builders.
+Follow-up to #28. Does not close #4. Invalid builders fail at
+registration. ``trusts.E001`` scans stored IR only; it does not
+re-invoke builders. Callables are registration-time builders.
 """
 
 from io import StringIO
@@ -26,10 +26,7 @@ from trusts.checks import (
     check_obsolete_legacy_callback_setting,
     check_permission_conditions,
 )
-from trusts.conditions import (
-    PermissionConditionError,
-    validate_expression,
-)
+from trusts.conditions import PermissionConditionError
 from trusts.core import TrustsRegistry
 from trusts.zero.models import (
     Content,
@@ -117,12 +114,12 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
         own = live_registry().get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(own)
         self.assertIs(own.model, Trust)
-        validate_expression(own.expr, Trust)
+        self.assertIsNotNone(own.expr)
 
         meta_own = live_registry().get_permission_condition_record(Ticket, 'meta_own')
         self.assertIsNotNone(meta_own)
         self.assertIs(meta_own.model, Ticket)
-        validate_expression(meta_own.expr, Ticket)
+        self.assertIsNotNone(meta_own.expr)
 
         messages = check_permission_conditions(None)
         self.assertEqual(_messages_with_id(messages, CHECK_ID_INVALID_EXPR), [])
