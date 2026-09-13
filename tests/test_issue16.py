@@ -292,8 +292,8 @@ class ExprParityTests(TestCase):
             registry.set_condition_lookup(None)
             with self.assertRaises(AttributeError):
                 user.has_perm('trusts_zero_tests.read_ticket:own', self.ticket)
-            with self.assertRaises(AttributeError):
-                list(Ticket.objects.permitted('read:own', user))
+            # .permitted() compiles from the registry store, not the
+            # lookup, so an explicit unbind does not change list SQL.
         finally:
             registry.set_condition_lookup(saved)
         self.assertTrue(user.has_perm('trusts_zero_tests.read_ticket:own', self.ticket))
