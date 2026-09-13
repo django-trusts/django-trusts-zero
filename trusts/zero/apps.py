@@ -77,7 +77,7 @@ class ZeroConfig(_ZeroBase):
                 'AUTHENTICATION_BACKENDS.%s Set AUTHENTICATION_BACKENDS '
                 "to include %r. Do not use %s."
                 % (
-                    CANONICAL_KERNEL_SHA if False else CANONICAL_BACKEND_PATH,
+                    CANONICAL_BACKEND_PATH,
                     extra,
                     CANONICAL_BACKEND_PATH,
                     DEPRECATED_CORE_BACKEND_PATH,
