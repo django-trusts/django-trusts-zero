@@ -30,6 +30,7 @@ from trusts.zero.policy import (
 from trusts.zero.query import filter_scope_rows
 from trusts.zero.registration import (
     ZERO_META_OPTION_NAMES,
+    register_zero_direct,
     register_zero_group,
     register_zero_meta_option_names,
     register_zero_relations,
