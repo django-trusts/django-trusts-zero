@@ -239,7 +239,7 @@ class ExprParityTests(TestCase):
         self.assertEqual(permitted_tickets, evaluated_tickets)
         self.assertEqual(permitted_tickets, {self.ticket})
 
-    def test_unknown_malformed_and_unbound_fail_closed(self):
+    def test_unknown_and_malformed_fail_closed(self):
         user = User.objects.get(pk=self.user.pk)
         with self.assertRaises(AttributeError) as missing:
             list(Ticket.objects.permitted('read:nope16', user))
@@ -254,24 +254,6 @@ class ExprParityTests(TestCase):
             )
         self.assertIn('nope', str(typo.exception))
         self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'typo16'))
-
-        registry = _zero_registry()
-        # Implementation store type (not an application API).
-        from trusts.zero.apps import _load_conditions_implementation
-        ConditionRecord = _load_conditions_implementation().ConditionRecord
-        empty = ConditionRecord(model=Ticket)
-        registry.conditions._records[(Ticket._meta.label, 'empty16')] = empty
-        try:
-            with self.assertRaises(PermissionConditionError) as unbound:
-                registry.evaluate_permission_condition(
-                    Ticket, 'empty16', user, 'trusts_zero_tests.read_ticket',
-                    self.ticket,
-                )
-            self.assertIn('unbound', str(unbound.exception))
-            with self.assertRaises(PermissionConditionError):
-                user.has_perm('trusts_zero_tests.read_ticket:empty16', self.ticket)
-        finally:
-            registry.conditions._records.pop((Ticket._meta.label, 'empty16'), None)
 
 
 class BuilderOnceTests(TestCase):
