@@ -62,24 +62,31 @@ def _content_path(model, content_via, prefix=''):
     return path
 
 
-def _require_handle(handle):
+def _require_backend(backend):
     from trusts.core import BackendHandle
 
-    if not isinstance(handle, BackendHandle):
+    if not isinstance(backend, BackendHandle):
         raise TypeError(
             'Zero relation helpers require a BackendHandle, not %r.'
-            % (type(handle).__name__,)
+            % (type(backend).__name__,)
         )
-    return handle
+    return backend
 
 
-def register_zero_direct(handle, content_models, content_via=None):
+# Public configured-backend identity for repeated startup donation.
+# BackendHandle equality is (path, registry, compiler), so a swapped
+# store re-donates and the same configured backend does not.
+_donated_relation_backends = set()
+_donated_condition_backends = set()
+
+
+def register_zero_direct(backend, content_models, content_via=None):
     """TUP records for each content terminal."""
     from trusts.zero.models import TrustUserPermission
 
-    handle = _require_handle(handle)
+    backend = _require_backend(backend)
     for model in content_models:
-        handle.register(
+        backend.register_relationship(
             TrustUserPermission,
             user='entity',
             permission='permission',
@@ -87,7 +94,7 @@ def register_zero_direct(handle, content_models, content_via=None):
         )
 
 
-def register_zero_group(handle, content_models, content_via=None):
+def register_zero_group(backend, content_models, content_via=None):
     """Two alternative TGP registrations on the same bindings.
 
     Local TrustGroupPermission grant AND the group's direct
@@ -97,20 +104,20 @@ def register_zero_group(handle, content_models, content_via=None):
     from trusts.core import permission_in
     from trusts.zero.models import TrustGroupPermission
 
-    handle = _require_handle(handle)
+    backend = _require_backend(backend)
     for model in content_models:
         content = _content_path(model, content_via, prefix='trustgroup')
         # auth.Group reverse membership is related_query_name="user"
         # (Python accessor remains group.user_set). Core path validation
         # uses _meta.get_field, so the hop must be the query name.
-        handle.register(
+        backend.register_relationship(
             TrustGroupPermission,
             user='trustgroup__group__user',
             permission='permission',
             content=content,
             condition=permission_in('trustgroup__group__permissions'),
         )
-        handle.register(
+        backend.register_relationship(
             TrustGroupPermission,
             user='trustgroup__group__user',
             permission='permission',
@@ -119,76 +126,66 @@ def register_zero_group(handle, content_models, content_via=None):
         )
 
 
-def register_zero_content(handle, model, content_via=None):
+def register_zero_content(backend, model, content_via=None):
     """TUP plus both TGP alternatives for one content terminal."""
-    register_zero_direct(handle, (model,), content_via=content_via)
-    register_zero_group(handle, (model,), content_via=content_via)
+    register_zero_direct(backend, (model,), content_via=content_via)
+    register_zero_group(backend, (model,), content_via=content_via)
 
 
-def register_zero_relations(handle):
+def register_zero_relations(backend):
     """Idempotent package donation: Trust-as-content TUP + both TGP alternatives."""
     from trusts.zero.models import Trust
 
-    handle = _require_handle(handle)
-    store = handle.registry
-    ids = getattr(store, '_zero_z1_relation_ids', None)
-    if ids is store:
+    backend = _require_backend(backend)
+    if backend in _donated_relation_backends:
         return
-    register_zero_content(handle, Trust)
-    store._zero_z1_relation_ids = store
+    register_zero_content(backend, Trust)
+    _donated_relation_backends.add(backend)
 
 
-def donate_content_permission_conditions(handle_or_registry, model):
-    """Walk ``Meta.permission_conditions`` onto a handle or registry.
+def donate_content_permission_conditions(backend, model):
+    """Walk ``Meta.permission_conditions`` onto a configured backend.
 
-    Application donation uses ``BackendHandle.register_permission_condition``
-    in the pre-finalization ``ready()`` window. Isolated tests may pass
-    an unfrozen ``TrustsRegistry()``. Abstract and proxy models are skipped.
+    Application donation uses ``BackendHandle.add_named_filter``
+    in the pre-finalization ``ready()`` window. Isolated tests wrap an
+    unfrozen ``TrustsRegistry()`` in a ``BackendHandle``. Abstract and
+    proxy models are skipped.
     """
+    backend = _require_backend(backend)
     if model._meta.proxy or model._meta.abstract:
         return
     conditions = getattr(model._meta, 'permission_conditions', ()) or ()
     for cond_code, condition in conditions:
-        handle_or_registry.register_permission_condition(
-            model, cond_code, condition,
-        )
+        backend.add_named_filter(model, cond_code, predicate=condition)
 
 
-def donate_junction_content_permission_conditions(handle_or_registry, model):
-    """Walk Junction ``Meta.content_permission_conditions`` onto a handle."""
+def donate_junction_content_permission_conditions(backend, model):
+    """Walk Junction ``Meta.content_permission_conditions`` onto a backend."""
+    backend = _require_backend(backend)
     if model._meta.proxy or model._meta.abstract:
         return
     conditions = getattr(model._meta, 'content_permission_conditions', ()) or ()
     for cond_code, condition in conditions:
-        handle_or_registry.register_permission_condition(
-            model, cond_code, condition,
-        )
+        backend.add_named_filter(model, cond_code, predicate=condition)
 
 
-def _condition_store(handle_or_registry):
-    return getattr(handle_or_registry, 'registry', handle_or_registry)
-
-
-def donate_installed_permission_conditions(handle_or_registry, apps_registry=None):
+def donate_installed_permission_conditions(backend, apps_registry=None):
     """Donate every installed Content/Junction Meta declaration.
 
-    Idempotent per underlying registry so repeated ``ZeroConfig.ready()``
+    Idempotent per configured backend so repeated ``ZeroConfig.ready()``
     does not invoke builders again. ``Trust:own``, Content Meta, and
-    Junction Meta each become one IR record on this handle.
+    Junction Meta each become one IR record on this backend.
     """
     from django.apps import apps as django_apps
     from trusts.zero.models import Content, Junction
 
-    store = _condition_store(handle_or_registry)
-    donated = getattr(store, '_zero_condition_donation_id', None)
-    if donated is store:
+    backend = _require_backend(backend)
+    if backend in _donated_condition_backends:
         return
     apps = django_apps if apps_registry is None else apps_registry
     for model in apps.get_models():
         if issubclass(model, Junction):
-            donate_junction_content_permission_conditions(
-                handle_or_registry, model,
-            )
+            donate_junction_content_permission_conditions(backend, model)
         elif issubclass(model, Content):
-            donate_content_permission_conditions(handle_or_registry, model)
-    store._zero_condition_donation_id = store
+            donate_content_permission_conditions(backend, model)
+    _donated_condition_backends.add(backend)

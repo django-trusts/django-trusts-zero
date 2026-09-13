@@ -89,9 +89,9 @@ class CanonicalBackendIdentityTests(SimpleTestCase):
         self.assertIs(type(owner), ZeroConfig)
         self.assertIs(owner, zero_config())
         self.assertIs(implementation_for_class(TrustModelBackend), owner)
-        handle = owner.configured_backend(CANONICAL_BACKEND_PATH)
-        self.assertEqual(handle.path, CANONICAL_BACKEND_PATH)
-        self.assertIs(handle.registry, owner.registries[CANONICAL_BACKEND_PATH])
+        backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
+        self.assertEqual(backend.path, CANONICAL_BACKEND_PATH)
+        self.assertIs(backend.registry, owner.registries[CANONICAL_BACKEND_PATH])
 
     def test_unconfigured_mixin_class_is_not_zero_identity(self):
         from trusts.core import TrustsConfigurationError
@@ -118,8 +118,8 @@ class OwnerPresentOnFinalCoreTests(SimpleTestCase):
         config = backend._trusts_config()
         self.assertIs(type(config), ZeroConfig)
         self.assertIs(config, zero_config())
-        handle = backend._own_handle()
-        self.assertEqual(handle.path, CANONICAL_BACKEND_PATH)
+        own_backend = backend._own_handle()
+        self.assertEqual(own_backend.path, CANONICAL_BACKEND_PATH)
 
     def test_zero_config_helper_returns_installed_owner(self):
         self.assertIs(type(zero_config()), ZeroConfig)

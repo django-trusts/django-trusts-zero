@@ -182,8 +182,9 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         self.assertIn('readme = "README.md"', text)
         self.assertNotIn('readme = "DEV.md"', text)
         self.assertIn('license = "BSD-2-Clause"', text)
-        companion = 'e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4'
+        companion = 'f5211c11047eb6810680f5d1b13bf34b2c376635'
         stale = (
+            'e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4',
             'b6eebc9273bf30048d410305a53249bdb51679f0',
             '710b3ea26778ff069d1f5329adc9f2f481a1ea92',
             '12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa',
@@ -199,7 +200,7 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         self.assertIn(companion, req)
         self.assertIn('COMPANION_KERNEL_SHA: %s' % companion, ci)
         self.assertIn(companion, dev)
-        self.assertIn('pair with merged core #131 C1', ci)
+        self.assertIn('pair with merged core C-methods', ci)
         self.assertNotIn('pair-stage-b:', ci)
         self.assertNotIn('pair-six-name:', ci)
         for needle in stale:

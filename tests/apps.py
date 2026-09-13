@@ -43,23 +43,28 @@ def live_config(apps_registry=None):
     )
 
 
-def live_handle(apps_registry=None):
-    """Configured Zero backend handle."""
+def live_backend(apps_registry=None):
+    """Configured Zero backend."""
     return live_config(apps_registry).configured_backend(CANONICAL_BACKEND_PATH)
 
 
+live_handle = live_backend
+
+
 def live_registry(apps_registry=None):
-    """Configured Zero handle registry."""
-    return live_handle(apps_registry).registry
+    """Configured Zero backend registry (Core-internal test fixture)."""
+    return live_backend(apps_registry).registry
 
 
 def publish_permission_condition(model, cond_code, builder_or_expr, registry=None):
     """Register on an unfrozen registry, then publish the IR onto live.
 
-    After ``apps.ready``, the live handle registry is frozen and
-    ``register_permission_condition`` raises before a builder runs.
+    After ``apps.ready``, the live backend registry is frozen and
+    ``add_named_filter`` raises before a builder runs.
     Isolated ``TrustsRegistry()`` never auto-freezes. Tests that need
     ad-hoc conditions on the live lookup copy the resulting IR record.
+    This helper talks to Core's store directly; it is not an
+    application-facing donation path.
     """
     from trusts.core import TrustsRegistry
 
@@ -104,7 +109,7 @@ def junction_group_content_path(prefix, junction_model):
     return '__'.join(part for part in parts if part)
 
 
-def isolated_handle(registry=None, path='tests.isolated'):
+def isolated_backend(registry=None, path='tests.isolated'):
     """Wrap an unfrozen registry in a ``BackendHandle`` for isolated tests."""
     from trusts.core import BackendHandle, PlanQueryCompiler, TrustsRegistry
 
@@ -115,6 +120,9 @@ def isolated_handle(registry=None, path='tests.isolated'):
         registry=registry,
         compiler=PlanQueryCompiler(),
     )
+
+
+isolated_handle = isolated_backend
 
 
 class TestsConfig(AppConfig):
@@ -141,23 +149,23 @@ class TestsConfig(AppConfig):
         except ImportError:
             return
 
-        handle = owner.configured_backend(CANONICAL_BACKEND_PATH)
-        registry = handle.registry
+        backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
+        registry = backend.registry
 
         donated_category = getattr(self, '_trusts_tup_category_registry_id', None)
         if donated_category is not registry:
-            register_zero_content(handle, Category)
+            register_zero_content(backend, Category)
             self._trusts_tup_category_registry_id = registry
 
         donated_ticket = getattr(self, '_trusts_tup_ticket_registry_id', None)
         if donated_ticket is not registry:
-            register_zero_content(handle, Ticket)
+            register_zero_content(backend, Ticket)
             self._trusts_tup_ticket_registry_id = registry
 
         donated_group = getattr(self, '_trusts_tup_group_registry_id', None)
         if donated_group is not registry:
             register_zero_content(
-                handle,
+                backend,
                 Group,
                 content_via=lambda prefix, model: junction_group_content_path(
                     prefix, TestGroupJunction,
@@ -223,12 +231,12 @@ def apply_zero_trust_donation(config):
         if not issubclass(cls, TrustModelBackend):
             continue
         registry = config._ensure(path)
-        handle = BackendHandle(
+        backend = BackendHandle(
             path=path,
             registry=registry,
             compiler=compiler_for_class(cls),
         )
-        register_zero_relations(handle)
+        register_zero_relations(backend)
         ids = dict(getattr(config, '_trusts_tup_trust_registry_ids', None) or {})
         ids[path] = registry
         config._trusts_tup_trust_registry_ids = ids

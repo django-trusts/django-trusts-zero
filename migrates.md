@@ -31,7 +31,7 @@ Execute in this order. Fail closed at each step.
 2. Point `INSTALLED_APPS` and `AUTHENTICATION_BACKENDS` at Zero. Remove
    bare `'trusts'` and the old backend path.
 3. Retarget model, backend, and settings-constant imports.
-4. Register condition **builders** on the handle in `AppConfig.ready()`.
+4. Register condition **builders** on the backend in `AppConfig.ready()`.
 5. Retarget views, URL include, templates, admin, and management-command
    imports to Zero-owned paths.
 6. Replace removed convenience writers with direct ORM.
@@ -93,15 +93,15 @@ stores IR, and never calls it during `has_perm` or `.permitted()`.
 
 Production must **not** import `trusts.conditions._ir` or call
 `set_condition_lookup`. `ZeroConfig` donates TUP / TGP and Meta
-conditions through the handle API only. Core self-binds the private
-store adapter at construct.
+conditions through the configured-backend API only. Core self-binds the
+private store adapter at construct.
 
 ```python
 from django.apps import AppConfig
 from trusts.apps import implementation_for_path
 from trusts.zero.apps import CANONICAL_BACKEND_PATH
 
-# New (builder; donate through the handle in ready())
+# New (builder; donate through the backend in ready())
 def trust_own(u, p, o):
     return u == o.settlor
 
@@ -114,16 +114,20 @@ class DocumentsConfig(AppConfig):
         owner = implementation_for_path(
             CANONICAL_BACKEND_PATH, apps_registry=self.apps,
         )
-        handle = owner.configured_backend(CANONICAL_BACKEND_PATH)
-        handle.register_permission_condition(
+        backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
+        backend.add_named_filter(
             Document, 'non_confidential',
-            lambda u, p, o: o.confidential != True,
+            predicate=lambda u, p, o: o.confidential != True,
         )
 
 # Isolated / unfrozen tests (never the post-ready live registry)
-from trusts.core import TrustsRegistry
-isolated = TrustsRegistry()
-isolated.register_permission_condition(Ticket, 'own', lambda u, p, o: u == o.owner)
+from trusts.core import BackendHandle, PlanQueryCompiler, TrustsRegistry
+isolated = BackendHandle(
+    path='tests.isolated',
+    registry=TrustsRegistry(),
+    compiler=PlanQueryCompiler(),
+)
+isolated.add_named_filter(Ticket, 'own', predicate=lambda u, p, o: u == o.owner)
 ```
 
 Unchanged public call sites: `User.has_perm`,
@@ -135,8 +139,8 @@ Unchanged public call sites: `User.has_perm`,
 | Situation | Do this |
 | --- | --- |
 | `Trust:own` / Meta tuples | Builder callable donated in `ready()` — not `condition_refs()` / prebuilt `Expr` |
-| Explicit registration | `handle.register_permission_condition` in the pre-finalization window |
-| Live registry after `apps.ready` | Frozen; further `register_permission_condition` raises `TrustsConfigurationError` **before** the builder runs |
+| Explicit registration | `backend.add_named_filter(..., predicate=...)` in the pre-finalization window |
+| Live registry after `apps.ready` | Frozen; further `add_named_filter` raises `TrustsConfigurationError` **before** the builder runs |
 | `TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS = True` | `trusts.E007`; does not enable callbacks |
 | `legacy_permission_callbacks_allowed` / `trusts.E002` / `trusts.W001` | Deleted. Do not import them |
 | Isolated tests | New `TrustsRegistry()` (unfrozen) |
@@ -146,45 +150,49 @@ Deleted Zero model static methods — no forwarding alias on `Content` or
 
 | Removed | Replacement |
 | --- | --- |
-| `Content.register_permission_condition` | `handle.register_permission_condition` |
+| `Content.register_permission_condition` | `backend.add_named_filter(..., predicate=...)` |
 | `Content.register_content` | `donate_content_permission_conditions` / `donate_installed_permission_conditions` |
-| `Content.get_permission_condition_record` | `handle.registry.get_permission_condition_record` |
+| `Content.get_permission_condition_record` | Core-internal `backend.registry.get_permission_condition_record` |
 | `Content.get_permission_condition_func` | Deleted. Records are IR-only (`record.expr`) |
-| `Content.iter_permission_conditions` | `handle.registry.iter_permission_conditions` or `trusts.checks.iter_live_permission_conditions` |
-| `Content._conditions` | Per-handle `TrustsRegistry.conditions` |
+| `Content.iter_permission_conditions` | Core-internal `backend.registry.iter_permission_conditions` or `trusts.checks.iter_live_permission_conditions` |
+| `Content._conditions` | Per-backend `TrustsRegistry.conditions` |
 | `Junction.register_junction` | `donate_junction_content_permission_conditions` |
 | `from trusts.conditions import condition_refs` in production / Meta | Builder `lambda u, p, o: ...` or a named `def` |
-| `handle.registry.register_permission_condition` as the application API | `handle.register_permission_condition` |
+| `backend.register(...)` / `backend.register_permission_condition(...)` | `backend.register_relationship(...)` / `backend.add_named_filter(..., predicate=...)` |
 
 `PermissionConditionNotQueryable` is imported from `trusts.conditions`
 only. There is no `trusts.zero.models` alias.
 
 Hosts that previously donated only TUP and relied on
 `HistoricalGroupQueryCompiler` must call
-`register_zero_content(handle, Model)` (TUP + both TGP alternatives)
+`register_zero_content(backend, Model)` (TUP + both TGP alternatives)
 for each terminal. `register_zero_relations` still donates Trust-as-content
 only. `HistoricalGroupQueryCompiler` is removed; use core
 `PlanQueryCompiler`.
 
-## Relation helpers (handle.register)
+## Relation helpers (backend.register_relationship)
 
-Zero production donation takes the configured `BackendHandle` and calls
-`handle.register(root, ...)` with validated Django `__` path strings.
-Customizable `content_via` helpers return or compose those public path
-strings, not `Ref` objects.
+Zero production donation takes the configured backend and calls
+`backend.register_relationship(root, ...)` with validated Django `__`
+path strings. Customizable `content_via` helpers return or compose those
+public path strings, not `Ref` objects.
 
 | | Old | New |
 | --- | --- | --- |
-| Helper argument | `register_zero_content(registry, Model)` | `register_zero_content(handle, Model)` |
-| TUP paths | `from trusts.core import Ref` + `Ref(TrustUserPermission).entity` | `handle.register(TrustUserPermission, user="entity", permission="permission", content="trust__<reverse>")` |
-| TGP user / permission | `g.trustgroup.group.user` / `g.permission` | `user="trustgroup__group__user"`, `permission="permission"` |
-| TGP group ceiling | `permission_in(g.trustgroup.group.permissions)` | `permission_in("trustgroup__group__permissions")` |
-| TGP role ceiling | `permission_in(g.trustgroup.group.roles.permissions)` | `permission_in("trustgroup__group__roles__permissions")` |
-| Trust reverse / `content_via` | `getattr(root_ref.trust, rev)` (`Ref`) | `"trust__" + get_accessor_name()` (public `__` string) |
+| Helper argument | `register_zero_content(handle, Model)` | `register_zero_content(backend, Model)` |
+| TUP paths | `handle.register(TrustUserPermission, user="entity", ...)` | `backend.register_relationship(TrustUserPermission, user="entity", permission="permission", content="trust__<reverse>")` |
+| TGP user / permission | `user="trustgroup__group__user"` / `permission="permission"` | unchanged bindings on `register_relationship` |
+| TGP group ceiling | `permission_in("trustgroup__group__permissions")` | unchanged |
+| TGP role ceiling | `permission_in("trustgroup__group__roles__permissions")` | unchanged |
+| Named filter | `backend.register_permission_condition(Document, "own", builder)` | `backend.add_named_filter(Document, "own", predicate=builder)` |
+| Trust reverse / `content_via` | `"trust__" + get_accessor_name()` (public `__` string) | unchanged |
 
-`handle.registry` remains temporarily so isolated compiler tests can still
-inspect stored records. Application donation does not call
-`.registry.register`.
+Application donation does not call `.register(`,
+`register_permission_condition(`, or `.registry` for idempotency.
+Repeated `ZeroConfig.ready()` / helper donation is proved through the
+public configured-backend contract and remains zero SQL. Isolated
+compiler tests may still inspect stored records on the backend's
+registry as a Core-internal fixture.
 
 ```python
 from trusts.apps import implementation_for_path
@@ -192,8 +200,8 @@ from trusts.zero.apps import CANONICAL_BACKEND_PATH
 from trusts.zero.registration import register_zero_content
 
 owner = implementation_for_path(CANONICAL_BACKEND_PATH)
-handle = owner.configured_backend(CANONICAL_BACKEND_PATH)
-register_zero_content(handle, Document)
+backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
+register_zero_content(backend, Document)
 ```
 
 ## Moved views / templates / admin / management commands
@@ -328,10 +336,16 @@ from trusts.conditions import condition_refs
 from trusts.conditions import legacy_permission_callbacks_allowed
 from trusts.core import Ref
 Ref(
+.register(
+register_permission_condition(
+handle
+.registry
+e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4
 .registry.register(
 .registry.register_strategy(
 Along(
 register_zero_content(registry
+register_zero_content(handle
 register_zero_direct(registry
 register_zero_group(registry
 register_zero_relations(registry
@@ -359,13 +373,13 @@ Then:
 - [ ] Replace `from trusts.models import …` with `from trusts.zero.models import …`.
 - [ ] Move settings constants used by migrations/commands to `trusts.zero`.
 - [ ] Delete any `kernel_config()` or core `AppConfig` usage. Those names are not on the supported core library.
-- [ ] Convert Meta / explicit condition registrations to builders. Call `handle.register_permission_condition` from `AppConfig.ready()`, not on the post-ready frozen live registry.
+- [ ] Convert Meta / explicit condition registrations to builders. Call `backend.add_named_filter(..., predicate=...)` from `AppConfig.ready()`, not on the post-ready frozen live registry.
 - [ ] Search production for `trusts.conditions._ir` and `set_condition_lookup`. Do not import or bind them. Tests that inject a fake or unbind may keep the call.
 - [ ] Remove `TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS`, `legacy_permission_callbacks_allowed`, `condition_refs`, `trusts.E002`, and `trusts.W001`. A leftover `True` setting is `trusts.E007`.
 - [ ] Retarget `include('trusts.urls')` to `include('trusts.zero.urls')`. Move template overrides to `trusts_zero/team_{detail,form}.html`.
 - [ ] Retarget views, admin, authorization helpers, and management-command imports to `trusts.zero.*`.
 - [ ] Retarget query / registration / policy helpers that used to import from `trusts.zero.models`.
-- [ ] Confirm `register_zero_content(handle, Model)` for each host terminal that needs TUP + TGP. Do not pass a bare registry or construct `Ref` / `Along(` in production donation. Do not rely on `HistoricalGroupQueryCompiler`.
+- [ ] Confirm `register_zero_content(backend, Model)` for each host terminal that needs TUP + TGP. Do not pass a bare registry or construct `Ref` / `Along(` in production donation. Do not call `backend.register(` or `register_permission_condition(`. Do not rely on `HistoricalGroupQueryCompiler`.
 - [ ] Confirm startup: canonical settings succeed; old backend path raises `ImproperlyConfigured`.
 - [ ] Confirm no installed core `AppConfig` and exactly one implementation owner.
 - [ ] `python -m django migrate --plan` — no Trusts operations on an already-current database.
@@ -381,7 +395,8 @@ Then:
 - [ ] Keep ceiling writes on `TrustGroupPermission` (`.full_clean()` / `save` / `bulk_create`); do not bypass `local_grant_outside_ceiling`.
 - [ ] `filter_by_user_content_perm(user, ContentModel, 'add')` must keep authorizing the **content** permission (e.g. `add_category`), not `add_trust`.
 - [ ] Confirm first-party donation remains zero-SQL and idempotent on re-entry to `ready()`.
-- [ ] Confirm a frozen handle raises `TrustsConfigurationError` before the builder is invoked.
+- [ ] Confirm a frozen backend raises `TrustsConfigurationError` before the builder is invoked.
+- [ ] Search application-facing Zero paths for `.register(`, `register_permission_condition(`, `handle`, `.registry` used for donation idempotency, and Core pin `e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4`. Classify genuine Core-internal test fixtures separately.
 - [ ] Do not apply a new Trusts schema or data migration; none was added.
 - [ ] Leave Zero package version at `1.0.0.dev0` and core floor at `1.0.0.dev3`.
 

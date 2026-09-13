@@ -23,7 +23,7 @@ from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_
 from django.test.utils import isolate_apps
 
 import tests as tests_module
-from tests.apps import live_registry, clone_writable_registry, forget_models, override_apps_ready, live_config, publish_donated_conditions, publish_permission_condition
+from tests.apps import live_registry, clone_writable_registry, forget_models, isolated_backend, override_apps_ready, live_config, publish_donated_conditions, publish_permission_condition
 from tests.backends import MixinOnlyBackend
 from tests.models import Category, TestGroupJunction, Ticket
 from trusts.backends import TrustModelBackendMixin
@@ -324,7 +324,7 @@ class LegacyContentRegistryDeletedTest(SimpleTestCase):
                     app_label = 'trusts_zero_tests'
                     managed = False
 
-            donate_content_permission_conditions(TrustsRegistry(), BareNote)
+            donate_content_permission_conditions(isolated_backend(), BareNote)
             self.assertFalse(hasattr(Content, '_contents'))
             self.assertFalse(
                 live_config().registry.plan_for(BareNote).records
@@ -346,9 +346,9 @@ class LegacyContentRegistryDeletedTest(SimpleTestCase):
                         ('sheet_own', _sheet_own),
                     )
 
-            isolated = TrustsRegistry()
+            isolated = isolated_backend()
             donate_content_permission_conditions(isolated, IsolatedSheet)
-            publish_donated_conditions(isolated)
+            publish_donated_conditions(isolated.registry)
             self.assertFalse(hasattr(Content, '_contents'))
             self.assertFalse(live.plan_for(IsolatedSheet).records)
             record = live_registry().get_permission_condition_record(
@@ -382,9 +382,9 @@ class LegacyContentRegistryDeletedTest(SimpleTestCase):
                         ('junc_own', _junc_own),
                     )
 
-            isolated = TrustsRegistry()
+            isolated = isolated_backend()
             donate_junction_content_permission_conditions(isolated, IsolatedJunction)
-            publish_donated_conditions(isolated)
+            publish_donated_conditions(isolated.registry)
             self.assertFalse(hasattr(Content, '_contents'))
             self.assertEqual(live.plan_for(Group).records, group_before)
             record = live_registry().get_permission_condition_record(

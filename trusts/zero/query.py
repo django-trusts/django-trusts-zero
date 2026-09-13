@@ -28,9 +28,9 @@ from trusts.zero.policy import (
 
 
 def compile_registered_condition_q(model, perm, user):
-    """Compile a ``:condition`` suffix via the configured Zero handle.
+    """Compile a ``:condition`` suffix via the configured Zero backend.
 
-    Records live on that handle's core registry. Unregistered codes
+    Records live on that backend's core registry. Unregistered codes
     raise ``AttributeError`` (same as ``has_perm``). Callables raise
     ``PermissionConditionNotQueryable`` without being invoked.
     """
@@ -43,9 +43,9 @@ def compile_registered_condition_q(model, perm, user):
 def django_permission_filter(qs, perm, user):
     """Zero Django-permission codec over ``AuthorizedQuerySet.authorized``.
 
-    Does not OR handles, does not call ``granted`` / ``Exists`` /
+    Does not OR backends, does not call ``granted`` / ``Exists`` /
     ``.distinct()`` itself. ``ContentQuerySet.authorized`` sequences
-    Zero-owned handles.
+    Zero-owned backends.
     """
     condition_q = None
     if permission_has_condition(perm):
@@ -111,12 +111,12 @@ class ContentQuerySet(AuthorizedQuerySet):
 
         The entire Zero list algorithm is the Django-permission codec
         ``django_permission_filter``; ``.authorized`` sequences the
-        plan through Zero-owned handles.
+        plan through Zero-owned backends.
         """
         return django_permission_filter(self, perm, user)
 
     def authorized(self, user, permission, extra_q=None):
-        """Sequence grants on Zero's owner handles, not ``kernel_config()``.
+        """Sequence grants on Zero's owner backends, not ``kernel_config()``.
 
         Core ``AuthorizedQuerySet.authorized`` still consults the
         transitional kernel store. IIa list execution must resolve
