@@ -1,7 +1,7 @@
 """Zero #16: donate Meta conditions to the core handle registry.
 
-Paired against django-trusts#118 merge
-``948d6666342377b9472debb57d4a1e26e81402d1``.
+Paired against merged Core C1
+``b6eebc9273bf30048d410305a53249bdb51679f0``.
 """
 
 import inspect
@@ -99,10 +99,12 @@ class ZeroConditionSurfaceTests(SimpleTestCase):
         self.assertFalse(hasattr(zero_models, 'PermissionConditionNotQueryable'))
         self.assertTrue(issubclass(PermissionConditionNotQueryable, Exception))
 
-    def test_zero_binds_generic_registry_lookup(self):
+    def test_live_registry_has_self_bound_lookup(self):
         handle = live_handle()
         registry = handle.registry
-        self.assertIsNotNone(registry.condition_lookup)
+        lookup = registry.condition_lookup
+        self.assertIsNotNone(lookup)
+        self.assertIs(lookup.conditions, registry.conditions)
         own = registry.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(own)
         self.assertIsNotNone(own.expr)
@@ -167,6 +169,10 @@ class OwnerIsolationTests(SimpleTestCase):
     def test_owners_do_not_share_or_overwrite_and_new_registry_is_empty(self):
         left = TrustsRegistry()
         right = TrustsRegistry()
+        self.assertIsNot(left.condition_lookup, right.condition_lookup)
+        self.assertIs(left.condition_lookup.conditions, left.conditions)
+        self.assertIs(right.condition_lookup.conditions, right.conditions)
+        self.assertIsNot(left.conditions, right.conditions)
         left.register_permission_condition(
             Ticket, 'own', lambda u, p, o: u == o.owner,
         )
@@ -189,9 +195,30 @@ class OwnerIsolationTests(SimpleTestCase):
         self.assertIsNot(live.expr, right_expr)
 
         fresh = TrustsRegistry()
+        self.assertIsNotNone(fresh.condition_lookup)
+        self.assertIs(fresh.condition_lookup.conditions, fresh.conditions)
         self.assertEqual(list(fresh.iter_permission_conditions()), [])
         self.assertIsNone(fresh.get_permission_condition_record(Trust, 'own'))
         self.assertIsNone(fresh.get_permission_condition_record(Ticket, 'own'))
+        fresh.register_permission_condition(
+            Ticket, 'own', lambda u, p, o: u == o.owner,
+        )
+        compiled = fresh.condition_lookup.compile_q(
+            Ticket, 'trusts_zero_tests.read_ticket:own', None,
+        )
+        self.assertIsNotNone(fresh.get_permission_condition_record(Ticket, 'own'))
+        self.assertEqual(
+            [
+                (model, code)
+                for model, code, _record in fresh.iter_permission_conditions()
+            ],
+            [(Ticket, 'own')],
+        )
+        self.assertIsNotNone(compiled)
+        self.assertIsNot(
+            live,
+            fresh.get_permission_condition_record(Ticket, 'own'),
+        )
 
 
 class ExprParityTests(TestCase):
@@ -248,30 +275,29 @@ class ExprParityTests(TestCase):
             user.has_perm('trusts_zero_tests.read_ticket:nope16', self.ticket)
 
         isolated = TrustsRegistry()
-        with self.assertRaises(PermissionConditionError) as typo:
-            isolated.register_permission_condition(
-                Ticket, 'typo16', lambda u, p, o: u == o.nope,
-            )
+        with self.assertNumQueries(0):
+            with self.assertRaises(PermissionConditionError) as typo:
+                isolated.register_permission_condition(
+                    Ticket, 'typo16', lambda u, p, o: u == o.nope,
+                )
         self.assertIn('nope', str(typo.exception))
         self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'typo16'))
+        self.assertEqual(list(isolated.iter_permission_conditions()), [])
 
-        registry = _zero_registry()
-        # Implementation store type (not an application API).
-        from trusts.zero.apps import _load_conditions_implementation
-        ConditionRecord = _load_conditions_implementation().ConditionRecord
-        empty = ConditionRecord(model=Ticket)
-        registry.conditions._records[(Ticket._meta.label, 'empty16')] = empty
+        handle = live_handle()
+        registry = handle.registry
+        saved = registry.condition_lookup
+        self.assertIsNotNone(saved)
         try:
-            with self.assertRaises(PermissionConditionError) as unbound:
-                registry.evaluate_permission_condition(
-                    Ticket, 'empty16', user, 'trusts_zero_tests.read_ticket',
-                    self.ticket,
-                )
-            self.assertIn('unbound', str(unbound.exception))
-            with self.assertRaises(PermissionConditionError):
-                user.has_perm('trusts_zero_tests.read_ticket:empty16', self.ticket)
+            registry.set_condition_lookup(None)
+            with self.assertRaises(AttributeError):
+                user.has_perm('trusts_zero_tests.read_ticket:own', self.ticket)
+            with self.assertRaises(AttributeError):
+                list(Ticket.objects.permitted('read:own', user))
         finally:
-            registry.conditions._records.pop((Ticket._meta.label, 'empty16'), None)
+            registry.set_condition_lookup(saved)
+        self.assertTrue(user.has_perm('trusts_zero_tests.read_ticket:own', self.ticket))
+        self.assertIn(self.ticket, set(Ticket.objects.permitted('read:own', user)))
 
 
 class BuilderOnceTests(TestCase):

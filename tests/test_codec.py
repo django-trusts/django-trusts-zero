@@ -79,7 +79,9 @@ class RegistrationAndCodecTests(TestCase):
         self.assertIn(Trust, content_models)
         self.assertIn(Category, content_models)
         self.assertIn(Ticket, content_models)
-        self.assertIsNotNone(handle.registry.condition_lookup)
+        lookup = handle.registry.condition_lookup
+        self.assertIsNotNone(lookup)
+        self.assertIs(lookup.conditions, handle.registry.conditions)
         own = handle.registry.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(own)
         self.assertIsNotNone(own.expr)

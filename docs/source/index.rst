@@ -122,10 +122,11 @@ their own content models.
 Registered ``Meta.permission_conditions`` (including built-in
 ``Trust:own``) are builder callables donated through
 ``handle.register_permission_condition`` in ``ZeroConfig.ready()`` while
-``apps.ready`` is still false, then bound through
-``RegistryConditionLookup``. Explicit named-condition registration uses
-the same handle method in that pre-finalization window. After ready, the
-live handle is frozen; further condition writes raise
+``apps.ready`` is still false. Core binds the registry-backed lookup at
+``TrustsRegistry`` construction; Zero donates conditions only through
+the handle API. Explicit named-condition registration uses the same
+handle method in that pre-finalization window. After ready, the live
+handle is frozen; further condition writes raise
 ``TrustsConfigurationError`` before a builder runs. Isolated tests use
 an unfrozen ``TrustsRegistry()``.
 
