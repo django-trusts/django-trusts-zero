@@ -147,7 +147,7 @@ authorization-aware helpers in ``trusts.zero.authorization``:
    )
 
    grant_trustee(actor, receipt, colleague, "read")
-   associate_group_with_trust(actor, receipt, receipt, accountants)
+   associate_group_with_trust(actor, receipt, accountants)
    grant_trust_group_permission(actor, receipt, accountants, "read")
    revoke_trustee(actor, receipt, colleague, "read")
 
