@@ -120,7 +120,7 @@ class ZeroConfig(_ZeroBase):
             CANONICAL_BACKEND_PATH, apps_registry=self.apps,
         )
         handle = owner.configured_backend(CANONICAL_BACKEND_PATH)
-        register_zero_relations(handle.registry)
+        register_zero_relations(handle)
         donate_installed_permission_conditions(
             handle, apps_registry=self.apps,
         )

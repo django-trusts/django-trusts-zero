@@ -1,7 +1,7 @@
 """Zero #16: donate Meta conditions to the core handle registry.
 
-Paired against merged Core C1
-``b6eebc9273bf30048d410305a53249bdb51679f0``.
+Paired against merged Core #131 C1
+``e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4``.
 """
 
 import inspect

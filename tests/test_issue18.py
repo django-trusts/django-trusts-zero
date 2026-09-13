@@ -34,6 +34,7 @@ from trusts.zero.registration import (
     register_zero_meta_option_names,
     register_zero_relations,
 )
+from tests.apps import isolated_handle
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
@@ -173,20 +174,48 @@ class BackendAndRegistrationTests(SimpleTestCase):
             self.assertNotIn(name, query, name)
 
     def test_register_zero_relations_is_idempotent(self):
-        registry = TrustsRegistry()
-        register_zero_relations(registry)
-        first = list(registry.records)
-        register_zero_relations(registry)
-        self.assertEqual(list(registry.records), first)
-        tgp = registry.records_for_root(TrustGroupPermission)
+        handle = isolated_handle()
+        register_zero_relations(handle)
+        first = list(handle.registry.records)
+        register_zero_relations(handle)
+        self.assertEqual(list(handle.registry.records), first)
+        tgp = handle.registry.records_for_root(TrustGroupPermission)
         self.assertEqual(len(tgp), 2)
 
     def test_register_zero_group_two_alternatives(self):
-        registry = TrustsRegistry()
-        register_zero_group(registry, (Trust,))
-        rows = registry.records_for_root(TrustGroupPermission)
+        handle = isolated_handle()
+        register_zero_group(handle, (Trust,))
+        rows = handle.registry.records_for_root(TrustGroupPermission)
         self.assertEqual(len(rows), 2)
         self.assertNotEqual(rows[0].condition, rows[1].condition)
+
+    def test_relation_helpers_require_handle_and_public_paths(self):
+        from trusts.zero import apps as zero_apps
+        from trusts.zero import registration as zero_registration
+
+        source = inspect.getsource(zero_registration)
+        self.assertNotIn('from trusts.core import Ref', source)
+        self.assertNotIn('.registry.register(', source)
+        self.assertNotIn('Along(', source)
+        self.assertIn('handle.register(', source)
+        self.assertIn("user='trustgroup__group__user'", source)
+        self.assertIn("permission_in('trustgroup__group__permissions')", source)
+        self.assertIn(
+            "permission_in('trustgroup__group__roles__permissions')", source,
+        )
+        donate = inspect.getsource(zero_apps.ZeroConfig._donate_zero_relations)
+        self.assertIn('register_zero_relations(handle)', donate)
+        self.assertNotIn('register_zero_relations(handle.registry)', donate)
+        with self.assertRaises(TypeError):
+            register_zero_relations(TrustsRegistry())
+        with self.assertRaises(TypeError):
+            register_zero_group(TrustsRegistry(), (Trust,))
+        with self.assertRaises(TypeError):
+            register_zero_direct(
+                isolated_handle(),
+                (Trust,),
+                content_via=lambda prefix, model: object(),
+            )
 
 
 class GroupCeilingPathTests(TestCase):

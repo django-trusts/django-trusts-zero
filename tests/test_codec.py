@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import TestCase
 
-from trusts.core import TrustsConfigurationError, TrustsRegistry
+from trusts.core import TrustsConfigurationError
 from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
 from trusts.query import AuthorizedQuerySet
 from trusts.zero.models import (
@@ -25,7 +25,7 @@ from trusts.zero.registration import (
     register_zero_direct,
     register_zero_group,
 )
-from tests.apps import publish_permission_condition
+from tests.apps import isolated_handle, publish_permission_condition
 from tests.models import Category, Ticket
 
 
@@ -54,17 +54,17 @@ class RegistrationAndCodecTests(TestCase):
         self.assertIn('return django_permission_filter(', src)
 
     def test_tup_register_on_isolated_registry(self):
-        registry = TrustsRegistry()
-        register_zero_direct(registry, (Trust,))
-        records = registry.records_for_root(TrustUserPermission)
+        handle = isolated_handle()
+        register_zero_direct(handle, (Trust,))
+        records = handle.registry.records_for_root(TrustUserPermission)
         self.assertEqual(len(records), 1)
         self.assertIs(records[0].content_model, Trust)
         self.assertEqual(records[0].user_field, 'entity')
 
     def test_tgp_register_uses_two_ceiling_alternatives(self):
-        registry = TrustsRegistry()
-        register_zero_group(registry, (Trust,))
-        records = registry.records_for_root(TrustGroupPermission)
+        handle = isolated_handle()
+        register_zero_group(handle, (Trust,))
+        records = handle.registry.records_for_root(TrustGroupPermission)
         self.assertEqual(len(records), 2)
         self.assertIs(records[0].content_model, Trust)
         self.assertIs(records[1].content_model, Trust)

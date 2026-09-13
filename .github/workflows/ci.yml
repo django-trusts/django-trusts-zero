@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 env:
-  # Merged Core C1 on django-trusts `dev` (#151 / #154).
-  COMPANION_KERNEL_SHA: b6eebc9273bf30048d410305a53249bdb51679f0
+  # Merged Core #131 C1 on django-trusts `dev` (#158).
+  COMPANION_KERNEL_SHA: e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4
 
 jobs:
   tests:
@@ -61,7 +61,7 @@ jobs:
       run: python scripts/verify-installed-ui.py
 
   pair:
-    name: pair with merged core #151 C1
+    name: pair with merged core #131 C1
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -77,8 +77,8 @@ jobs:
         python-version: "3.12"
     - name: Exact merged core head
       run: |
-        test "${COMPANION_KERNEL_SHA}" = "b6eebc9273bf30048d410305a53249bdb51679f0"
-        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "b6eebc9273bf30048d410305a53249bdb51679f0"
+        test "${COMPANION_KERNEL_SHA}" = "e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4"
+        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4"
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat

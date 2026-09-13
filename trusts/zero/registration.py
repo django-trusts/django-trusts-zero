@@ -35,78 +35,107 @@ def register_zero_meta_option_names():
 register_zero_meta_option_names()
 
 
-def _content_via_trust(root_ref, model):
-    """Map a grant/TrustGroup root through Zero ``Trust`` onto ``model``."""
-    rev = model._meta.get_field('trust').remote_field.get_accessor_name()
-    return getattr(root_ref.trust, rev)
+def _join_public_path(*parts):
+    """Compose a Django ``__`` path from non-empty segments."""
+    return '__'.join(part for part in parts if part)
 
 
-def _content_ref(root_ref, model, content_via):
+def _trust_reverse_name(model):
+    """Dynamic reverse accessor from ``Trust`` onto ``model``."""
+    return model._meta.get_field('trust').remote_field.get_accessor_name()
+
+
+def _content_via_trust(prefix, model):
+    """Public ``__`` path: grant prefix → Trust → reverse onto ``model``."""
+    return _join_public_path(prefix, 'trust', _trust_reverse_name(model))
+
+
+def _content_path(model, content_via, prefix=''):
+    """Resolve a customizable ``content_via`` to a public path string."""
     via = content_via if content_via is not None else _content_via_trust
-    return via(root_ref, model)
+    path = via(prefix, model)
+    if not isinstance(path, str):
+        raise TypeError(
+            'content_via must return a Django __ path string, not %r.'
+            % (type(path).__name__,)
+        )
+    return path
 
 
-def register_zero_direct(registry, content_models, content_via=None):
+def _require_handle(handle):
+    from trusts.core import BackendHandle
+
+    if not isinstance(handle, BackendHandle):
+        raise TypeError(
+            'Zero relation helpers require a BackendHandle, not %r.'
+            % (type(handle).__name__,)
+        )
+    return handle
+
+
+def register_zero_direct(handle, content_models, content_via=None):
     """TUP records for each content terminal."""
-    from trusts.core import Ref
     from trusts.zero.models import TrustUserPermission
 
-    j = Ref(TrustUserPermission)
+    handle = _require_handle(handle)
     for model in content_models:
-        registry.register(
-            content=_content_ref(j, model, content_via),
-            user=j.entity,
-            permission=j.permission,
+        handle.register(
+            TrustUserPermission,
+            user='entity',
+            permission='permission',
+            content=_content_path(model, content_via),
         )
 
 
-def register_zero_group(registry, content_models, content_via=None):
+def register_zero_group(handle, content_models, content_via=None):
     """Two alternative TGP registrations on the same bindings.
 
     Local TrustGroupPermission grant AND the group's direct
     ``permissions`` ceiling, or the same local grant AND the
     ``roles.permissions`` ceiling. The plan ORs complete records.
     """
-    from trusts.core import Ref, permission_in
+    from trusts.core import permission_in
     from trusts.zero.models import TrustGroupPermission
 
-    g = Ref(TrustGroupPermission)
+    handle = _require_handle(handle)
     for model in content_models:
-        content = _content_ref(g.trustgroup, model, content_via)
+        content = _content_path(model, content_via, prefix='trustgroup')
         # auth.Group reverse membership is related_query_name="user"
         # (Python accessor remains group.user_set). Core path validation
         # uses _meta.get_field, so the hop must be the query name.
-        user = g.trustgroup.group.user
-        permission = g.permission
-        registry.register(
+        handle.register(
+            TrustGroupPermission,
+            user='trustgroup__group__user',
+            permission='permission',
             content=content,
-            user=user,
-            permission=permission,
-            condition=permission_in(g.trustgroup.group.permissions),
+            condition=permission_in('trustgroup__group__permissions'),
         )
-        registry.register(
+        handle.register(
+            TrustGroupPermission,
+            user='trustgroup__group__user',
+            permission='permission',
             content=content,
-            user=user,
-            permission=permission,
-            condition=permission_in(g.trustgroup.group.roles.permissions),
+            condition=permission_in('trustgroup__group__roles__permissions'),
         )
 
 
-def register_zero_content(registry, model, content_via=None):
+def register_zero_content(handle, model, content_via=None):
     """TUP plus both TGP alternatives for one content terminal."""
-    register_zero_direct(registry, (model,), content_via=content_via)
-    register_zero_group(registry, (model,), content_via=content_via)
+    register_zero_direct(handle, (model,), content_via=content_via)
+    register_zero_group(handle, (model,), content_via=content_via)
 
 
-def register_zero_relations(registry):
+def register_zero_relations(handle):
     """Idempotent package donation: Trust-as-content TUP + both TGP alternatives."""
     from trusts.zero.models import Trust
 
-    ids = getattr(registry, '_zero_z1_relation_ids', None)
-    if ids is registry:
+    handle = _require_handle(handle)
+    store = handle.registry
+    ids = getattr(store, '_zero_z1_relation_ids', None)
+    if ids is store:
         return
-    register_zero_content(registry, Trust)
-    registry._zero_z1_relation_ids = registry
+    register_zero_content(handle, Trust)
+    store._zero_z1_relation_ids = store
 
 
 def donate_content_permission_conditions(handle_or_registry, model):

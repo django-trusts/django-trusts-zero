@@ -161,10 +161,40 @@ only. There is no `trusts.zero.models` alias.
 
 Hosts that previously donated only TUP and relied on
 `HistoricalGroupQueryCompiler` must call
-`register_zero_content(registry, Model)` (TUP + both TGP alternatives)
+`register_zero_content(handle, Model)` (TUP + both TGP alternatives)
 for each terminal. `register_zero_relations` still donates Trust-as-content
 only. `HistoricalGroupQueryCompiler` is removed; use core
 `PlanQueryCompiler`.
+
+## Relation helpers (handle.register)
+
+Zero production donation takes the configured `BackendHandle` and calls
+`handle.register(root, ...)` with validated Django `__` path strings.
+Customizable `content_via` helpers return or compose those public path
+strings, not `Ref` objects.
+
+| | Old | New |
+| --- | --- | --- |
+| Helper argument | `register_zero_content(registry, Model)` | `register_zero_content(handle, Model)` |
+| TUP paths | `from trusts.core import Ref` + `Ref(TrustUserPermission).entity` | `handle.register(TrustUserPermission, user="entity", permission="permission", content="trust__<reverse>")` |
+| TGP user / permission | `g.trustgroup.group.user` / `g.permission` | `user="trustgroup__group__user"`, `permission="permission"` |
+| TGP group ceiling | `permission_in(g.trustgroup.group.permissions)` | `permission_in("trustgroup__group__permissions")` |
+| TGP role ceiling | `permission_in(g.trustgroup.group.roles.permissions)` | `permission_in("trustgroup__group__roles__permissions")` |
+| Trust reverse / `content_via` | `getattr(root_ref.trust, rev)` (`Ref`) | `"trust__" + get_accessor_name()` (public `__` string) |
+
+`handle.registry` remains temporarily so isolated compiler tests can still
+inspect stored records. Application donation does not call
+`.registry.register`.
+
+```python
+from trusts.apps import implementation_for_path
+from trusts.zero.apps import CANONICAL_BACKEND_PATH
+from trusts.zero.registration import register_zero_content
+
+owner = implementation_for_path(CANONICAL_BACKEND_PATH)
+handle = owner.configured_backend(CANONICAL_BACKEND_PATH)
+register_zero_content(handle, Document)
+```
 
 ## Moved views / templates / admin / management commands
 
@@ -296,6 +326,15 @@ from trusts.zero.models import ContentQuerySet
 from trusts.zero.backends import HistoricalGroupQueryCompiler
 from trusts.conditions import condition_refs
 from trusts.conditions import legacy_permission_callbacks_allowed
+from trusts.core import Ref
+Ref(
+.registry.register(
+.registry.register_strategy(
+Along(
+register_zero_content(registry
+register_zero_direct(registry
+register_zero_group(registry
+register_zero_relations(registry
 Content.register_permission_condition
 Content.register_content
 trusts.conditions._ir
@@ -326,7 +365,7 @@ Then:
 - [ ] Retarget `include('trusts.urls')` to `include('trusts.zero.urls')`. Move template overrides to `trusts_zero/team_{detail,form}.html`.
 - [ ] Retarget views, admin, authorization helpers, and management-command imports to `trusts.zero.*`.
 - [ ] Retarget query / registration / policy helpers that used to import from `trusts.zero.models`.
-- [ ] Confirm `register_zero_content` for each host terminal that needs TUP + TGP. Do not rely on `HistoricalGroupQueryCompiler`.
+- [ ] Confirm `register_zero_content(handle, Model)` for each host terminal that needs TUP + TGP. Do not pass a bare registry or construct `Ref` / `Along(` in production donation. Do not rely on `HistoricalGroupQueryCompiler`.
 - [ ] Confirm startup: canonical settings succeed; old backend path raises `ImproperlyConfigured`.
 - [ ] Confirm no installed core `AppConfig` and exactly one implementation owner.
 - [ ] `python -m django migrate --plan` — no Trusts operations on an already-current database.

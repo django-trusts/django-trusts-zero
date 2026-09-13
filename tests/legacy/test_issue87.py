@@ -177,13 +177,11 @@ def _receipt_chain():
     return Receipt, ReceiptImage, ReceiptImageMeta, OrphanDoc
 
 
-def dependent_content_ref(root_ref, content_model, *suffixes):
-    """Bounded S5 path: Trust reverse onto ``content_model``, then suffixes."""
+def dependent_content_path(prefix, content_model, *suffixes):
+    """Public ``__`` path: Trust reverse onto ``content_model``, then suffixes."""
     rev = content_model._meta.get_field('trust').remote_field.get_accessor_name()
-    node = getattr(root_ref.trust, rev)
-    for name in suffixes:
-        node = getattr(node, name)
-    return node
+    parts = (prefix, 'trust', rev) + suffixes
+    return '__'.join(part for part in parts if part)
 
 
 def _related_by_accessor(model, name):
@@ -213,16 +211,17 @@ class DependentHostConfig(AppConfig):
             return
         if self.holder_model is None:
             return
-        registry = live_config(self.apps).configured_backend(CONCRETE).registry
+        handle = live_config(self.apps).configured_backend(CONCRETE)
+        registry = handle.registry
         from trusts.zero.registration import register_zero_content
 
         donated_image = getattr(self, '_trusts_tup_image_registry_id', None)
         if donated_image is not registry:
             register_zero_content(
-                registry,
+                handle,
                 _related_by_accessor(self.holder_model, 'image'),
-                content_via=lambda root, model: dependent_content_ref(
-                    root, self.holder_model, 'image',
+                content_via=lambda prefix, model: dependent_content_path(
+                    prefix, self.holder_model, 'image',
                 ),
             )
             self._trusts_tup_image_registry_id = registry
@@ -230,10 +229,10 @@ class DependentHostConfig(AppConfig):
         if donated_meta is not registry:
             image_model = _related_by_accessor(self.holder_model, 'image')
             register_zero_content(
-                registry,
+                handle,
                 _related_by_accessor(image_model, 'image'),
-                content_via=lambda root, model: dependent_content_ref(
-                    root, self.holder_model, 'image', 'image',
+                content_via=lambda prefix, model: dependent_content_path(
+                    prefix, self.holder_model, 'image', 'image',
                 ),
             )
             self._trusts_tup_meta_registry_id = registry
