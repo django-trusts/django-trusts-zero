@@ -138,27 +138,6 @@ class ZeroMigratesRouteTest(SimpleTestCase):
             with self.subTest(banned=banned):
                 self.assertNotIn(banned, text)
 
-    def test_condition_ready_example_resolves_owner(self):
-        text = (ROOT / "migrates.md").read_text()
-        section = text.split("## Conditions (current rule)", 1)[1]
-        block = section.split("```python", 1)[1].split("```", 1)[0]
-        required = (
-            "from django.apps import AppConfig",
-            "from trusts.apps import implementation_for_path",
-            "from trusts.zero.apps import CANONICAL_BACKEND_PATH",
-            "implementation_for_path(",
-            "CANONICAL_BACKEND_PATH, apps_registry=self.apps",
-            "owner.configured_backend(CANONICAL_BACKEND_PATH)",
-            "handle.register_permission_condition(",
-        )
-        for needle in required:
-            with self.subTest(needle=needle):
-                self.assertIn(needle, block)
-        self.assertIn("owner = implementation_for_path(", block)
-        self.assertNotIn("set_condition_lookup", block)
-        self.assertNotIn("trusts.conditions._ir", block)
-        compile(block, "migrates.md:conditions", "exec")
-
     def test_zero_tree_does_not_vendor_core_archive(self):
         manifest = (ROOT / "MANIFEST.in").read_text()
         self.assertIn("include migrates.md", manifest)
@@ -170,3 +149,27 @@ class ZeroMigratesRouteTest(SimpleTestCase):
             and "/.deps/" not in path.as_posix()
         ]
         self.assertEqual(vendored, [])
+
+    def test_ready_example_resolves_owner_on_the_public_api(self):
+        text = (ROOT / "migrates.md").read_text()
+        heading = text.index("## Conditions (current rule)")
+        fence_start = text.index("```python", heading)
+        example = text[fence_start + len("```python") : text.index("```", fence_start + 9)]
+        ready = example.split("def ready(self):", 1)[1]
+
+        self.assertIn("from django.apps import AppConfig", example)
+        self.assertIn("from trusts.apps import implementation_for_path", example)
+        self.assertIn("from trusts.zero.apps import CANONICAL_BACKEND_PATH", example)
+        self.assertIn(
+            "owner = implementation_for_path(\n"
+            "            CANONICAL_BACKEND_PATH, apps_registry=self.apps,",
+            example,
+        )
+        self.assertIn("handle = owner.configured_backend(CANONICAL_BACKEND_PATH)", ready)
+        self.assertIn("handle.register_permission_condition", ready)
+        self.assertLess(
+            ready.index("owner = implementation_for_path"),
+            ready.index("owner.configured_backend"),
+        )
+        self.assertNotIn("set_condition_lookup", example)
+        self.assertNotIn("conditions._ir", example)

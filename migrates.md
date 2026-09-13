@@ -97,11 +97,11 @@ conditions through the handle API only. Core self-binds the private
 store adapter at construct.
 
 ```python
-# New (builder; donate through the handle in ready())
 from django.apps import AppConfig
 from trusts.apps import implementation_for_path
 from trusts.zero.apps import CANONICAL_BACKEND_PATH
 
+# New (builder; donate through the handle in ready())
 def trust_own(u, p, o):
     return u == o.settlor
 
