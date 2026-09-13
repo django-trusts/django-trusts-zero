@@ -147,7 +147,7 @@ authorization-aware helpers in ``trusts.zero.authorization``:
    )
 
    grant_trustee(actor, receipt, colleague, "read")
-   associate_group_with_trust(actor, receipt, accountants)
+   associate_group_with_trust(actor, receipt, receipt, accountants)
    grant_trust_group_permission(actor, receipt, accountants, "read")
    revoke_trustee(actor, receipt, colleague, "read")
 
@@ -191,6 +191,7 @@ Migration and related projects
 
 * `Zero migration guide
   <https://github.com/django-trusts/django-trusts-zero/blob/dev/migrates.md>`_
+  (executable 0.x → Zero route)
 * `Core authorization guide
   <https://github.com/django-trusts/django-trusts/blob/dev/docs/source/index.rst>`_
 * `Supported Python and Django versions
@@ -202,7 +203,9 @@ Migration and related projects
 * `Runnable Zero application
   <https://github.com/django-trusts/django-trusts-example/tree/dev>`_
 
-Contributor and build history lives in ``DEV.md``. Historical migration
-details remain in ``migrates.md``; neither is the current API reference.
+Contributor and build history lives in ``DEV.md``. ``migrates.md`` is
+the executable 0.x → Zero route. Unpublished chronology is the Core
+archive tag ``migration-archive-pre-1.0``, not this file. Neither is
+the current API reference.
 
 Copyright BeeDesk, Inc., 2015--2026. BSD-2-Clause.

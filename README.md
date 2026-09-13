@@ -83,7 +83,7 @@ That call is exercised by the project's smoke and codec tests.
 
 ## Migration and API
 
-- [migrates.md](migrates.md) — 0.x to `django-trusts-zero` checklist
+- [migrates.md](migrates.md) — executable 0.x to `django-trusts-zero` route
 - [docs/source/index.rst](docs/source/index.rst) — API notes
 - [django-trusts](https://github.com/django-trusts/django-trusts) — core library
 - [Issues](https://github.com/django-trusts/django-trusts-zero/issues)
