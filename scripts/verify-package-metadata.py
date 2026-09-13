@@ -77,6 +77,8 @@ def _check_wheel(wheel: Path) -> None:
             raise SystemExit('wheel LICENSE notice is not BeeDesk 2015-2026')
         if 'django_trusts_zero-1.0.0.dev0' not in wheel.name:
             raise SystemExit('wheel filename is not 1.0.0.dev0: %s' % wheel.name)
+        if any(name.endswith('migrates.md') for name in names):
+            raise SystemExit('wheel must not vendor migrates.md: %s' % wheel.name)
     print('wheel metadata ok', wheel.name)
 
 
@@ -99,6 +101,28 @@ def _check_sdist(sdist: Path) -> None:
         readme_name = next((name for name in names if name.endswith('/README.md')), None)
         if readme_name is None:
             raise SystemExit('sdist missing README.md')
+        migrates_name = next((name for name in names if name.endswith('/migrates.md')), None)
+        if migrates_name is None:
+            raise SystemExit('sdist missing migrates.md')
+        migrates = tf.extractfile(migrates_name).read()
+        if len(migrates) > 80000:
+            raise SystemExit(
+                'sdist migrates.md is %s bytes; executable route must stay '
+                'far below the Core archive' % len(migrates)
+            )
+        migrates_text = migrates.decode()
+        required_urls = (
+            'https://github.com/django-trusts/django-trusts/blob/'
+            'migration-archive-pre-1.0/migrates.md',
+            'https://github.com/django-trusts/django-trusts/blob/'
+            '7414886263faafb6edfb44c0c5fcf9fc8fa14e79/migrates.md',
+        )
+        for url in required_urls:
+            if url not in migrates_text:
+                raise SystemExit('sdist migrates.md missing archaeology URL %s' % url)
+        for banned in ('# Issue #151 C1', '# Issue #8 recovery', '2.0.0.dev2'):
+            if banned in migrates_text:
+                raise SystemExit('sdist migrates.md still contains %r' % banned)
     print('sdist metadata ok', sdist.name)
 
 

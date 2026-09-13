@@ -189,7 +189,7 @@ Supported versions and limits
 Migration and related projects
 ------------------------------
 
-* `Zero migration guide
+* `Zero executable 0.x → Zero route
   <https://github.com/django-trusts/django-trusts-zero/blob/dev/migrates.md>`_
 * `Core authorization guide
   <https://github.com/django-trusts/django-trusts/blob/dev/docs/source/index.rst>`_
@@ -202,7 +202,8 @@ Migration and related projects
 * `Runnable Zero application
   <https://github.com/django-trusts/django-trusts-example/tree/dev>`_
 
-Contributor and build history lives in ``DEV.md``. Historical migration
-details remain in ``migrates.md``; neither is the current API reference.
+Contributor and build history lives in ``DEV.md``. The executable 0.x
+→ Zero route, including archaeology pointers, lives in ``migrates.md``;
+neither is the current API reference.
 
 Copyright BeeDesk, Inc., 2015--2026. BSD-2-Clause.
