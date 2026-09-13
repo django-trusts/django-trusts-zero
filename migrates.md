@@ -90,3 +90,14 @@ at construct. Application hosts register a builder; they do not import
 - tags, releases, #145, #146, #138, #137
 
 # Zero #142 Z-convert: registration-time condition builders
+
+This is the Zero half of
+[django-trusts#142](https://github.com/django-trusts/django-trusts/issues/142)
+r2 / PM S1, paired with Core Stage A
+[django-trusts#144](https://github.com/django-trusts/django-trusts/pull/144)
+head `5d12fa2fe18097abfe8f4ed30da6dafd1ace60be`. Package version stays
+**1.0.0.dev0**. No model, table, migration-loader key, content type,
+permission row, or stored authorization-data change.
+
+Do **not** ask Core to restore `legacy_permission_callbacks_allowed`,
+`trusts.E002` / `trusts.W001`, or a writable post-ready live registry.
