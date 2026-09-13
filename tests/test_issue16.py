@@ -1,7 +1,7 @@
-"""Zero #16: donate Meta conditions to the core handle registry.
+"""Zero #16: donate Meta conditions to the configured backend.
 
-Paired against merged Core #131 C1
-``e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4``.
+Paired against merged Core C-methods
+``f5211c11047eb6810680f5d1b13bf34b2c376635``.
 """
 
 import inspect
@@ -36,7 +36,7 @@ from trusts.zero.registration import (
     donate_installed_permission_conditions,
     donate_junction_content_permission_conditions,
 )
-from tests.apps import live_handle, publish_permission_condition
+from tests.apps import isolated_backend, live_backend, publish_permission_condition
 from tests.models import Category, Ticket, ticket_own
 
 
@@ -100,15 +100,15 @@ class ZeroConditionSurfaceTests(SimpleTestCase):
         self.assertTrue(issubclass(PermissionConditionNotQueryable, Exception))
 
     def test_live_registry_has_self_bound_lookup(self):
-        handle = live_handle()
-        registry = handle.registry
+        backend = live_backend()
+        registry = backend.registry
         lookup = registry.condition_lookup
         self.assertIsNotNone(lookup)
         self.assertIs(lookup.conditions, registry.conditions)
         own = registry.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(own)
         self.assertIsNotNone(own.expr)
-        self.assertTrue(callable(handle.register_permission_condition))
+        self.assertTrue(callable(backend.add_named_filter))
 
 
 class MetaDonationOnceTests(SimpleTestCase):
@@ -122,7 +122,7 @@ class MetaDonationOnceTests(SimpleTestCase):
         self.assertEqual(len(ticket_own), 1)
         self.assertIsNotNone(ticket_own[0][2].expr)
 
-        donate_installed_permission_conditions(registry)
+        donate_installed_permission_conditions(live_backend())
         self.assertEqual(len(_condition_rows(registry, Trust, 'own')), 1)
         self.assertEqual(len(_condition_rows(registry, Ticket, 'own')), 1)
 
@@ -153,10 +153,10 @@ class MetaDonationOnceTests(SimpleTestCase):
                     ('via_memo', via_memo),
                 )
 
-        isolated = TrustsRegistry()
+        isolated = isolated_backend()
         donate_junction_content_permission_conditions(isolated, MemoJunction)
         donate_junction_content_permission_conditions(isolated, MemoJunction)
-        rows = _condition_rows(isolated, MemoJunction, 'via_memo')
+        rows = _condition_rows(isolated.registry, MemoJunction, 'via_memo')
         self.assertEqual(len(rows), 1)
         self.assertIsNotNone(rows[0][2].expr)
         self.assertFalse(hasattr(rows[0][2], 'func'))
@@ -284,8 +284,8 @@ class ExprParityTests(TestCase):
         self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'typo16'))
         self.assertEqual(list(isolated.iter_permission_conditions()), [])
 
-        handle = live_handle()
-        registry = handle.registry
+        backend = live_backend()
+        registry = backend.registry
         saved = registry.condition_lookup
         self.assertIsNotNone(saved)
         self.assertIs(saved.conditions, registry.conditions)
@@ -339,7 +339,7 @@ class BuilderOnceTests(TestCase):
     def test_frozen_live_register_is_before_builder(self):
         late = _BuilderLog(lambda u, p, o: o.name == 'keep')
         with self.assertRaises(TrustsConfigurationError):
-            live_handle().register_permission_condition(Category, 'late16', late)
+            live_backend().add_named_filter(Category, 'late16', predicate=late)
         self.assertEqual(late.calls, [])
 
     def test_checks_never_reinvoke_builder(self):
@@ -375,12 +375,12 @@ class BuilderOnceTests(TestCase):
 
 class HelperDonationTests(TransactionTestCase):
     def test_content_meta_helper_is_not_a_second_store(self):
-        isolated = TrustsRegistry()
+        isolated = isolated_backend()
         donate_content_permission_conditions(isolated, Ticket)
         donate_content_permission_conditions(isolated, Ticket)
-        rows = _condition_rows(isolated, Ticket, 'own')
+        rows = _condition_rows(isolated.registry, Ticket, 'own')
         self.assertEqual(len(rows), 1)
-        record = isolated.get_permission_condition_record(Ticket, 'own')
+        record = isolated.registry.get_permission_condition_record(Ticket, 'own')
         self.assertIsNotNone(record.expr)
         self.assertFalse(hasattr(record, 'func'))
         self.assertEqual(
@@ -394,10 +394,10 @@ class HelperDonationTests(TransactionTestCase):
         code, builder = Trust._meta.permission_conditions[0]
         self.assertEqual(code, 'own')
         self.assertTrue(callable(builder))
-        isolated = TrustsRegistry()
+        isolated = isolated_backend()
         with self.assertNumQueries(0):
             donate_content_permission_conditions(isolated, Trust)
-        record = isolated.get_permission_condition_record(Trust, 'own')
+        record = isolated.registry.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(record)
         self.assertFalse(hasattr(record, 'func'))
         self.assertEqual(

@@ -104,8 +104,8 @@ class ZeroConfig(_ZeroBase):
 
         Uses the public owner/resolver API. Never calls
         ``kernel_config()``. Named conditions are donated through
-        ``handle.register_permission_condition`` while ``apps.ready``
-        is still false. Core binds the registry-backed lookup at
+        ``backend.add_named_filter`` while ``apps.ready`` is still
+        false. Core binds the registry-backed lookup at
         ``TrustsRegistry`` construction; Zero does not install or
         rebind it. There is no Zero-owned ``Content._conditions``
         store.
@@ -119,10 +119,10 @@ class ZeroConfig(_ZeroBase):
         owner = implementation_for_path(
             CANONICAL_BACKEND_PATH, apps_registry=self.apps,
         )
-        handle = owner.configured_backend(CANONICAL_BACKEND_PATH)
-        register_zero_relations(handle)
+        backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
+        register_zero_relations(backend)
         donate_installed_permission_conditions(
-            handle, apps_registry=self.apps,
+            backend, apps_registry=self.apps,
         )
 
 

@@ -25,7 +25,7 @@ from trusts.zero.registration import (
     register_zero_direct,
     register_zero_group,
 )
-from tests.apps import isolated_handle, publish_permission_condition
+from tests.apps import isolated_backend, publish_permission_condition
 from tests.models import Category, Ticket
 
 
@@ -54,17 +54,17 @@ class RegistrationAndCodecTests(TestCase):
         self.assertIn('return django_permission_filter(', src)
 
     def test_tup_register_on_isolated_registry(self):
-        handle = isolated_handle()
-        register_zero_direct(handle, (Trust,))
-        records = handle.registry.records_for_root(TrustUserPermission)
+        backend = isolated_backend()
+        register_zero_direct(backend, (Trust,))
+        records = backend.registry.records_for_root(TrustUserPermission)
         self.assertEqual(len(records), 1)
         self.assertIs(records[0].content_model, Trust)
         self.assertEqual(records[0].user_field, 'entity')
 
     def test_tgp_register_uses_two_ceiling_alternatives(self):
-        handle = isolated_handle()
-        register_zero_group(handle, (Trust,))
-        records = handle.registry.records_for_root(TrustGroupPermission)
+        backend = isolated_backend()
+        register_zero_group(backend, (Trust,))
+        records = backend.registry.records_for_root(TrustGroupPermission)
         self.assertEqual(len(records), 2)
         self.assertIs(records[0].content_model, Trust)
         self.assertIs(records[1].content_model, Trust)
@@ -73,16 +73,16 @@ class RegistrationAndCodecTests(TestCase):
         self.assertNotEqual(records[0].condition, records[1].condition)
 
     def test_live_registry_has_tup_trust_and_bound_condition_lookup(self):
-        handle = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
-        records = handle.registry.records_for_root(TrustUserPermission)
+        backend = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
+        records = backend.registry.records_for_root(TrustUserPermission)
         content_models = {row.content_model for row in records}
         self.assertIn(Trust, content_models)
         self.assertIn(Category, content_models)
         self.assertIn(Ticket, content_models)
-        lookup = handle.registry.condition_lookup
+        lookup = backend.registry.condition_lookup
         self.assertIsNotNone(lookup)
-        self.assertIs(lookup.conditions, handle.registry.conditions)
-        own = handle.registry.get_permission_condition_record(Trust, 'own')
+        self.assertIs(lookup.conditions, backend.registry.conditions)
+        own = backend.registry.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(own)
         self.assertIsNotNone(own.expr)
 
@@ -184,9 +184,9 @@ class RegistrationAndCodecTests(TestCase):
             calls.append((u, p, o))
             return o.name == 'n'
 
-        handle = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
+        backend = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
         with self.assertRaises(TrustsConfigurationError) as ctx:
-            handle.register_permission_condition(Category, 'cb', boom)
+            backend.add_named_filter(Category, 'cb', predicate=boom)
         self.assertIn('frozen', str(ctx.exception).lower())
         self.assertEqual(calls, [])
 

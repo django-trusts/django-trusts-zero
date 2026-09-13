@@ -108,8 +108,8 @@ donates each additional ``Content`` model from its ``AppConfig.ready()``:
    from trusts.zero.registration import register_zero_content
 
    owner = implementation_for_path(CANONICAL_BACKEND_PATH)
-   handle = owner.configured_backend(CANONICAL_BACKEND_PATH)
-   register_zero_content(handle, Receipt)
+   backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
+   register_zero_content(backend, Receipt)
 
 ``register_zero_content`` registers the direct
 ``TrustUserPermission`` path and two complete same-root
@@ -121,14 +121,14 @@ their own content models.
 
 Registered ``Meta.permission_conditions`` (including built-in
 ``Trust:own``) are builder callables donated through
-``handle.register_permission_condition`` in ``ZeroConfig.ready()`` while
+``backend.add_named_filter`` in ``ZeroConfig.ready()`` while
 ``apps.ready`` is still false. Core binds the registry-backed lookup at
 ``TrustsRegistry`` construction; Zero donates conditions only through
-the handle API. Explicit named-condition registration uses the same
-handle method in that pre-finalization window. After ready, the live
-handle is frozen; further condition writes raise
-``TrustsConfigurationError`` before a builder runs. Isolated tests use
-an unfrozen ``TrustsRegistry()``.
+the configured-backend API. Explicit named-condition registration uses
+the same backend method in that pre-finalization window. After ready,
+the live backend is frozen; further condition writes raise
+``TrustsConfigurationError`` before a builder runs. Isolated tests wrap
+an unfrozen ``TrustsRegistry()`` in a ``BackendHandle``.
 
 Edit grants
 -----------

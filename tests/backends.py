@@ -18,7 +18,7 @@ class HostTrustModelBackend(TrustModelBackendMixin, ModelBackend):
 class GroupOnlyBackend(TrustModelBackendMixin, ModelBackend):
     """Mixin host whose complete proof is registered TGP alternatives only.
 
-    Isolation is records present vs absent on this handle, not a
+    Isolation is records present vs absent on this backend, not a
     Zero-owned compiler. Hosts that need group-only coverage donate
     the TGP pair and omit TUP.
     """

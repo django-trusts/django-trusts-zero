@@ -35,7 +35,7 @@ from trusts.zero.registration import (
     register_zero_meta_option_names,
     register_zero_relations,
 )
-from tests.apps import isolated_handle
+from tests.apps import isolated_backend
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
@@ -175,22 +175,22 @@ class BackendAndRegistrationTests(SimpleTestCase):
             self.assertNotIn(name, query, name)
 
     def test_register_zero_relations_is_idempotent(self):
-        handle = isolated_handle()
-        register_zero_relations(handle)
-        first = list(handle.registry.records)
-        register_zero_relations(handle)
-        self.assertEqual(list(handle.registry.records), first)
-        tgp = handle.registry.records_for_root(TrustGroupPermission)
+        backend = isolated_backend()
+        register_zero_relations(backend)
+        first = list(backend.registry.records)
+        register_zero_relations(backend)
+        self.assertEqual(list(backend.registry.records), first)
+        tgp = backend.registry.records_for_root(TrustGroupPermission)
         self.assertEqual(len(tgp), 2)
 
     def test_register_zero_group_two_alternatives(self):
-        handle = isolated_handle()
-        register_zero_group(handle, (Trust,))
-        rows = handle.registry.records_for_root(TrustGroupPermission)
+        backend = isolated_backend()
+        register_zero_group(backend, (Trust,))
+        rows = backend.registry.records_for_root(TrustGroupPermission)
         self.assertEqual(len(rows), 2)
         self.assertNotEqual(rows[0].condition, rows[1].condition)
 
-    def test_relation_helpers_require_handle_and_public_paths(self):
+    def test_relation_helpers_require_backend_and_public_paths(self):
         from trusts.zero import apps as zero_apps
         from trusts.zero import registration as zero_registration
 
@@ -198,22 +198,24 @@ class BackendAndRegistrationTests(SimpleTestCase):
         self.assertNotIn('from trusts.core import Ref', source)
         self.assertNotIn('.registry.register(', source)
         self.assertNotIn('Along(', source)
-        self.assertIn('handle.register(', source)
+        self.assertNotIn('handle.register(', source)
+        self.assertNotIn('.register(', source)
+        self.assertIn('backend.register_relationship(', source)
         self.assertIn("user='trustgroup__group__user'", source)
         self.assertIn("permission_in('trustgroup__group__permissions')", source)
         self.assertIn(
             "permission_in('trustgroup__group__roles__permissions')", source,
         )
         donate = inspect.getsource(zero_apps.ZeroConfig._donate_zero_relations)
-        self.assertIn('register_zero_relations(handle)', donate)
-        self.assertNotIn('register_zero_relations(handle.registry)', donate)
+        self.assertIn('register_zero_relations(backend)', donate)
+        self.assertNotIn('register_zero_relations(backend.registry)', donate)
         with self.assertRaises(TypeError):
             register_zero_relations(TrustsRegistry())
         with self.assertRaises(TypeError):
             register_zero_group(TrustsRegistry(), (Trust,))
         with self.assertRaises(TypeError):
             register_zero_direct(
-                isolated_handle(),
+                isolated_backend(),
                 (Trust,),
                 content_via=lambda prefix, model: object(),
             )

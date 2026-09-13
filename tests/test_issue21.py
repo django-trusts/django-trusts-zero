@@ -33,6 +33,9 @@ class ZeroDocumentationSurfaceTest(SimpleTestCase):
             "from trusts.core import Ref",
             ".registry.register(",
             "Along(",
+            "handle.register(",
+            "handle.register_permission_condition",
+            "register_zero_content(handle, Receipt)",
         )
         self.assertEqual([name for name in forbidden if name in rst], [])
 
@@ -45,7 +48,7 @@ class ZeroDocumentationSurfaceTest(SimpleTestCase):
             "granted",
             "filter_authorized_scopes",
             "register_zero_content",
-            "register_zero_content(handle, Receipt)",
+            "register_zero_content(backend, Receipt)",
             "trusts.zero.urls",
             "2015--2026",
             "blob/dev/migrates.md",
@@ -169,8 +172,10 @@ class ZeroMigratesRouteTest(SimpleTestCase):
             "            CANONICAL_BACKEND_PATH, apps_registry=self.apps,",
             example,
         )
-        self.assertIn("handle = owner.configured_backend(CANONICAL_BACKEND_PATH)", ready)
-        self.assertIn("handle.register_permission_condition", ready)
+        self.assertIn("backend = owner.configured_backend(CANONICAL_BACKEND_PATH)", ready)
+        self.assertIn("backend.add_named_filter", ready)
+        self.assertNotIn("handle.register_permission_condition", ready)
+        self.assertNotIn("backend.register_permission_condition", ready)
         self.assertLess(
             ready.index("owner = implementation_for_path"),
             ready.index("owner.configured_backend"),
