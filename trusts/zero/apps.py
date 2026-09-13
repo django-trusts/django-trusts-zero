@@ -1,28 +1,7 @@
-import importlib
-
 from django.apps import AppConfig as DjangoAppConfig
 from django.core.exceptions import ImproperlyConfigured
 
 from trusts.zero.registration import register_zero_meta_option_names
-
-
-_IR_MODULE = 'trusts.conditions._ir'
-
-
-def _load_conditions_implementation():
-    """Return Core's condition implementation module.
-
-    Stage B keeps store/compiler types on ``trusts.conditions._ir``.
-    Merged Stage A has no such submodule. Only that exact module
-    absence is a compatibility fallback onto ``trusts.conditions``.
-    Any other import failure is a Core defect and must propagate.
-    """
-    try:
-        return importlib.import_module(_IR_MODULE)
-    except ModuleNotFoundError as exc:
-        if getattr(exc, 'name', None) != _IR_MODULE:
-            raise
-        return importlib.import_module('trusts.conditions')
 
 
 # Phase-1: Zero-only Meta option names must exist before host models
@@ -121,24 +100,20 @@ class ZeroConfig(_ZeroBase):
         self._donate_zero_relations()
 
     def _donate_zero_relations(self):
-        """Register TUP/TGP, donate Meta conditions, bind generic lookup.
+        """Register TUP/TGP and donate Meta conditions.
 
         Uses the public owner/resolver API. Never calls
         ``kernel_config()``. Named conditions are donated through
         ``handle.register_permission_condition`` while ``apps.ready``
-        is still false. There is no Zero-owned ``Content._conditions``
+        is still false. Core binds the registry-backed lookup at
+        ``TrustsRegistry`` construction; Zero does not install or
+        rebind it. There is no Zero-owned ``Content._conditions``
         store.
         """
         from trusts.apps import implementation_for_path
         from trusts.zero.registration import (
             donate_installed_permission_conditions,
             register_zero_relations,
-        )
-
-        # Implementation lookup. Private on Core's six-name
-        # ``trusts.conditions``; not an application API.
-        RegistryConditionLookup = (
-            _load_conditions_implementation().RegistryConditionLookup
         )
 
         owner = implementation_for_path(
@@ -148,9 +123,6 @@ class ZeroConfig(_ZeroBase):
         register_zero_relations(handle.registry)
         donate_installed_permission_conditions(
             handle, apps_registry=self.apps,
-        )
-        handle.registry.set_condition_lookup(
-            RegistryConditionLookup(handle.registry),
         )
 
 

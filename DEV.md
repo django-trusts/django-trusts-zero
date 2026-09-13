@@ -8,10 +8,9 @@ points at `README.md`, not this file.
 ## Current pairing
 
 This tree is `django-trusts-zero==1.0.0.dev0` pairing against merged Core
-Stage A [django-trusts#144](https://github.com/django-trusts/django-trusts/pull/144)
-`710b3ea26778ff069d1f5329adc9f2f481a1ea92`. CI also pair-proves Core
-Stage B candidate `12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa`. The
-previous paired core floor remains
+C1 [django-trusts#154](https://github.com/django-trusts/django-trusts/pull/154)
+`b6eebc9273bf30048d410305a53249bdb51679f0` ([django-trusts#151](https://github.com/django-trusts/django-trusts/issues/151)).
+The previous paired core floor remains
 [django-trusts#121](https://github.com/django-trusts/django-trusts/pull/121).
 
 Earlier unpublished Zero snapshots used `2.0.0.dev0` / `dev1` / `dev2`.
@@ -51,12 +50,10 @@ See `docs/source/index.rst` and `migrates.md`.
 
 ## Verification
 
-Pair CI pins merged Core `710b3ea26778ff069d1f5329adc9f2f481a1ea92`
-and an explicit Stage B candidate pair
-`12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa`.
-The Zero suite (including `tests/legacy/` historical copies from that
-core revision), fresh-install, old-path fail-closed, wheel RECORD, and
-uninstall-isolation scripts must run against that revision without
+Pair CI pins merged Core `b6eebc9273bf30048d410305a53249bdb51679f0`
+only. The Zero suite (including `tests/legacy/` historical copies from
+that core revision), fresh-install, old-path fail-closed, wheel RECORD,
+and uninstall-isolation scripts must run against that revision without
 skipping modules that formerly imported `kernel_config()` or a core
 `AppConfig`. Historical Zero-owned regressions live under
 `tests/legacy/`; do not add `trusts/tests/` or `trusts/zero/tests/`.
