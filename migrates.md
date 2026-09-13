@@ -101,3 +101,122 @@ permission row, or stored authorization-data change.
 
 Do **not** ask Core to restore `legacy_permission_callbacks_allowed`,
 `trusts.E002` / `trusts.W001`, or a writable post-ready live registry.
+
+## Decision
+
+A callable supplied to condition registration is a **builder**. Core
+invokes it once with symbolic `(u, p, o)`, stores normalized IR, and
+discards the callable from the policy record. Authorization never
+invokes it.
+
+Zero production `Trust:own` and test Meta fixtures are builders.
+Donation uses `BackendHandle.register_permission_condition` inside
+`ZeroConfig.ready()` (pre-finalization). After `apps.ready`, the live
+handle is frozen; further `register_permission_condition` raises
+`TrustsConfigurationError` **before** the builder runs. Ad-hoc test
+conditions register on an isolated unfrozen `TrustsRegistry()`.
+
+There is no Zero runtime-callback shim.
+
+## Old → new
+
+```python
+# Old (Expr via condition_refs, registry write, runtime-callback meaning)
+from trusts.conditions import condition_refs, legacy_permission_callbacks_allowed
+
+u, p, o = condition_refs()
+
+class Trust(Content):
+    class Meta:
+        permission_conditions = (('own', u == o.settlor),)
+
+handle.registry.register_permission_condition(Ticket, 'own', u == o.owner)
+handle.registry.register_permission_condition(
+    Category, 'spy', lambda user, perm, obj: obj.name == 'keep',
+)
+# TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS = True  # object-only has_perm + W001
+
+# New (builder; donate through the handle in ready())
+def trust_own(u, p, o):
+    return u == o.settlor
+
+class Trust(Content):
+    class Meta:
+        permission_conditions = (('own', trust_own),)
+
+class DocumentsConfig(AppConfig):
+    def ready(self):
+        handle = owner.configured_backend(CANONICAL_BACKEND_PATH)
+        handle.register_permission_condition(
+            Document, 'non_confidential',
+            lambda u, p, o: o.confidential != True,
+        )
+
+# Isolated / unfrozen tests (never the post-ready live registry)
+from trusts.core import TrustsRegistry
+isolated = TrustsRegistry()
+isolated.register_permission_condition(Ticket, 'own', lambda u, p, o: u == o.owner)
+```
+
+Unchanged public call sites: `User.has_perm`,
+`ContentQuerySet.permitted(perm, user)`,
+`Trust.objects.filter_by_user_content_perm` (still refuses `:condition`),
+`Meta.permission_conditions` / `content_permission_conditions` names,
+`Trust:own` authorization meaning (`u == o.settlor`).
+
+## Behavior
+
+| Situation | Old | New |
+| --- | --- | --- |
+| `Trust:own` / Meta tuples | Prebuilt `Expr` from `condition_refs()` | Builder callable donated in `ready()` |
+| Explicit registration | `handle.registry.register_permission_condition` | `handle.register_permission_condition` in the pre-finalization window |
+| Callable argument | Object-only runtime callback gated by `TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS` | Builder: invoke once, store IR, never call during auth |
+| Live registry after `apps.ready` | Condition writes still accepted | Frozen; register raises before builder invoke |
+| Setting `True` | Object-only `has_perm` + `trusts.W001` | `trusts.E007`; does not enable callbacks |
+| Setting missing / False | `trusts.E002`; callback never invoked | No callback path; `legacy_permission_callbacks_allowed` is deleted |
+| `ConditionRecord.func` | Present (`None` for Expr) | Deleted; IR only (`record.expr`) |
+| Isolated `TrustsRegistry()` | Unfrozen; still the test surface | Unchanged |
+
+## Fail-closed rollout
+
+1. Pair against Core Stage A `5d12fa2…` (this PR). Do not merge Core #144 until Chat reviews the exact-SHA pair.
+2. Host apps convert Meta / explicit registrations to builders and move writes into `AppConfig.ready()`.
+3. Remove `TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS` and any `legacy_permission_callbacks_allowed` / `E002` / `W001` imports.
+4. Example conversion and Core Stage B (public `Expr` / `condition_refs` import break) stay later.
+
+## Deleted / retired consumer names
+
+| Removed | Replacement |
+| --- | --- |
+| `from trusts.conditions import condition_refs` in Zero production / Meta | Builder `lambda u, p, o: ...` or a named `def` |
+| `handle.registry.register_permission_condition` as the application API | `handle.register_permission_condition` |
+| `legacy_permission_callbacks_allowed` | Deleted. Leftover setting is `trusts.E007` |
+| `CHECK_ID_LEGACY_CALLBACK` / `trusts.E002` | Deleted |
+| `CHECK_ID_LEGACY_CALLBACK_WARNING` / `trusts.W001` | Deleted |
+| `ConditionRecord.func` | Gone. Use `record.expr` |
+
+## Migration-bot checklist
+
+- [ ] Search for `condition_refs` in Zero models, host Meta, and docs. Replace with builders.
+- [ ] Search for `u == o.` / `_u == _o.` Meta tuples. Convert to `lambda u, p, o: ...` or a named function.
+- [ ] Search for `register_permission_condition`. Call it on the **handle** from `AppConfig.ready()`, not on the post-ready frozen live registry.
+- [ ] Search for `legacy_permission_callbacks_allowed`, `TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS`, `trusts.E002`, `trusts.W001`, `CHECK_ID_LEGACY_CALLBACK`. Delete those expectations.
+- [ ] Search for `record.func`. The field is gone; records are IR-only.
+- [ ] Move ad-hoc test condition registration onto `TrustsRegistry()` (unfrozen). Do not write the live frozen registry.
+- [ ] Confirm `Trust:own` still authorizes settlor rows on both `has_perm` and `.permitted()`.
+- [ ] Confirm first-party donation (`Trust:own`, host Meta) is zero-SQL and idempotent on re-entry to `ready()`.
+- [ ] Confirm a leftover `TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS = True` is `trusts.E007` and does not enable callbacks.
+- [ ] Confirm a frozen handle raises `TrustsConfigurationError` before the builder is invoked.
+- [ ] Do not apply a new Trusts schema or data migration; none was added.
+- [ ] Leave Zero package version at `1.0.0.dev0` and core floor at `1.0.0.dev3`.
+
+## Out of scope (this slice)
+
+- Core Stage B (reject `Expr` / private IR move)
+- zero-example conversion
+- #138, #137, `TQ.contains` / membership grammar
+- Restoring a Core callback shim or weakening freeze-before-invoke
+- Merging Core #144
+
+
+# Zero #18: declarative models + receive core #120 UI
