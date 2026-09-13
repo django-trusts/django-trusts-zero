@@ -34,6 +34,7 @@ from trusts.zero.models import (
     TrustUserPermission,
 )
 from trusts.zero.registration import donate_content_permission_conditions
+from tests.apps import isolated_backend
 from tests.legacy.test_issue4 import _BuilderLog
 from tests.legacy.helpers import (
     create_test_users,
@@ -186,15 +187,19 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
                     ('bad_b', lambda u, p, o: o.trust == 1),
                 )
 
-        isolated = TrustsRegistry()
+        isolated = isolated_backend()
         with self.assertRaises(PermissionConditionError) as ctx:
             donate_content_permission_conditions(isolated, ImportTimeBadTicket)
         self.assertIn('missing_a', str(ctx.exception))
         self.assertIsNone(
-            isolated.get_permission_condition_record(ImportTimeBadTicket, 'bad_a')
+            isolated.registry.get_permission_condition_record(
+                ImportTimeBadTicket, 'bad_a',
+            )
         )
         self.assertIsNone(
-            isolated.get_permission_condition_record(ImportTimeBadTicket, 'bad_b')
+            isolated.registry.get_permission_condition_record(
+                ImportTimeBadTicket, 'bad_b',
+            )
         )
         forget_models(ImportTimeBadTicket)
 

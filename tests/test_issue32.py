@@ -7,8 +7,9 @@ Paired against merged Core C-methods
 import inspect
 from pathlib import Path
 
+from django.contrib.auth.models import User
 from django.db import models
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 from django.test.utils import isolate_apps
 
 from trusts.core import TrustsConfigurationError, TrustsRegistry
@@ -126,7 +127,7 @@ class ZMethodsPlanTests(SimpleTestCase):
         self.assertNotEqual(rows[0].condition, rows[1].condition)
 
 
-class ZMethodsDonationOnceTests(SimpleTestCase):
+class ZMethodsDonationOnceTests(TestCase):
     def test_trust_own_and_ticket_own_are_donated_once(self):
         backend = live_backend()
         registry = backend.registry
@@ -201,7 +202,7 @@ class ZMethodsDonationOnceTests(SimpleTestCase):
             return u == o.content.owner
 
         class Memo(models.Model):
-            owner = models.ForeignKey('auth.User', on_delete=models.CASCADE)
+            owner = models.ForeignKey(User, on_delete=models.CASCADE)
 
             class Meta:
                 app_label = 'trusts_zero_tests'
