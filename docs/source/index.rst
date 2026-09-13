@@ -108,8 +108,8 @@ donates each additional ``Content`` model from its ``AppConfig.ready()``:
    from trusts.zero.registration import register_zero_content
 
    owner = implementation_for_path(CANONICAL_BACKEND_PATH)
-   registry = owner.configured_backend(CANONICAL_BACKEND_PATH).registry
-   register_zero_content(registry, Receipt)
+   handle = owner.configured_backend(CANONICAL_BACKEND_PATH)
+   register_zero_content(handle, Receipt)
 
 ``register_zero_content`` registers the direct
 ``TrustUserPermission`` path and two complete same-root

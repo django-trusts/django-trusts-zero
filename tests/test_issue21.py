@@ -30,6 +30,9 @@ class ZeroDocumentationSurfaceTest(SimpleTestCase):
             "r7",
             "pair pin",
             "baton",
+            "from trusts.core import Ref",
+            ".registry.register(",
+            "Along(",
         )
         self.assertEqual([name for name in forbidden if name in rst], [])
 
@@ -42,6 +45,7 @@ class ZeroDocumentationSurfaceTest(SimpleTestCase):
             "granted",
             "filter_authorized_scopes",
             "register_zero_content",
+            "register_zero_content(handle, Receipt)",
             "trusts.zero.urls",
             "2015--2026",
             "blob/dev/migrates.md",

@@ -25,7 +25,7 @@ from tests.apps import (
     install_writable_registry,
     isolate_live_registry,
     junction_content_field,
-    junction_group_content_ref,
+    junction_group_content_path,
     isolated_owner,
     live_config,
     override_apps_ready,
@@ -99,10 +99,20 @@ def _ticket_rows(registry):
     ]
 
 
+def _walk_public_path(root_ref, path):
+    """Isolated compiler helper: walk a public ``__`` path on a ``Ref``."""
+    node = root_ref
+    for name in path.split('__'):
+        node = getattr(node, name)
+    return node
+
+
 def _contribute_group(registry, junction_model=TestGroupJunction):
     j = Ref(TrustUserPermission)
     registry.register(
-        content=junction_group_content_ref(j, junction_model),
+        content=_walk_public_path(
+            j, junction_group_content_path('', junction_model),
+        ),
         user=j.entity,
         permission=j.permission,
     )
@@ -270,7 +280,9 @@ class GroupContributionIdempotenceTest(SimpleTestCase):
         isolated = TrustsRegistry()
         j = Ref(TrustUserPermission)
         isolated.register(
-            content=junction_group_content_ref(j, TestGroupJunction),
+            content=_walk_public_path(
+                j, junction_group_content_path('', TestGroupJunction),
+            ),
             user=j.permission,
             permission=j.entity,
         )

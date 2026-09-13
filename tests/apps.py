@@ -96,11 +96,25 @@ def junction_content_field(junction_model):
     return matches[0]
 
 
-def junction_group_content_ref(root_ref, junction_model):
-    """J1 content ref: TUP → Trust ← Junction → Group/content."""
+def junction_group_content_path(prefix, junction_model):
+    """Public ``__`` path: TUP/TGP prefix → Trust ← Junction → Group/content."""
     rev = junction_model._meta.get_field('trust').remote_field.get_accessor_name()
     content_name = junction_content_field(junction_model).name
-    return getattr(getattr(root_ref.trust, rev), content_name)
+    parts = (prefix, 'trust', rev, content_name)
+    return '__'.join(part for part in parts if part)
+
+
+def isolated_handle(registry=None, path='tests.isolated'):
+    """Wrap an unfrozen registry in a ``BackendHandle`` for isolated tests."""
+    from trusts.core import BackendHandle, PlanQueryCompiler, TrustsRegistry
+
+    if registry is None:
+        registry = TrustsRegistry()
+    return BackendHandle(
+        path=path,
+        registry=registry,
+        compiler=PlanQueryCompiler(),
+    )
 
 
 class TestsConfig(AppConfig):
@@ -127,25 +141,26 @@ class TestsConfig(AppConfig):
         except ImportError:
             return
 
-        registry = owner.configured_backend(CANONICAL_BACKEND_PATH).registry
+        handle = owner.configured_backend(CANONICAL_BACKEND_PATH)
+        registry = handle.registry
 
         donated_category = getattr(self, '_trusts_tup_category_registry_id', None)
         if donated_category is not registry:
-            register_zero_content(registry, Category)
+            register_zero_content(handle, Category)
             self._trusts_tup_category_registry_id = registry
 
         donated_ticket = getattr(self, '_trusts_tup_ticket_registry_id', None)
         if donated_ticket is not registry:
-            register_zero_content(registry, Ticket)
+            register_zero_content(handle, Ticket)
             self._trusts_tup_ticket_registry_id = registry
 
         donated_group = getattr(self, '_trusts_tup_group_registry_id', None)
         if donated_group is not registry:
             register_zero_content(
-                registry,
+                handle,
                 Group,
-                content_via=lambda root, model: junction_group_content_ref(
-                    root, TestGroupJunction,
+                content_via=lambda prefix, model: junction_group_content_path(
+                    prefix, TestGroupJunction,
                 ),
             )
             self._trusts_tup_group_registry_id = registry
@@ -198,6 +213,7 @@ def forget_models(*model_classes):
 def apply_zero_trust_donation(config):
     from django.utils.module_loading import import_string
 
+    from trusts.core import BackendHandle, compiler_for_class
     from trusts.zero.backends import TrustModelBackend
     from trusts.zero.registration import register_zero_relations
 
@@ -207,7 +223,12 @@ def apply_zero_trust_donation(config):
         if not issubclass(cls, TrustModelBackend):
             continue
         registry = config._ensure(path)
-        register_zero_relations(registry)
+        handle = BackendHandle(
+            path=path,
+            registry=registry,
+            compiler=compiler_for_class(cls),
+        )
+        register_zero_relations(handle)
         ids = dict(getattr(config, '_trusts_tup_trust_registry_ids', None) or {})
         ids[path] = registry
         config._trusts_tup_trust_registry_ids = ids
