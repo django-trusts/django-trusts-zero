@@ -138,6 +138,27 @@ class ZeroMigratesRouteTest(SimpleTestCase):
             with self.subTest(banned=banned):
                 self.assertNotIn(banned, text)
 
+    def test_condition_ready_example_resolves_owner(self):
+        text = (ROOT / "migrates.md").read_text()
+        section = text.split("## Conditions (current rule)", 1)[1]
+        block = section.split("```python", 1)[1].split("```", 1)[0]
+        required = (
+            "from django.apps import AppConfig",
+            "from trusts.apps import implementation_for_path",
+            "from trusts.zero.apps import CANONICAL_BACKEND_PATH",
+            "implementation_for_path(",
+            "CANONICAL_BACKEND_PATH, apps_registry=self.apps",
+            "owner.configured_backend(CANONICAL_BACKEND_PATH)",
+            "handle.register_permission_condition(",
+        )
+        for needle in required:
+            with self.subTest(needle=needle):
+                self.assertIn(needle, block)
+        self.assertIn("owner = implementation_for_path(", block)
+        self.assertNotIn("set_condition_lookup", block)
+        self.assertNotIn("trusts.conditions._ir", block)
+        compile(block, "migrates.md:conditions", "exec")
+
     def test_zero_tree_does_not_vendor_core_archive(self):
         manifest = (ROOT / "MANIFEST.in").read_text()
         self.assertIn("include migrates.md", manifest)
