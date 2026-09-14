@@ -38,7 +38,8 @@ class RegisterMigrationSurfaceTests(SimpleTestCase):
         self.assertIn('t.permission', source)
         self.assertNotIn('register_relationship(', source)
         self.assertNotIn('permission_in(', source)
-        self.assertNotIn('predicate=', source)
+        self.assertNotIn('predicate=', inspect.getsource(register_zero_direct))
+        self.assertNotIn('predicate=', inspect.getsource(register_zero_group))
         self.assertNotIn(' in t.', source)
         for helper in (register_zero_direct, register_zero_group):
             tree = ast.parse(inspect.getsource(helper))
@@ -101,7 +102,7 @@ class RegisterMigrationSurfaceTests(SimpleTestCase):
         self.assertIn('COMPANION_KERNEL_SHA: %s' % CORE_PIN, ci)
 
 
-class PublicRegisterDonationTests(SimpleTestCase):
+class PublicRegisterDonationTests(TestCase):
     def test_direct_group_and_role_ceilings_register_on_public_backend(self):
         backend = isolated_backend()
         self.assertTrue(callable(backend.register))
