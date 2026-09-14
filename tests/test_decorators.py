@@ -18,6 +18,7 @@ from django.test import SimpleTestCase, TestCase
 from trusts.zero.decorators import G, K, O, P, R, permission_required
 from trusts.zero.models import Trust, TrustUserPermission
 from tests.legacy.helpers import create_test_users, get_or_create_root_user
+from tests.models import Category
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,16 +89,16 @@ class LegacyDecoratorPublicSurfaceTests(SimpleTestCase):
             migrates,
         )
         offenders = []
-        for path in list((ROOT / 'trusts' / 'zero').rglob('*.py')) + list(
+        scanned = list((ROOT / 'trusts' / 'zero').rglob('*.py')) + list(
             (ROOT / 'tests').rglob('*.py')
-        ):
+        )
+        for path in scanned:
             for line in path.read_text().splitlines():
                 stripped = line.strip()
                 if stripped.startswith('#'):
                     continue
-                if (
-                    'from trusts.decorators import' in stripped
-                    or stripped == 'import trusts.decorators'
+                if stripped.startswith('from trusts.decorators import') or (
+                    stripped == 'import trusts.decorators'
                 ):
                     offenders.append(
                         '%s: %s' % (path.relative_to(ROOT), stripped)
@@ -292,9 +293,11 @@ class LegacyDecoratorRequestTests(TestCase):
         root = Trust.objects.get_root()
         org = Trust(settlor=self.user, title='Decorator Org', trust=root)
         org.save()
+        category = Category(trust=org, name='Decorator Cat')
+        category.save()
         change = Permission.objects.get(
-            content_type=ContentType.objects.get_for_model(Trust),
-            codename='change_trust',
+            content_type=ContentType.objects.get_for_model(Category),
+            codename='change_category',
         )
         TrustUserPermission.objects.create(
             trust=org, entity=self.user, permission=change,
@@ -302,15 +305,15 @@ class LegacyDecoratorRequestTests(TestCase):
         user = User._default_manager.get(pk=self.user.pk)
         request = _request(user)
         response = permission_required(
-            'trusts.change_trust',
+            'trusts_zero_tests.change_category',
             fieldlookups_kwargs={'pk': 'pk'},
-        )(_ok_view)(request, pk=org.pk)
+        )(_ok_view)(request, pk=category.pk)
         self.assertEqual(response.content, b'ok')
 
         other = User._default_manager.get(pk=self.user1.pk)
         request = _request(other)
         with self.assertRaises(PermissionDenied):
             permission_required(
-                'trusts.change_trust',
+                'trusts_zero_tests.change_category',
                 fieldlookups_kwargs={'pk': 'pk'},
-            )(_ok_view)(request, pk=org.pk)
+            )(_ok_view)(request, pk=category.pk)
