@@ -181,6 +181,35 @@ class PublicRegisterAuthorizationTests(TestCase):
     def _reload(self):
         self.user = self.User.objects.get(pk=self.user.pk)
 
+    def _assert_allowed(self):
+        self._reload()
+        self.assertTrue(self.user.has_perm(self.code, self.category))
+        self.assertIn(
+            self.category.pk,
+            Category.objects.permitted('read', self.user).values_list(
+                'pk', flat=True,
+            ),
+        )
+
+    def _assert_denied(self):
+        self._reload()
+        self.assertFalse(self.user.has_perm(self.code, self.category))
+        self.assertNotIn(
+            self.category.pk,
+            Category.objects.permitted('read', self.user).values_list(
+                'pk', flat=True,
+            ),
+        )
+
+    def _assert_local_grant_remains(self):
+        self.assertTrue(
+            TrustGroupPermission.objects.filter(
+                trustgroup__trust=self.org,
+                trustgroup__group=self.group,
+                permission=self.perm,
+            ).exists()
+        )
+
     def test_live_backend_exposes_public_register_only(self):
         backend = live_backend()
         self.assertTrue(callable(backend.register))
@@ -204,14 +233,7 @@ class PublicRegisterAuthorizationTests(TestCase):
     def test_group_permissions_ceiling_still_allows(self):
         self.group.permissions.add(self.perm)
         enable_local_group_grant(self.org, self.group, self.perm)
-        self._reload()
-        self.assertTrue(self.user.has_perm(self.code, self.category))
-        self.assertIn(
-            self.category.pk,
-            Category.objects.permitted('read', self.user).values_list(
-                'pk', flat=True,
-            ),
-        )
+        self._assert_allowed()
 
     def test_role_permissions_ceiling_still_allows(self):
         role, _created = self.Role.objects.get_or_create(name='iss37-public')
@@ -227,3 +249,30 @@ class PublicRegisterAuthorizationTests(TestCase):
         self.assertFalse(
             Category.objects.permitted('read', self.user).exists()
         )
+
+    def test_removing_direct_group_ceiling_denies_with_local_grant(self):
+        # Direct group-permission ceiling only. No role overlay.
+        self.assertFalse(self.group.roles.exists())
+        self.group.permissions.add(self.perm)
+        enable_local_group_grant(self.org, self.group, self.perm)
+        self._assert_allowed()
+
+        self.group.permissions.remove(self.perm)
+        self._assert_local_grant_remains()
+        self.assertFalse(self.group.permissions.filter(pk=self.perm.pk).exists())
+        self._assert_denied()
+
+    def test_removing_role_ceiling_denies_with_local_grant(self):
+        # Role-permission ceiling only. No direct Group.permissions overlay.
+        role, _created = self.Role.objects.get_or_create(name='iss37-role')
+        role.permissions.add(self.perm)
+        role.groups.add(self.group)
+        self.assertFalse(self.group.permissions.filter(pk=self.perm.pk).exists())
+        enable_local_group_grant(self.org, self.group, self.perm)
+        self._assert_allowed()
+
+        role.permissions.remove(self.perm)
+        self._assert_local_grant_remains()
+        self.assertFalse(self.group.permissions.filter(pk=self.perm.pk).exists())
+        self.assertFalse(role.permissions.filter(pk=self.perm.pk).exists())
+        self._assert_denied()
