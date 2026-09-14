@@ -182,8 +182,9 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         self.assertIn('readme = "README.md"', text)
         self.assertNotIn('readme = "DEV.md"', text)
         self.assertIn('license = "BSD-2-Clause"', text)
-        companion = 'f5211c11047eb6810680f5d1b13bf34b2c376635'
+        companion = 'de8b20ef72e19048dd8642402271c5058e50e54d'
         stale = (
+            'f5211c11047eb6810680f5d1b13bf34b2c376635',
             'e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4',
             'b6eebc9273bf30048d410305a53249bdb51679f0',
             '710b3ea26778ff069d1f5329adc9f2f481a1ea92',
