@@ -12,10 +12,8 @@ from operator import and_, or_
 
 from django.conf import settings
 from django.contrib.auth import REDIRECT_FIELD_NAME
-from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
 from django.shortcuts import resolve_url
-from django.contrib.contenttypes.models import ContentType
 from django.http import Http404
 
 from trusts import utils
@@ -123,6 +121,8 @@ def request_passes_test(test_func, login_url=None, redirect_field_name=REDIRECT_
             if ((not login_scheme or login_scheme == current_scheme) and
                     (not login_netloc or login_netloc == current_netloc)):
                 path = request.get_full_path()
+            from django.contrib.auth.views import redirect_to_login
+
             return redirect_to_login(
                 path, resolved_login_url, redirect_field_name)
         return _wrapped_view
@@ -147,6 +147,8 @@ def _collect_args(args, fieldlookups):
 def _get_permissible_items(perm, request, fieldlookups):
     if fieldlookups is None:
         return None
+
+    from django.contrib.contenttypes.models import ContentType
 
     applabel, modelname, action, cond = utils.parse_perm_code(perm)
     try:

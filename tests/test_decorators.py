@@ -40,6 +40,16 @@ def _ok_view(request, *args, **kwargs):
 
 
 class LegacyDecoratorPublicSurfaceTests(SimpleTestCase):
+    def test_module_does_not_eagerly_import_contrib_models(self):
+        top = []
+        for line in (ROOT / 'trusts' / 'zero' / 'decorators.py').read_text().splitlines():
+            if line.startswith('class ') or line.startswith('def '):
+                break
+            top.append(line)
+        prelude = '\n'.join(top)
+        self.assertNotIn('django.contrib.auth.views', prelude)
+        self.assertNotIn('django.contrib.contenttypes.models', prelude)
+
     def test_public_import_surface(self):
         from trusts.zero.decorators import G, K, O, P, R, permission_required
 
