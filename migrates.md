@@ -400,6 +400,22 @@ Then:
 - [ ] Do not apply a new Trusts schema or data migration; none was added.
 - [ ] Leave Zero package version at `1.0.0.dev0` and core floor at `1.0.0.dev3`.
 
+## Named-filter `has_perm` (#181 compatibility)
+
+| | Old | New |
+| --- | --- | --- |
+| Missing `:name` on `has_perm` | Instance `user.has_perm('app.codename:missing', obj)` raised `AttributeError` | Runtime fail-closed non-match (`False`, 0 SQL) so Django can still consult sibling backends |
+| `.permitted` / `.authorized` unknown name | `AttributeError` | Unchanged. Keep raising. Aggregation is a separate track |
+| QuerySet coordinator hook | Tests called Core's private `_is_collection_coordinator()` | Hook is gone. Each exact backend path evaluates only its own plan. Inapplicable path: `False` / 0 SQL. Same path listed twice is two Django invocations where Django does not short-circuit |
+
+Malformed or unbound policy this applicable backend owns still raises. The single-backend Zero baseline is unchanged: one configured Trusts path still authorizes in one SQL.
+
+Migration-bot checklist:
+
+- `has_perm(` with a `:name` suffix
+- `_is_collection_coordinator(`
+- `except AttributeError` around `has_perm(` named filters
+
 ## Archaeology
 
 This file is the live executable route only. It does not inline Core

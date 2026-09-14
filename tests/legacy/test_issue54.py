@@ -343,10 +343,14 @@ class ConditionLookupBackendAdapterTest(_UsersMixin, TestCase):
         own = self.handle.registry.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(own)
         self.assertIsNotNone(own.expr)
-        with self.assertRaises(AttributeError):
-            self.alice.has_perm('trusts_zero_tests.read_category:missing', self.cat_a)
+        with self.assertNumQueries(0):
+            self.assertFalse(
+                self.alice.has_perm(
+                    'trusts_zero_tests.read_category:missing', self.cat_a,
+                ),
+            )
 
-    def test_bound_lookup_is_used_and_unregistered_is_attributeerror(self):
+    def test_bound_lookup_is_used_and_unregistered_is_non_match(self):
         record_for = Mock(return_value=None)
         compile_q = Mock(side_effect=AssertionError('compile_q must not run'))
 
@@ -358,8 +362,11 @@ class ConditionLookupBackendAdapterTest(_UsersMixin, TestCase):
         lookup.compile_q = compile_q
         self.handle.registry.set_condition_lookup(lookup)
         with self.assertNumQueries(0):
-            with self.assertRaises(AttributeError):
-                self.alice.has_perm('trusts_zero_tests.read_category:missing', self.cat_a)
+            self.assertFalse(
+                self.alice.has_perm(
+                    'trusts_zero_tests.read_category:missing', self.cat_a,
+                ),
+            )
         record_for.assert_called()
         compile_q.assert_not_called()
 

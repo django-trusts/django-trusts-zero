@@ -1,7 +1,7 @@
 """Zero #16: donate Meta conditions to the configured backend.
 
-Paired against merged Core C-methods
-``f5211c11047eb6810680f5d1b13bf34b2c376635``.
+Paired against Core #181 r3
+``de8b20ef72e19048dd8642402271c5058e50e54d``.
 """
 
 import inspect
@@ -271,8 +271,10 @@ class ExprParityTests(TestCase):
         with self.assertRaises(AttributeError) as missing:
             list(Ticket.objects.permitted('read:nope16', user))
         self.assertIn('nope16', str(missing.exception))
-        with self.assertRaises(AttributeError):
-            user.has_perm('trusts_zero_tests.read_ticket:nope16', self.ticket)
+        with self.assertNumQueries(0):
+            self.assertFalse(
+                user.has_perm('trusts_zero_tests.read_ticket:nope16', self.ticket),
+            )
 
         isolated = TrustsRegistry()
         with self.assertNumQueries(0):

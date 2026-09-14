@@ -1,7 +1,7 @@
 """Zero #32: migrate donation to the final configured-backend methods.
 
-Paired against merged Core C-methods
-``f5211c11047eb6810680f5d1b13bf34b2c376635``.
+Paired against Core #181 r3
+``de8b20ef72e19048dd8642402271c5058e50e54d``.
 """
 
 import inspect
@@ -27,7 +27,7 @@ from tests.models import Ticket
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = 'f5211c11047eb6810680f5d1b13bf34b2c376635'
+CORE_PIN = 'de8b20ef72e19048dd8642402271c5058e50e54d'
 STALE_PIN = 'e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4'
 
 APPLICATION_PATHS = (

@@ -243,8 +243,8 @@ class PermissionConditionCheckTest(ConditionRegistryIsolationMixin, TestCase):
         )
         _run_manage_py_check()
         missing = '%s:missing' % self.change
-        with self.assertRaises(AttributeError):
-            self.user.has_perm(missing, self.ticket)
+        with self.assertNumQueries(0):
+            self.assertFalse(self.user.has_perm(missing, self.ticket))
         with self.assertRaises(AttributeError):
             list(Ticket.objects.permitted(missing, self.user))
         self.assertTrue(self.user.has_perm(self.change, self.ticket))

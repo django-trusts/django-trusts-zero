@@ -31,7 +31,8 @@ def compile_registered_condition_q(model, perm, user):
     """Compile a ``:condition`` suffix via the configured Zero backend.
 
     Records live on that backend's core registry. Unregistered codes
-    raise ``AttributeError`` (same as ``has_perm``). Callables raise
+    raise ``AttributeError``. Runtime ``has_perm`` treats a missing
+    local name as a fail-closed non-match. Callables raise
     ``PermissionConditionNotQueryable`` without being invoked.
     """
     from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
