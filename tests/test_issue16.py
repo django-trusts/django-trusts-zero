@@ -1,7 +1,7 @@
 """Zero #16: donate Meta conditions to the configured backend.
 
-Paired against Core #181 r3
-``de8b20ef72e19048dd8642402271c5058e50e54d``.
+Paired against Core ``dev``
+``b59087d62d945089049dab676a502fb4a68327cd``.
 """
 
 import inspect

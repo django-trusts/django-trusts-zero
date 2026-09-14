@@ -32,8 +32,8 @@ Execute in this order. Fail closed at each step.
    bare `'trusts'` and the old backend path.
 3. Retarget model, backend, and settings-constant imports.
 4. Register condition **builders** on the backend in `AppConfig.ready()`.
-5. Retarget views, URL include, templates, admin, and management-command
-   imports to Zero-owned paths.
+5. Retarget views, URL include, templates, admin, management-command,
+   and legacy decorator imports to Zero-owned paths.
 6. Replace removed convenience writers with direct ORM.
 7. `migrate --plan` / `makemigrations trusts --check` (no new Trusts
    operations on an already-current database).
@@ -209,6 +209,7 @@ register_zero_content(backend, Document)
 | Surface | Old (0.x / leftover core path) | New (Zero-owned) |
 | --- | --- | --- |
 | Views | `from trusts.views import NewTeamView, TeamView, newteam, team` | `from trusts.zero.views import NewTeamView, TeamView, newteam, team` |
+| Legacy request decorators | `from trusts.decorators import P, R, K, G, O, permission_required` | `from trusts.zero.decorators import P, R, K, G, O, permission_required` |
 | URLs | `include('trusts.urls')` | `include('trusts.zero.urls')` |
 | Admin | `from trusts.admin import register_auto_modeladmins` | `from trusts.zero.admin import register_auto_modeladmins` |
 | Authorization helpers | `from trusts.authorization import AuthorizationDenied, has_trust_row_perm` | `from trusts.zero.authorization import AuthorizationDenied, has_trust_row_perm` |
@@ -220,6 +221,21 @@ register_zero_content(backend, Document)
 URL namespace `app_name = 'trusts'` is unchanged (`trusts:team_create`,
 `trusts:team_detail`); only the include path changes. Django still
 discovers the three management commands through app label `trusts`.
+
+The legacy request decorator family (`P`, `R`, `K`, `G`, `O`,
+`permission_required`, plus the private helpers that implementation
+needs) is Zero-owned. Retarget:
+
+```python
+# Old (0.x / leftover core path)
+from trusts.decorators import P, R, K, G, O, permission_required
+
+# New
+from trusts.zero.decorators import P, R, K, G, O, permission_required
+```
+
+Behavior is unchanged. Do not replace this family with Core
+`authorization_required` on the 0.x → Zero route.
 
 `create_trust_root` creates the self-referential root when missing.
 `grandfather_trust_group_permissions` is `--dry-run` by default; pass
@@ -324,6 +340,9 @@ from trusts.views import
 from trusts.urls import
 from trusts.admin import
 from trusts.authorization import
+from trusts.decorators import
+from trusts.decorators import P
+from trusts.decorators import permission_required
 include('trusts.urls')
 auth/group_detail.html
 auth/group_form.html
@@ -378,6 +397,7 @@ Then:
 - [ ] Remove `TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS`, `legacy_permission_callbacks_allowed`, `condition_refs`, `trusts.E002`, and `trusts.W001`. A leftover `True` setting is `trusts.E007`.
 - [ ] Retarget `include('trusts.urls')` to `include('trusts.zero.urls')`. Move template overrides to `trusts_zero/team_{detail,form}.html`.
 - [ ] Retarget views, admin, authorization helpers, and management-command imports to `trusts.zero.*`.
+- [ ] Replace `from trusts.decorators import P, R, K, G, O, permission_required` with `from trusts.zero.decorators import P, R, K, G, O, permission_required`. Do not switch this family to Core `authorization_required` as part of the 0.x → Zero route.
 - [ ] Retarget query / registration / policy helpers that used to import from `trusts.zero.models`.
 - [ ] Confirm `register_zero_content(backend, Model)` for each host terminal that needs TUP + TGP. Do not pass a bare registry or construct `Ref` / `Along(` in production donation. Do not call `backend.register(` or `register_permission_condition(`. Do not rely on `HistoricalGroupQueryCompiler`.
 - [ ] Confirm startup: canonical settings succeed; old backend path raises `ImproperlyConfigured`.

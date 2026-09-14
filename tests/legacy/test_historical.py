@@ -1,9 +1,8 @@
 """Historical Trust/Content/Junction/TrustGroup regressions.
 
 Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1``
-``trusts/tests.py``. DecoratorsTest exercises ``trusts.decorators`` and is
-recorded as core-owned for STAGE 2; it stays here only as transient
-duplication so the historical runner is not split mid-file.
+``trusts/tests.py``. DecoratorsTest exercises the Zero-owned
+``trusts.zero.decorators`` legacy family (Core #191 Zero leg).
 """
 import os
 import json
@@ -47,7 +46,7 @@ from trusts.zero.models import (
 )
 from trusts.zero.query import TrustManager
 from trusts.zero.backends import TrustModelBackend
-from trusts.decorators import permission_required, P, K, G, O
+from trusts.zero.decorators import permission_required, P, K, G, O
 from tests.models import Category, TestGroupJunction
 
 

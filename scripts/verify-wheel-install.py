@@ -75,11 +75,17 @@ if not settings.configured:
     settings.configure(SECRET_KEY="zero-wheel-overlay")
 import trusts
 from trusts.zero.apps import ZeroConfig
+from trusts.zero.decorators import P, R, K, G, O, permission_required
 assert ZeroConfig.label == "trusts"
 assert ZeroConfig.name == "trusts.zero"
+assert callable(permission_required)
+assert issubclass(K, R)
+assert issubclass(G, R)
+assert issubclass(O, R)
 init = Path(trusts.__file__)
 assert init.name == "__init__.py"
 assert (init.parent / "zero" / "apps.py").is_file()
+assert (init.parent / "zero" / "decorators.py").is_file()
 print("zero-wheel-overlay-ok")
 '''
 
@@ -98,6 +104,8 @@ def main() -> int:
         raise SystemExit('Zero wheel missing trusts/zero/apps.py')
     if not any(n.endswith('trusts/zero/backends.py') for n in names):
         raise SystemExit('Zero wheel missing trusts/zero/backends.py')
+    if not any(n.endswith('trusts/zero/decorators.py') for n in names):
+        raise SystemExit('Zero wheel missing trusts/zero/decorators.py')
     if 'django_trusts_zero-1.0.0.dev0' not in wheel.name:
         raise SystemExit('Zero wheel is not 1.0.0.dev0: %s' % wheel.name)
     if not any('django_trusts_zero-1.0.0.dev0' in n for n in names):
