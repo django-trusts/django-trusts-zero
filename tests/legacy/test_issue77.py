@@ -416,7 +416,7 @@ class CompilerIsolationBackendTest(_RegistryRestoreMixin, _UsersMixin, TestCase)
                 )
 
 
-class CoordinatorQueryCountTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
+class BackendLocalQueryCountTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
         self._make_users('coord')
@@ -429,33 +429,67 @@ class CoordinatorQueryCountTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
         self._reload()
         self.qs = Category.objects.filter(pk=self.cat_a.pk)
 
-    def test_coordinator_one_sql_noncoordinator_zero(self):
+    def _with_empty_mixin(self):
+        saved = self.live.trusts_backend_paths
+        self.live.trusts_backend_paths = (CONCRETE, MIXIN)
+        install_writable_registry(self.live, MIXIN)
+        return saved
+
+    def test_applicable_backend_is_one_sql(self):
         concrete = TrustModelBackend()
-        self.assertTrue(concrete._is_collection_coordinator())
         with self.assertNumQueries(1):
             self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.qs))
         with self.assertNumQueries(1):
             self.assertTrue(self.alice.has_perm(self.change_code, self.qs))
         with self.assertRaises(TrustsConfigurationError):
-            MixinOnlyBackend()._is_collection_coordinator()
+            MixinOnlyBackend().has_perm(self.alice, self.change_code, self.qs)
+
+    def test_inapplicable_mixin_is_zero_sql(self):
+        saved = self._with_empty_mixin()
+        mixin = MixinOnlyBackend()
+        concrete = TrustModelBackend()
+        try:
+            with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
+                with self.assertNumQueries(0):
+                    self.assertFalse(
+                        mixin.has_perm(self.alice, self.change_code, self.qs),
+                    )
+                with self.assertNumQueries(1):
+                    self.assertTrue(
+                        concrete.has_perm(self.alice, self.change_code, self.qs),
+                    )
+        finally:
+            self.live.trusts_backend_paths = saved
+            self.live.registries.pop(MIXIN, None)
 
     def test_reversed_backend_order(self):
-        concrete = TrustModelBackend()
-        self.assertEqual(self.live._configured_trusts_paths(), (CONCRETE,))
-        self.assertTrue(concrete._is_collection_coordinator())
-        with self.assertNumQueries(1):
-            self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.qs))
-        with self.assertNumQueries(1):
-            self.assertTrue(self.alice.has_perm(self.change_code, self.qs))
-        with self.assertRaises(TrustsConfigurationError):
-            MixinOnlyBackend()._is_collection_coordinator()
+        saved = self._with_empty_mixin()
+        mixin = MixinOnlyBackend()
+        try:
+            for order in ((CONCRETE, MIXIN), (MIXIN, CONCRETE)):
+                with override_settings(AUTHENTICATION_BACKENDS=order):
+                    with self.assertNumQueries(0):
+                        self.assertFalse(
+                            mixin.has_perm(self.alice, self.change_code, self.qs),
+                        )
+                    with self.assertNumQueries(1):
+                        self.assertTrue(
+                            self.alice.has_perm(self.change_code, self.qs),
+                        )
+        finally:
+            self.live.trusts_backend_paths = saved
+            self.live.registries.pop(MIXIN, None)
 
-    def test_duplicate_exact_path_strings_dedupe(self):
+    def test_duplicate_exact_path_is_two_evaluations(self):
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, CONCRETE)):
             self.assertEqual(self.live._configured_trusts_paths(), (CONCRETE,))
-            concrete = TrustModelBackend()
-            self.assertTrue(concrete._is_collection_coordinator())
-            self.assertTrue(self.alice.has_perm(self.change_code, self.qs))
+            with self.assertNumQueries(1):
+                self.assertTrue(self.alice.has_perm(self.change_code, self.qs))
+            with self.assertNumQueries(2):
+                self.assertIn(
+                    self.change_code,
+                    self.alice.get_all_permissions(self.qs),
+                )
             self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a))
 
 
