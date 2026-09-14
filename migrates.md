@@ -158,7 +158,7 @@ Deleted Zero model static methods — no forwarding alias on `Content` or
 | `Content._conditions` | Per-backend `TrustsRegistry.conditions` |
 | `Junction.register_junction` | `donate_junction_content_permission_conditions` |
 | `from trusts.conditions import condition_refs` in production / Meta | Builder `lambda u, p, o: ...` or a named `def` |
-| `backend.register(...)` / `backend.register_permission_condition(...)` | `backend.register_relationship(...)` / `backend.add_named_filter(..., predicate=...)` |
+| `backend.register_relationship(...)` / `backend.register_permission_condition(...)` | `backend.register(trust=..., condition=lambda t: ...)` / `backend.add_named_filter(..., predicate=...)` |
 
 `PermissionConditionNotQueryable` is imported from `trusts.conditions`
 only. There is no `trusts.zero.models` alias.
@@ -170,29 +170,87 @@ for each terminal. `register_zero_relations` still donates Trust-as-content
 only. `HistoricalGroupQueryCompiler` is removed; use core
 `PlanQueryCompiler`.
 
-## Relation helpers (backend.register_relationship)
+## Relation helpers (backend.register)
 
 Zero production donation takes the configured backend and calls
-`backend.register_relationship(root, ...)` with validated Django `__`
-path strings. Customizable `content_via` helpers return or compose those
-public path strings, not `Ref` objects.
+`backend.register(trust=..., ...)` with validated Django `__` path
+strings (or already-supported #208 path lambdas) for `user=`,
+`permission=`, and dynamic `content=`. Customizable `content_via`
+helpers return or compose those public path strings, not `Ref` objects.
+
+Ceiling overlays use the accepted 1.0 condition grammar: a trust-rooted
+one-argument symbolic lambda, collection `.contains(registered_permission_path)`,
+and no public `permission_in(...)`, literal Python `in`, or `predicate=`.
 
 | | Old | New |
 | --- | --- | --- |
 | Helper argument | `register_zero_content(handle, Model)` | `register_zero_content(backend, Model)` |
-| TUP paths | `handle.register(TrustUserPermission, user="entity", ...)` | `backend.register_relationship(TrustUserPermission, user="entity", permission="permission", content="trust__<reverse>")` |
-| TGP user / permission | `user="trustgroup__group__user"` / `permission="permission"` | unchanged bindings on `register_relationship` |
-| TGP group ceiling | `permission_in("trustgroup__group__permissions")` | unchanged |
-| TGP role ceiling | `permission_in("trustgroup__group__roles__permissions")` | unchanged |
+| TUP paths | `backend.register_relationship(TrustUserPermission, user="entity", permission="permission", content="trust__<reverse>")` | `backend.register(trust=TrustUserPermission, user="entity", permission="permission", content="trust__<reverse>")` |
+| TGP user / permission | `user="trustgroup__group__user"` / `permission="permission"` on `register_relationship` | unchanged string bindings on `register(trust=...)` |
+| TGP group ceiling | `condition=permission_in("trustgroup__group__permissions")` | `condition=lambda t: t.trustgroup.group.permissions.contains(t.permission)` |
+| TGP role ceiling | `condition=permission_in("trustgroup__group__roles__permissions")` | `condition=lambda t: t.trustgroup.group.roles.permissions.contains(t.permission)` |
 | Named filter | `backend.register_permission_condition(Document, "own", builder)` | `backend.add_named_filter(Document, "own", predicate=builder)` |
 | Trust reverse / `content_via` | `"trust__" + get_accessor_name()` (public `__` string) | unchanged |
+| Literal Python `in` | unsupported | still unsupported; do not write `t.permission in t.trustgroup.group.permissions` |
 
-Application donation does not call `.register(`,
-`register_permission_condition(`, or `.registry` for idempotency.
-Repeated `ZeroConfig.ready()` / helper donation is proved through the
-public configured-backend contract and remains zero SQL. Isolated
-compiler tests may still inspect stored records on the backend's
-registry as a Core-internal fixture.
+```python
+# Old first-party donation (removed BackendHandle.register_relationship)
+backend.register_relationship(
+    TrustUserPermission,
+    user="entity",
+    permission="permission",
+    content="trust__<reverse>",
+)
+backend.register_relationship(
+    TrustGroupPermission,
+    user="trustgroup__group__user",
+    permission="permission",
+    content="trustgroup__trust__<reverse>",
+    condition=permission_in("trustgroup__group__permissions"),
+)
+backend.register_relationship(
+    TrustGroupPermission,
+    user="trustgroup__group__user",
+    permission="permission",
+    content="trustgroup__trust__<reverse>",
+    condition=permission_in("trustgroup__group__roles__permissions"),
+)
+
+# New public register() (trust-rooted symbolic ceilings)
+backend.register(
+    trust=TrustUserPermission,
+    user="entity",
+    permission="permission",
+    content="trust__<reverse>",
+)
+backend.register(
+    trust=TrustGroupPermission,
+    user="trustgroup__group__user",
+    permission="permission",
+    content="trustgroup__trust__<reverse>",
+    condition=lambda t: t.trustgroup.group.permissions.contains(t.permission),
+)
+backend.register(
+    trust=TrustGroupPermission,
+    user="trustgroup__group__user",
+    permission="permission",
+    content="trustgroup__trust__<reverse>",
+    condition=lambda t: t.trustgroup.group.roles.permissions.contains(
+        t.permission,
+    ),
+)
+```
+
+The predicate runs once at registration. Stored policy is private
+`PermissionIn` IR and contains no callable. Donation remains idempotent
+and is designed to perform zero SQL at startup.
+
+Application donation does not call `register_relationship(`,
+`permission_in(`, `register_permission_condition(`, or `.registry` for
+idempotency. Repeated `ZeroConfig.ready()` / helper donation is proved
+through the public configured-backend contract and remains zero SQL.
+Isolated compiler tests may still inspect stored records on the
+backend's registry as a Core-internal fixture.
 
 ```python
 from trusts.apps import implementation_for_path
@@ -355,7 +413,9 @@ from trusts.conditions import condition_refs
 from trusts.conditions import legacy_permission_callbacks_allowed
 from trusts.core import Ref
 Ref(
-.register(
+register_relationship(
+permission_in(
+Python 'in' is unsupported
 register_permission_condition(
 handle
 .registry
@@ -399,7 +459,7 @@ Then:
 - [ ] Retarget views, admin, authorization helpers, and management-command imports to `trusts.zero.*`.
 - [ ] Replace `from trusts.decorators import P, R, K, G, O, permission_required` with `from trusts.zero.decorators import P, R, K, G, O, permission_required`. Do not switch this family to Core `authorization_required` as part of the 0.x → Zero route.
 - [ ] Retarget query / registration / policy helpers that used to import from `trusts.zero.models`.
-- [ ] Confirm `register_zero_content(backend, Model)` for each host terminal that needs TUP + TGP. Do not pass a bare registry or construct `Ref` / `Along(` in production donation. Do not call `backend.register(` or `register_permission_condition(`. Do not rely on `HistoricalGroupQueryCompiler`.
+- [ ] Confirm `register_zero_content(backend, Model)` for each host terminal that needs TUP + TGP. Do not pass a bare registry or construct `Ref` / `Along(` in production donation. Call `backend.register(trust=..., ...)`. Do not call `register_relationship(`, `permission_in(`, or `register_permission_condition(`. Do not write literal Python `in` for a ceiling. Do not rely on `HistoricalGroupQueryCompiler`.
 - [ ] Confirm startup: canonical settings succeed; old backend path raises `ImproperlyConfigured`.
 - [ ] Confirm no installed core `AppConfig` and exactly one implementation owner.
 - [ ] `python -m django migrate --plan` — no Trusts operations on an already-current database.
@@ -416,7 +476,7 @@ Then:
 - [ ] `filter_by_user_content_perm(user, ContentModel, 'add')` must keep authorizing the **content** permission (e.g. `add_category`), not `add_trust`.
 - [ ] Confirm first-party donation remains zero-SQL and idempotent on re-entry to `ready()`.
 - [ ] Confirm a frozen backend raises `TrustsConfigurationError` before the builder is invoked.
-- [ ] Search application-facing Zero paths for `.register(`, `register_permission_condition(`, `handle`, `.registry` used for donation idempotency, and Core pin `e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4`. Classify genuine Core-internal test fixtures separately.
+- [ ] Search application-facing Zero paths for `register_relationship(`, `permission_in(`, `register_permission_condition(`, `handle`, `.registry` used for donation idempotency, and Core pin `e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4`. Literal Python `in` stays unsupported. Classify genuine Core-internal test fixtures separately.
 - [ ] Do not apply a new Trusts schema or data migration; none was added.
 - [ ] Leave Zero package version at `1.0.0.dev0` and core floor at `1.0.0.dev3`.
 

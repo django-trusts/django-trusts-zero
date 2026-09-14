@@ -1,7 +1,7 @@
 """Zero #32: migrate donation to the final configured-backend methods.
 
-Paired against Core ``dev``
-``b59087d62d945089049dab676a502fb4a68327cd``.
+Paired against django-trusts #211
+``8bfe6151b5a65af2d0667ab3a71680eecc90a691``.
 """
 
 import inspect
@@ -27,8 +27,8 @@ from tests.models import Ticket
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = 'b59087d62d945089049dab676a502fb4a68327cd'
-STALE_PIN = 'de8b20ef72e19048dd8642402271c5058e50e54d'
+CORE_PIN = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
+STALE_PIN = 'b59087d62d945089049dab676a502fb4a68327cd'
 
 APPLICATION_PATHS = (
     ROOT / 'trusts' / 'zero' / 'registration.py',
@@ -39,7 +39,8 @@ APPLICATION_PATHS = (
 
 TEMPORARY_METHOD_NEEDLES = (
     'handle.register(',
-    'backend.register(',
+    'register_relationship(',
+    'permission_in(',
     'register_permission_condition(',
     '.registry.register(',
 )
@@ -52,7 +53,8 @@ class ZMethodsSurfaceTests(SimpleTestCase):
         rst = (ROOT / 'docs' / 'source' / 'index.rst').read_text()
         migrates = (ROOT / 'migrates.md').read_text()
 
-        self.assertIn('backend.register_relationship(', registration)
+        self.assertIn('backend.register(', registration)
+        self.assertIn('trust=TrustUserPermission', registration)
         self.assertIn('backend.add_named_filter(', registration)
         self.assertIn('predicate=', registration)
         self.assertIn('backend.add_named_filter', apps)
@@ -60,8 +62,15 @@ class ZMethodsSurfaceTests(SimpleTestCase):
         self.assertIn('register_zero_content(backend, Receipt)', rst)
         self.assertIn('backend.add_named_filter', rst)
         self.assertIn('backend.add_named_filter', migrates)
-        self.assertIn('backend.register_relationship', migrates)
+        self.assertIn('backend.register(\n    trust=TrustUserPermission', migrates)
+        self.assertIn('backend.register_relationship(', migrates)
+        self.assertIn('permission_in("trustgroup__group__permissions")', migrates)
+        self.assertIn(
+            't.trustgroup.group.permissions.contains(t.permission)',
+            migrates,
+        )
         self.assertIn('predicate=', migrates)
+        self.assertIn("Python 'in' is unsupported", migrates)
 
         for path in APPLICATION_PATHS:
             text = path.read_text()
@@ -91,7 +100,8 @@ class ZMethodsSurfaceTests(SimpleTestCase):
 
     def test_live_backend_exposes_final_methods_not_as_required_api(self):
         backend = live_backend()
-        self.assertTrue(callable(backend.register_relationship))
+        self.assertTrue(callable(backend.register))
+        self.assertFalse(hasattr(backend, 'register_relationship'))
         self.assertTrue(callable(backend.add_named_filter))
         source = inspect.getsource(ZeroConfig._donate_zero_relations)
         self.assertIn('add_named_filter', inspect.getsource(
@@ -114,6 +124,9 @@ class ZMethodsPlanTests(SimpleTestCase):
         self.assertEqual(tgp[0].user_path, tgp[1].user_path)
         self.assertEqual(tgp[0].permission_path, tgp[1].permission_path)
         self.assertNotEqual(tgp[0].condition, tgp[1].condition)
+        self.assertFalse(callable(tup[0].condition))
+        self.assertFalse(callable(tgp[0].condition))
+        self.assertFalse(callable(tgp[1].condition))
         self.assertEqual(
             {row.content_model for row in tup + tgp},
             {Trust},

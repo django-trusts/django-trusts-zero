@@ -7,10 +7,11 @@ points at `README.md`, not this file.
 
 ## Current pairing
 
-This tree is `django-trusts-zero==1.0.0.dev0` pairing against Core `dev`
-[django-trusts#191](https://github.com/django-trusts/django-trusts/issues/191)
-companion `b59087d62d945089049dab676a502fb4a68327cd`. The previous
-paired core floor remains merged C-methods
+This tree is `django-trusts-zero==1.0.0.dev0` pairing against the
+reviewed django-trusts #211 head
+`8bfe6151b5a65af2d0667ab3a71680eecc90a691`. That revision is not
+merged independently; keep this Zero PR coordinated with #208/#211.
+The previous paired core floor remains merged C-methods
 [django-trusts#172](https://github.com/django-trusts/django-trusts/pull/172).
 
 Earlier unpublished Zero snapshots used `2.0.0.dev0` / `dev1` / `dev2`.
@@ -50,7 +51,7 @@ See `docs/source/index.rst` and `migrates.md`.
 
 ## Verification
 
-Pair CI pins Core `b59087d62d945089049dab676a502fb4a68327cd`
+Pair CI pins Core `8bfe6151b5a65af2d0667ab3a71680eecc90a691`
 only. The Zero suite (including `tests/legacy/` historical copies),
 fresh-install, old-path fail-closed, wheel RECORD, and
 uninstall-isolation scripts must run against that revision without
