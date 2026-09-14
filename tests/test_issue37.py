@@ -38,11 +38,11 @@ class RegisterMigrationSurfaceTests(SimpleTestCase):
         self.assertIn('t.permission', source)
         self.assertNotIn('register_relationship(', source)
         self.assertNotIn('permission_in(', source)
-        self.assertNotIn('predicate=', inspect.getsource(register_zero_direct))
-        self.assertNotIn('predicate=', inspect.getsource(register_zero_group))
         self.assertNotIn(' in t.', source)
         for helper in (register_zero_direct, register_zero_group):
-            tree = ast.parse(inspect.getsource(helper))
+            helper_source = inspect.getsource(helper)
+            self.assertNotIn('predicate=', helper_source, helper.__name__)
+            tree = ast.parse(helper_source)
             self.assertEqual(
                 [node for node in ast.walk(tree)
                  if isinstance(node, (ast.In, ast.NotIn))],

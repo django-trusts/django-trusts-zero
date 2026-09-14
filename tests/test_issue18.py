@@ -201,9 +201,9 @@ class BackendAndRegistrationTests(SimpleTestCase):
         self.assertNotIn('handle.register(', source)
         self.assertNotIn('register_relationship(', source)
         self.assertNotIn('permission_in(', source)
-        self.assertNotIn('predicate=', inspect.getsource(register_zero_direct))
-        self.assertNotIn('predicate=', inspect.getsource(register_zero_group))
         self.assertIn('backend.register(', source)
+        for helper in (register_zero_direct, register_zero_group):
+            self.assertNotIn('predicate=', inspect.getsource(helper), helper.__name__)
         self.assertIn('trust=TrustUserPermission', source)
         self.assertIn('trust=TrustGroupPermission', source)
         self.assertIn("user='trustgroup__group__user'", source)
@@ -341,7 +341,7 @@ class MovedUiSurfaceTests(TestCase):
 
 class InstalledUiScriptTests(SimpleTestCase):
     def test_verify_installed_ui_script_exists(self):
-        script = ROOT / 'scripts' / 'verify-installed-ui.py'
+        script = ROOT / 'scripts' / 'verify-installed_ui.py'
         self.assertTrue(script.is_file())
         text = script.read_text()
         self.assertIn('trusts.zero.urls', text)
