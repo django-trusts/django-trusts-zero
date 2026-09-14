@@ -36,6 +36,7 @@ class ZeroDocumentationSurfaceTest(SimpleTestCase):
             "handle.register(",
             "handle.register_permission_condition",
             "register_zero_content(handle, Receipt)",
+            "View decorators remain core APIs",
         )
         self.assertEqual([name for name in forbidden if name in rst], [])
 
@@ -50,6 +51,7 @@ class ZeroDocumentationSurfaceTest(SimpleTestCase):
             "register_zero_content",
             "register_zero_content(backend, Receipt)",
             "trusts.zero.urls",
+            "from trusts.zero.decorators import P, R, K, G, O, permission_required",
             "2015--2026",
             "blob/dev/migrates.md",
             "django-trusts/blob/dev/docs/source/index.rst",

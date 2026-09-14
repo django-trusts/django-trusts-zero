@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 env:
-  # Unmerged Core #181 r3 (django-trusts#183).
-  COMPANION_KERNEL_SHA: de8b20ef72e19048dd8642402271c5058e50e54d
+  # Core django-trusts#191 companion (dev).
+  COMPANION_KERNEL_SHA: b59087d62d945089049dab676a502fb4a68327cd
 
 jobs:
   tests:
@@ -77,8 +77,8 @@ jobs:
         python-version: "3.12"
     - name: Exact merged core head
       run: |
-        test "${COMPANION_KERNEL_SHA}" = "de8b20ef72e19048dd8642402271c5058e50e54d"
-        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "de8b20ef72e19048dd8642402271c5058e50e54d"
+        test "${COMPANION_KERNEL_SHA}" = "b59087d62d945089049dab676a502fb4a68327cd"
+        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "b59087d62d945089049dab676a502fb4a68327cd"
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat

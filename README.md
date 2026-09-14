@@ -60,6 +60,12 @@ Trust.objects.permitted('change', request.user)
 
 That call is exercised by the project's smoke and codec tests.
 
+The 0.x request decorator family lives on Zero:
+
+```python
+from trusts.zero.decorators import P, R, K, G, O, permission_required
+```
+
 ## Supported versions
 
 - Python 3.12, 3.13, and 3.14

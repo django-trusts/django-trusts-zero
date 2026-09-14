@@ -170,8 +170,14 @@ Zero owns the reusable team views:
    ]
 
 Their namespace is ``trusts`` (for example ``trusts:team_create`` and
-``trusts:team_detail``). View decorators remain core APIs under
-``trusts.decorators``.
+``trusts:team_detail``). The legacy request decorator family lives on
+Zero:
+
+.. code-block:: python
+
+   from trusts.zero.decorators import P, R, K, G, O, permission_required
+
+Core's ``authorization_required`` remains a Core API.
 
 Supported versions and limits
 -----------------------------
