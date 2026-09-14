@@ -9,12 +9,12 @@ permissions:
   contents: read
 
 env:
-  # Merged Core C-methods on django-trusts `dev` (#172).
-  COMPANION_KERNEL_SHA: f5211c11047eb6810680f5d1b13bf34b2c376635
+  # Unmerged Core #183 r3 share-nothing head (django-trusts#181).
+  COMPANION_KERNEL_SHA: de8b20ef72e19048dd8642402271c5058e50e54d
 
 jobs:
   tests:
-    name: tests vs merged core (Python ${{ matrix.python-version }})
+    name: tests vs Core #183 r3 (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -61,7 +61,7 @@ jobs:
       run: python scripts/verify-installed-ui.py
 
   pair:
-    name: pair with merged core C-methods
+    name: pair with Core #183 r3
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -75,10 +75,10 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-    - name: Exact merged core head
+    - name: Exact Core #183 r3 head
       run: |
-        test "${COMPANION_KERNEL_SHA}" = "f5211c11047eb6810680f5d1b13bf34b2c376635"
-        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "f5211c11047eb6810680f5d1b13bf34b2c376635"
+        test "${COMPANION_KERNEL_SHA}" = "de8b20ef72e19048dd8642402271c5058e50e54d"
+        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "de8b20ef72e19048dd8642402271c5058e50e54d"
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
