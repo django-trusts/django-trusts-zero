@@ -183,7 +183,8 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         self.assertIn('readme = "README.md"', text)
         self.assertNotIn('readme = "DEV.md"', text)
         self.assertIn('license = "BSD-2-Clause"', text)
-        companion = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
+        companion = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
+        stale_companion = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
         stale = (
             'b59087d62d945089049dab676a502fb4a68327cd',
             'de8b20ef72e19048dd8642402271c5058e50e54d',
@@ -201,10 +202,12 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         req = (ROOT / 'requirements.txt').read_text()
         ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
         dev = (ROOT / 'DEV.md').read_text()
-        self.assertIn(companion, req)
         self.assertIn('COMPANION_KERNEL_SHA: %s' % companion, ci)
-        self.assertIn(companion, dev)
-        self.assertIn('pair with merged core C-methods', ci)
+        self.assertNotIn(stale_companion, ci)
+        self.assertIn('pair with exact django-trusts candidate', ci)
+        self.assertNotIn('pair with merged core C-methods', ci)
+        self.assertNotIn('#211', ci)
+        self.assertNotIn('C-methods', ci)
         self.assertNotIn('pair-stage-b:', ci)
         self.assertNotIn('pair-six-name:', ci)
         for needle in stale:

@@ -9,12 +9,12 @@ permissions:
   contents: read
 
 env:
-  # Core django-trusts#211 reviewed head (public register + symbolic condition).
-  COMPANION_KERNEL_SHA: 8bfe6151b5a65af2d0667ab3a71680eecc90a691
+  # Exact django-trusts / kernel candidate.
+  COMPANION_KERNEL_SHA: 91e1fb690e14a88626ff3c1c05b137da96c6b254
 
 jobs:
   tests:
-    name: tests vs merged core (Python ${{ matrix.python-version }})
+    name: tests vs exact django-trusts candidate (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -32,7 +32,9 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install paired core then Zero
+    - name: Verify exact django-trusts candidate checkout
+      run: python scripts/verify-kernel-checkout.py
+    - name: Install exact django-trusts candidate then Zero
       run: |
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage virtualenv
@@ -61,7 +63,7 @@ jobs:
       run: python scripts/verify-installed-ui.py
 
   pair:
-    name: pair with merged core C-methods
+    name: pair with exact django-trusts candidate
     runs-on: ubuntu-latest
     env:
       KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
@@ -75,10 +77,10 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-    - name: Exact merged core head
+    - name: Verify exact django-trusts candidate checkout
+      run: python scripts/verify-kernel-checkout.py
+    - name: Install exact django-trusts candidate then Zero
       run: |
-        test "${COMPANION_KERNEL_SHA}" = "8bfe6151b5a65af2d0667ab3a71680eecc90a691"
-        test "$(git -C .deps/django-trusts rev-parse HEAD)" = "8bfe6151b5a65af2d0667ab3a71680eecc90a691"
         python -m pip install --upgrade pip
         python -m pip install "Django>=6.1,<6.2" coverage
         python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
@@ -103,6 +105,8 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.12"
+    - name: Verify exact django-trusts candidate checkout
+      run: python scripts/verify-kernel-checkout.py
     - name: Install documentation and packaging tools
       run: |
         python -m pip install --upgrade pip build twine virtualenv "Django>=6.1,<6.2" "Sphinx>=8,<9"
