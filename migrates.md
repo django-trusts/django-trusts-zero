@@ -496,6 +496,45 @@ Migration-bot checklist:
 - `_is_collection_coordinator(`
 - `except AttributeError` around `has_perm(` named filters
 
+## Unused / removed `trusts.utils.get_short_model_name` (#217)
+
+Schema-neutral django-trusts no longer provides
+`trusts.utils.get_short_model_name`. The Zero / 0.x upgrade route owns
+this guidance. The API-removal boundary is recorded on django-trusts
+[PR #219](https://github.com/django-trusts/django-trusts/pull/219) /
+[issue #217](https://github.com/django-trusts/django-trusts/issues/217).
+
+**Old behavior** (exact historical helper semantics):
+
+- strings → returned unchanged
+- Django model subclasses → `app_label.ObjectName`
+- other class objects → `''`
+- non-string, non-class values may raise `TypeError` at `issubclass(klass, Model)`
+
+**New:** django-trusts no longer provides this helper. 0.x applications
+on the Zero route must not rely on it from schema-neutral django-trusts.
+
+**Replacement:**
+
+- Search consumer imports and calls.
+- Replace them with consumer-owned formatting appropriate to the caller.
+- Use retained `get_short_model_name_lower` only where its intentionally
+  different lowercase semantics are required.
+- Do not treat `get_short_model_name_lower` as a drop-in: strings are
+  lowercased; Django model subclasses produce `app_label.model_name`
+  rather than `app_label.ObjectName`.
+
+Migration-bot checklist:
+
+- `from trusts.utils import get_short_model_name`
+- `from trusts import utils` plus `utils.get_short_model_name`
+- `get_short_model_name(`
+- classify string / Django model subclass / other class / non-string non-class
+- replace intentionally with consumer-owned formatting
+- verify casing-sensitive expectations (`ObjectName` vs `model_name`)
+- run consumer tests
+- confirm no remaining reference
+
 ## Archaeology
 
 This file is the live executable route only. It does not inline Core
