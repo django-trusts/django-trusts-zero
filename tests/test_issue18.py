@@ -199,13 +199,21 @@ class BackendAndRegistrationTests(SimpleTestCase):
         self.assertNotIn('.registry.register(', source)
         self.assertNotIn('Along(', source)
         self.assertNotIn('handle.register(', source)
-        self.assertNotIn('.register(', source)
-        self.assertIn('backend.register_relationship(', source)
+        self.assertNotIn('register_relationship(', source)
+        self.assertNotIn('permission_in(', source)
+        self.assertNotIn('predicate=', inspect.getsource(register_zero_direct))
+        self.assertNotIn('predicate=', inspect.getsource(register_zero_group))
+        self.assertIn('backend.register(', source)
+        self.assertIn('trust=TrustUserPermission', source)
+        self.assertIn('trust=TrustGroupPermission', source)
         self.assertIn("user='trustgroup__group__user'", source)
-        self.assertIn("permission_in('trustgroup__group__permissions')", source)
         self.assertIn(
-            "permission_in('trustgroup__group__roles__permissions')", source,
+            't.trustgroup.group.permissions.contains(', source,
         )
+        self.assertIn(
+            't.trustgroup.group.roles.permissions.contains(', source,
+        )
+        self.assertIn('t.permission', source)
         donate = inspect.getsource(zero_apps.ZeroConfig._donate_zero_relations)
         self.assertIn('register_zero_relations(backend)', donate)
         self.assertNotIn('register_zero_relations(backend.registry)', donate)

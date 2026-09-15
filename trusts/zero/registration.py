@@ -86,8 +86,8 @@ def register_zero_direct(backend, content_models, content_via=None):
 
     backend = _require_backend(backend)
     for model in content_models:
-        backend.register_relationship(
-            TrustUserPermission,
+        backend.register(
+            trust=TrustUserPermission,
             user='entity',
             permission='permission',
             content=_content_path(model, content_via),
@@ -101,7 +101,6 @@ def register_zero_group(backend, content_models, content_via=None):
     ``permissions`` ceiling, or the same local grant AND the
     ``roles.permissions`` ceiling. The plan ORs complete records.
     """
-    from trusts.core import permission_in
     from trusts.zero.models import TrustGroupPermission
 
     backend = _require_backend(backend)
@@ -110,19 +109,23 @@ def register_zero_group(backend, content_models, content_via=None):
         # auth.Group reverse membership is related_query_name="user"
         # (Python accessor remains group.user_set). Core path validation
         # uses _meta.get_field, so the hop must be the query name.
-        backend.register_relationship(
-            TrustGroupPermission,
+        backend.register(
+            trust=TrustGroupPermission,
             user='trustgroup__group__user',
             permission='permission',
             content=content,
-            condition=permission_in('trustgroup__group__permissions'),
+            condition=lambda t: t.trustgroup.group.permissions.contains(
+                t.permission,
+            ),
         )
-        backend.register_relationship(
-            TrustGroupPermission,
+        backend.register(
+            trust=TrustGroupPermission,
             user='trustgroup__group__user',
             permission='permission',
             content=content,
-            condition=permission_in('trustgroup__group__roles__permissions'),
+            condition=lambda t: t.trustgroup.group.roles.permissions.contains(
+                t.permission,
+            ),
         )
 
 
