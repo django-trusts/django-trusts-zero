@@ -1,4 +1,4 @@
-"""Zero-owned AppConfig and canonical backend on final core (1.0.0.dev0)."""
+"""Zero-owned AppConfig and canonical backend on django-trusts 1.0.0rc1."""
 
 import os
 import subprocess
@@ -133,8 +133,8 @@ class StartupBeltTests(SimpleTestCase):
         with patch.object(zero_apps, 'TrustsImplementationConfig', None):
             with self.assertRaises(ImproperlyConfigured) as ctx:
                 config.ready()
-        self.assertIn('1.0.0.dev3', str(ctx.exception))
-        self.assertIn('1.0.0.dev0', str(ctx.exception))
+        self.assertIn('1.0.0rc1', str(ctx.exception))
+        self.assertIn('0.12.0.dev0', str(ctx.exception))
         self.assertIn('TrustsImplementationConfig', str(ctx.exception))
         self.assertEqual(str(ctx.exception), FLOOR_MESSAGE)
 

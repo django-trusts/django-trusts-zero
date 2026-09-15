@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove wheel/sdist identity: Zero 1.0.0.dev0, core floor, BSD-2-Clause, LICENSE."""
+"""Prove wheel/sdist identity: Zero 0.12.0.dev0, django-trusts floor, BSD-2-Clause, LICENSE."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ from email.parser import Parser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_VERSION = '1.0.0.dev0'
+EXPECTED_VERSION = '0.12.0.dev0'
 EXPECTED_NAME = 'django-trusts-zero'
-EXPECTED_CORE = 'django-trusts>=1.0.0.dev3,<2'
+EXPECTED_CORE = 'django-trusts>=1.0.0rc1,<2'
 
 
 def _dist() -> Path:
@@ -29,7 +29,7 @@ def _core_floor_ok(requires: list[str]) -> bool:
     compact = [item.replace(' ', '') for item in requires]
     return any(
         'django-trusts' in item
-        and '>=1.0.0.dev3' in item
+        and '>=1.0.0rc1' in item
         and '<2' in item
         for item in compact
     )
@@ -75,8 +75,8 @@ def _check_wheel(wheel: Path) -> None:
         notice = zf.read(license_hits[0]).decode()
         if 'Copyright (c) 2015-2026, BeeDesk, Inc.' not in notice:
             raise SystemExit('wheel LICENSE notice is not BeeDesk 2015-2026')
-        if 'django_trusts_zero-1.0.0.dev0' not in wheel.name:
-            raise SystemExit('wheel filename is not 1.0.0.dev0: %s' % wheel.name)
+        if 'django_trusts_zero-0.12.0.dev0' not in wheel.name:
+            raise SystemExit('wheel filename is not 0.12.0.dev0: %s' % wheel.name)
         if any(name.endswith('migrates.md') for name in names):
             raise SystemExit('wheel must not vendor migrates.md: %s' % wheel.name)
     print('wheel metadata ok', wheel.name)
@@ -85,9 +85,9 @@ def _check_wheel(wheel: Path) -> None:
 def _check_sdist(sdist: Path) -> None:
     with tarfile.open(sdist, 'r:gz') as tf:
         names = tf.getnames()
-        prefix = 'django_trusts_zero-1.0.0.dev0'
+        prefix = 'django_trusts_zero-0.12.0.dev0'
         if not any(name == prefix or name.startswith(prefix + '/') for name in names):
-            raise SystemExit('sdist is not 1.0.0.dev0: %s' % sdist.name)
+            raise SystemExit('sdist is not 0.12.0.dev0: %s' % sdist.name)
         license_name = next((name for name in names if name.endswith('/LICENSE')), None)
         if license_name is None:
             raise SystemExit('sdist missing LICENSE')

@@ -1,7 +1,7 @@
 project = "django-trusts-zero"
 copyright = "2015-2026, BeeDesk, Inc."
 author = "BeeDesk, Inc."
-version = "1.0.0.dev0"
+version = "0.12.0.dev0"
 release = version
 
 extensions = []

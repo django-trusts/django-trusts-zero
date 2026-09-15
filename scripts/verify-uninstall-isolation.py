@@ -85,8 +85,8 @@ def main() -> int:
         dist = tmp / 'dist'
         kernel_wheel, zero_wheel = _build_wheels(dist)
 
-        if '1.0.0.dev0' not in zero_wheel.name:
-            raise SystemExit('Zero wheel is not 1.0.0.dev0: %s' % zero_wheel.name)
+        if '0.12.0.dev0' not in zero_wheel.name:
+            raise SystemExit('Zero wheel is not 0.12.0.dev0: %s' % zero_wheel.name)
 
         venv = tmp / 'venv'
         _run([sys.executable, '-m', 'virtualenv', str(venv)])

@@ -7,12 +7,9 @@ points at `README.md`, not this file.
 
 ## Current pairing
 
-This tree is `django-trusts-zero==1.0.0.dev0` pairing against the
-reviewed django-trusts #211 head
-`8bfe6151b5a65af2d0667ab3a71680eecc90a691`. That revision is not
-merged independently; keep this Zero PR coordinated with #208/#211.
-The previous paired core floor remains merged C-methods
-[django-trusts#172](https://github.com/django-trusts/django-trusts/pull/172).
+This tree is `django-trusts-zero==0.12.0.dev0` pairing against the
+merged django-trusts `1.0.0rc1` revision
+`b85bf44e610c53a99d4fc743b14a079340a256f2`.
 
 Earlier unpublished Zero snapshots used `2.0.0.dev0` / `dev1` / `dev2`.
 Those values are not a public compatibility line.
@@ -41,7 +38,7 @@ AUTHENTICATION_BACKENDS = (
 )
 ```
 
-`Requires-Dist`: `django-trusts>=1.0.0.dev3,<2`.
+`Requires-Dist`: `django-trusts>=1.0.0rc1,<2`.
 
 The old settings path `'trusts.backends.TrustModelBackend'` fails at
 startup with `ImproperlyConfigured`. Persisted Django app label,
@@ -51,7 +48,7 @@ See `docs/source/index.rst` and `migrates.md`.
 
 ## Verification
 
-Pair CI pins Core `8bfe6151b5a65af2d0667ab3a71680eecc90a691`
+Pair CI pins django-trusts `b85bf44e610c53a99d4fc743b14a079340a256f2`
 only. The Zero suite (including `tests/legacy/` historical copies),
 fresh-install, old-path fail-closed, wheel RECORD, and
 uninstall-isolation scripts must run against that revision without

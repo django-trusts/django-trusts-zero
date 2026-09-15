@@ -1,4 +1,4 @@
-"""#149 R5B: companion pin is the exact django-trusts candidate; checkout fails closed."""
+"""#149 R7: companion pin is the exact django-trusts 1.0.0rc1; checkout fails closed."""
 
 import importlib.util
 import os
@@ -13,7 +13,8 @@ from tests.runtests import NORMAL_SUITE
 
 
 ROOT = Path(__file__).resolve().parents[1]
-KERNEL_CANDIDATE = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
+KERNEL_CANDIDATE = 'b85bf44e610c53a99d4fc743b14a079340a256f2'
+STALE_KERNEL_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
 STALE_KERNEL_211 = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
 
 
@@ -68,6 +69,8 @@ class ExactDjangoTrustsCandidatePinTest(SimpleTestCase):
         verifier = (ROOT / 'scripts' / 'verify-kernel-checkout.py').read_text()
         self.assertIn('COMPANION_KERNEL_SHA: %s' % KERNEL_CANDIDATE, ci)
         self.assertIn("KERNEL_HEAD = '%s'" % KERNEL_CANDIDATE, verifier)
+        self.assertNotIn(STALE_KERNEL_R5B, ci)
+        self.assertNotIn(STALE_KERNEL_R5B, verifier)
         self.assertNotIn(STALE_KERNEL_211, ci)
         self.assertNotIn(STALE_KERNEL_211, verifier)
         self.assertNotIn('#211', ci)
