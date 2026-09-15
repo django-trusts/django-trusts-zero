@@ -401,6 +401,9 @@ from trusts.authorization import
 from trusts.decorators import
 from trusts.decorators import P
 from trusts.decorators import permission_required
+from trusts.utils import get_short_model_name
+from trusts import utils
+get_short_model_name(
 include('trusts.urls')
 auth/group_detail.html
 auth/group_form.html
@@ -458,6 +461,7 @@ Then:
 - [ ] Retarget `include('trusts.urls')` to `include('trusts.zero.urls')`. Move template overrides to `trusts_zero/team_{detail,form}.html`.
 - [ ] Retarget views, admin, authorization helpers, and management-command imports to `trusts.zero.*`.
 - [ ] Replace `from trusts.decorators import P, R, K, G, O, permission_required` with `from trusts.zero.decorators import P, R, K, G, O, permission_required`. Do not switch this family to Core `authorization_required` as part of the 0.x → Zero route.
+- [ ] Search for `from trusts.utils import get_short_model_name`, `utils.get_short_model_name`, and `get_short_model_name(`. Classify string / Django model subclass / other class / non-string non-class callers. Replace with consumer-owned formatting. Do not treat retained `get_short_model_name_lower` as a drop-in (`ObjectName` vs `model_name`). Run consumer tests and confirm no remaining reference.
 - [ ] Retarget query / registration / policy helpers that used to import from `trusts.zero.models`.
 - [ ] Confirm `register_zero_content(backend, Model)` for each host terminal that needs TUP + TGP. Do not pass a bare registry or construct `Ref` / `Along(` in production donation. Call `backend.register(trust=..., ...)`. Do not call `register_relationship(`, `permission_in(`, or `register_permission_condition(`. Do not write literal Python `in` for a ceiling. Do not rely on `HistoricalGroupQueryCompiler`.
 - [ ] Confirm startup: canonical settings succeed; old backend path raises `ImproperlyConfigured`.
@@ -495,6 +499,46 @@ Migration-bot checklist:
 - `has_perm(` with a `:name` suffix
 - `_is_collection_coordinator(`
 - `except AttributeError` around `has_perm(` named filters
+
+## Removed django-trusts helper `get_short_model_name` (#217)
+
+django-trusts no longer ships unused importable
+`trusts.utils.get_short_model_name`. Retained:
+`get_short_model_name_lower`. This section is the supported 0.x → Zero
+record. django-trusts itself offers no direct 0.x → 1.0 replacement
+recipe; [django-trusts#219](https://github.com/django-trusts/django-trusts/pull/219)
+keeps only a terse boundary record that forwards here.
+
+### Old behavior of `trusts.utils.get_short_model_name` (exact)
+
+- strings → returned unchanged
+- Django model subclasses → `app_label.ObjectName`
+- other class objects → `''`
+- non-string, non-class values may raise `TypeError` at
+  `issubclass(klass, Model)`
+
+### New
+
+django-trusts no longer provides this helper. 0.x applications on the
+Zero route must replace consumer imports/calls with consumer-owned
+formatting. Use retained `get_short_model_name_lower` only where its
+intentionally different lowercase semantics are required (do not treat
+as drop-in: strings are lowercased; Django model subclasses produce
+`app_label.model_name` rather than `app_label.ObjectName`).
+
+Zero first-party code already uses only `get_short_model_name_lower`
+(`trusts.zero.models`).
+
+Migration-bot checklist:
+
+- `from trusts.utils import get_short_model_name`
+- `from trusts import utils` plus `utils.get_short_model_name`
+- `get_short_model_name(`
+- classify string / Django model subclass / other class / non-string non-class
+- replace intentionally with consumer-owned formatting
+- verify casing-sensitive expectations (`ObjectName` vs `model_name`)
+- run consumer tests
+- confirm no remaining reference
 
 ## Archaeology
 
