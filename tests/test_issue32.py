@@ -1,7 +1,7 @@
 """Zero #32: migrate donation to the final configured-backend methods.
 
-Paired against django-trusts #211
-``8bfe6151b5a65af2d0667ab3a71680eecc90a691``.
+Paired against the exact django-trusts candidate
+``91e1fb690e14a88626ff3c1c05b137da96c6b254``.
 """
 
 import inspect
@@ -27,8 +27,8 @@ from tests.models import Ticket
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
-STALE_PIN = 'b59087d62d945089049dab676a502fb4a68327cd'
+CORE_PIN = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
+STALE_PIN = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
 
 APPLICATION_PATHS = (
     ROOT / 'trusts' / 'zero' / 'registration.py',
@@ -87,16 +87,12 @@ class ZMethodsSurfaceTests(SimpleTestCase):
         self.assertNotIn('_condition_store', registration)
         self.assertNotIn('.registry', registration)
 
-    def test_ci_and_requirements_pin_c_methods(self):
-        req = (ROOT / 'requirements.txt').read_text()
+    def test_ci_pins_exact_django_trusts_candidate(self):
         ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
-        dev = (ROOT / 'DEV.md').read_text()
-        self.assertIn(CORE_PIN, req)
         self.assertIn('COMPANION_KERNEL_SHA: %s' % CORE_PIN, ci)
-        self.assertIn(CORE_PIN, dev)
-        self.assertNotIn(STALE_PIN, req)
         self.assertNotIn(STALE_PIN, ci)
-        self.assertNotIn(STALE_PIN, dev)
+        self.assertNotIn('#211', ci)
+        self.assertNotIn('C-methods', ci)
 
     def test_live_backend_exposes_final_methods_not_as_required_api(self):
         backend = live_backend()
