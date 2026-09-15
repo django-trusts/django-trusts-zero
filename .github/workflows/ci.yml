@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # Exact django-trusts / kernel candidate.
+  COMPANION_KERNEL_SHA: b85bf44e610c53a99d4fc743b14a079340a256f2
+
+jobs:
+  tests:
+    name: tests vs exact django-trusts candidate (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: django-trusts/django-trusts
+        ref: ${{ env.COMPANION_KERNEL_SHA }}
+        path: .deps/django-trusts
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Verify exact django-trusts candidate checkout
+      run: python scripts/verify-kernel-checkout.py
+    - name: Install exact django-trusts candidate then Zero
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install "Django>=6.1,<6.2" coverage virtualenv
+        python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
+        python -m pip install -e . --config-settings editable_mode=compat
+    - name: Zero tests (no core AppConfig)
+      run: |
+        coverage run -m tests.runtests
+        coverage report
+    - name: Generate Cobertura coverage.xml
+      if: matrix.python-version == '3.12'
+      run: coverage xml
+    - name: Upload coverage to Coveralls
+      if: matrix.python-version == '3.12'
+      uses: coverallsapp/github-action@v2
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        file: coverage.xml
+        format: cobertura
+        compare-ref: dev
+    - name: Fresh install + makemigrations --check
+      run: python scripts/verify-fresh-install.py
+    - name: Old backend path fails startup
+      run: python scripts/verify-old-backend-path.py
+    - name: Installed URL include + template render
+      run: python scripts/verify-installed-ui.py
+
+  pair:
+    name: pair with exact django-trusts candidate
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: django-trusts/django-trusts
+        ref: ${{ env.COMPANION_KERNEL_SHA }}
+        path: .deps/django-trusts
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Verify exact django-trusts candidate checkout
+      run: python scripts/verify-kernel-checkout.py
+    - name: Install exact django-trusts candidate then Zero
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install "Django>=6.1,<6.2" coverage
+        python -m pip install -e .deps/django-trusts --config-settings editable_mode=compat
+        python -m pip install -e . --config-settings editable_mode=compat
+        coverage run -m tests.runtests
+        python scripts/verify-fresh-install.py
+        python scripts/verify-old-backend-path.py
+        python scripts/verify-installed-ui.py
+
+  package:
+    name: package / wheel
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_CHECKOUT: ${{ github.workspace }}/.deps/django-trusts
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        repository: django-trusts/django-trusts
+        ref: ${{ env.COMPANION_KERNEL_SHA }}
+        path: .deps/django-trusts
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Verify exact django-trusts candidate checkout
+      run: python scripts/verify-kernel-checkout.py
+    - name: Install documentation and packaging tools
+      run: |
+        python -m pip install --upgrade pip build twine virtualenv "Django>=6.1,<6.2" "Sphinx>=8,<9"
+    - name: Build documentation without warnings
+      run: sphinx-build -nW docs/source docs/_build/html
+    - name: Build sdist and wheel
+      run: |
+        python -m build
+        twine check dist/*
+    - name: Package metadata (version, core floor, LICENSE)
+      run: python scripts/verify-package-metadata.py
+    - name: Wheel RECORD isolation + import
+      run: python scripts/verify-wheel-install.py
+    - name: Uninstall isolation
+      run: python scripts/verify-uninstall-isolation.py

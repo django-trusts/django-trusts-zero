@@ -1,0 +1,554 @@
+# migrates.md — django-trusts-zero 0.12.0.dev0
+
+This file is the **executable 0.x → Zero route**. Stored schema and
+authorization **data** stay compatible. Public **imports and settings**
+change.
+
+Unrelated to Zero Trust network architecture.
+
+Do **not** install a core Django app, call `kernel_config()`, list
+`trusts.backends.TrustModelBackend`, or plan a later `dev4` cleanup.
+Those surfaces are gone on the supported core library. The core floor
+is `django-trusts>=1.0.0rc1,<2`. Do not follow a companion-SHA
+staircase.
+
+## Audience
+
+- **Upgrading django-trusts 0.x** (concrete Trust / Content / TUP / TGP):
+  install `django-trusts-zero` and execute this checklist.
+- **Schema-neutral Core-only adopters:** this guide is not your route.
+  The Core 1.x migration router is forthcoming on django-trusts `dev`.
+  Until then, use the existing Core README and authorization guide:
+  [README](https://github.com/django-trusts/django-trusts/blob/dev/README.md)
+  and
+  [docs/source/index.rst](https://github.com/django-trusts/django-trusts/blob/dev/docs/source/index.rst).
+
+## Upgrade ordering
+
+Execute in this order. Fail closed at each step.
+
+1. Install `django-trusts-zero` (it pulls `django-trusts` 1.x).
+2. Point `INSTALLED_APPS` and `AUTHENTICATION_BACKENDS` at Zero. Remove
+   bare `'trusts'` and the old backend path.
+3. Retarget model, backend, and settings-constant imports.
+4. Register condition **builders** on the backend in `AppConfig.ready()`.
+5. Retarget views, URL include, templates, admin, management-command,
+   and legacy decorator imports to Zero-owned paths.
+6. Replace removed convenience writers with direct ORM.
+7. `migrate --plan` / `makemigrations trusts --check` (no new Trusts
+   operations on an already-current database).
+8. Run `create_trust_root`, `grandfather_trust_group_permissions`, and
+   `update_roles_permissions` only when those operator actions apply.
+9. Verify representative allow/deny, ContentTypes, table counts, and
+   fail-closed startup.
+
+## Package / settings / AppConfig / backend
+
+| Surface | Old (django-trusts 0.x) | New (`django-trusts-zero==0.12.0.dev0`) |
+| --- | --- | --- |
+| Distribution | `django-trusts` (library + concrete models) | `django-trusts` (library) + `django-trusts-zero` |
+| `INSTALLED_APPS` | `'trusts'` | **`'trusts.zero.apps.ZeroConfig'` only**. Do not add `'trusts'`. |
+| Backend settings | `'trusts.backends.TrustModelBackend'` | `'trusts.zero.backends.TrustModelBackend'` |
+| Backend import | `from trusts.backends import TrustModelBackend` | `from trusts.zero.backends import TrustModelBackend` |
+| Models | `from trusts.models import Trust, Content, Junction` | `from trusts.zero.models import Trust, Content, Junction` |
+| Settings constants | `from trusts import ENTITY_MODEL_NAME, ROOT_PK, …` | `from trusts.zero import ENTITY_MODEL_NAME, ROOT_PK, …` |
+| Owner / registry | historical monolithic app | `ZeroConfig(TrustsImplementationConfig)` + `implementation_for_path` / `zero_config()` |
+| Core `AppConfig` / `kernel_config()` | existed on older trees | **removed**. Do not import or call them. |
+| Django app label | `trusts` | **`trusts`** (unchanged, owned by `ZeroConfig`) |
+| Migration names | `0001_initial`, `0002_trustgroup` | **unchanged** loader keys `trusts.0001_initial` / `trusts.0002_trustgroup` |
+| Tables / content types / permissions | `trusts_trust`, `trusts \| trust`, … | **unchanged** |
+
+### Startup and failure behavior
+
+| Situation | Result |
+| --- | --- |
+| Canonical settings (`ZeroConfig` + Zero backend path) | Starts. No core `AppConfig`. Exactly one implementation owner (`ZeroConfig`). |
+| `'trusts'` in `INSTALLED_APPS` | Unsupported. Core is a library and ships no Django app. |
+| `AUTHENTICATION_BACKENDS = ['trusts.backends.TrustModelBackend']` | **`ImproperlyConfigured`** naming `trusts.zero.backends.TrustModelBackend`. No forwarding. |
+| Both backend paths listed | **`ImproperlyConfigured`** (old path is not Zero identity) |
+| Canonical path missing | **`ImproperlyConfigured`** from `ZeroConfig.ready()` |
+| django-trusts below `1.0.0rc1` | **Metadata refuse** (`Requires-Dist: django-trusts>=1.0.0rc1,<2`) and **startup belt** `ImproperlyConfigured` if `TrustsImplementationConfig` is missing |
+
+Do **not** add transparent core-path forwarding or make the old backend
+path succeed.
+
+## Migration identity (unchanged)
+
+Loader keys remain `('trusts', '0001_initial')` / `('trusts', '0002_trustgroup')`
+because `ZeroConfig.label = 'trusts'`. No `MIGRATION_MODULES`. No `0003`.
+`0002` still `dependencies = [('trusts', '0001_initial')]` and
+`database_operations=[]`.
+
+Already-applied 0.x databases keep matching `django_migrations` rows.
+`python -m django migrate --plan` has no Trusts operations on an
+already-current database. `makemigrations trusts --check` is quiet.
+
+`ContentType` natural keys (`trusts | trust` and siblings), model
+labels, permissions, and `COUNT(*)` on every Trusts table stay the same.
+
+## Conditions (current rule)
+
+Register a **builder**. Core invokes it once with symbolic `(u, p, o)`,
+stores IR, and never calls it during `has_perm` or `.permitted()`.
+
+Production must **not** import `trusts.conditions._ir` or call
+`set_condition_lookup`. `ZeroConfig` donates TUP / TGP and Meta
+conditions through the configured-backend API only. Core self-binds the
+private store adapter at construct.
+
+```python
+from django.apps import AppConfig
+from trusts.apps import implementation_for_path
+from trusts.zero.apps import CANONICAL_BACKEND_PATH
+
+# New (builder; donate through the backend in ready())
+def trust_own(u, p, o):
+    return u == o.settlor
+
+class Trust(Content):
+    class Meta:
+        permission_conditions = (('own', trust_own),)
+
+class DocumentsConfig(AppConfig):
+    def ready(self):
+        owner = implementation_for_path(
+            CANONICAL_BACKEND_PATH, apps_registry=self.apps,
+        )
+        backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
+        backend.add_named_filter(
+            Document, 'non_confidential',
+            predicate=lambda u, p, o: o.confidential != True,
+        )
+
+# Isolated / unfrozen tests (never the post-ready live registry)
+from trusts.core import BackendHandle, PlanQueryCompiler, TrustsRegistry
+isolated = BackendHandle(
+    path='tests.isolated',
+    registry=TrustsRegistry(),
+    compiler=PlanQueryCompiler(),
+)
+isolated.add_named_filter(Ticket, 'own', predicate=lambda u, p, o: u == o.owner)
+```
+
+Unchanged public call sites: `User.has_perm`,
+`ContentQuerySet.permitted(perm, user)`,
+`Trust.objects.filter_by_user_content_perm` (still refuses `:condition`),
+`Meta.permission_conditions` / `content_permission_conditions` names,
+`Trust:own` authorization meaning (`u == o.settlor`).
+
+| Situation | Do this |
+| --- | --- |
+| `Trust:own` / Meta tuples | Builder callable donated in `ready()` — not `condition_refs()` / prebuilt `Expr` |
+| Explicit registration | `backend.add_named_filter(..., predicate=...)` in the pre-finalization window |
+| Live registry after `apps.ready` | Frozen; further `add_named_filter` raises `TrustsConfigurationError` **before** the builder runs |
+| `TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS = True` | `trusts.E007`; does not enable callbacks |
+| `legacy_permission_callbacks_allowed` / `trusts.E002` / `trusts.W001` | Deleted. Do not import them |
+| Isolated tests | New `TrustsRegistry()` (unfrozen) |
+
+Deleted Zero model static methods — no forwarding alias on `Content` or
+`Junction`:
+
+| Removed | Replacement |
+| --- | --- |
+| `Content.register_permission_condition` | `backend.add_named_filter(..., predicate=...)` |
+| `Content.register_content` | `donate_content_permission_conditions` / `donate_installed_permission_conditions` |
+| `Content.get_permission_condition_record` | Core-internal `backend.registry.get_permission_condition_record` |
+| `Content.get_permission_condition_func` | Deleted. Records are IR-only (`record.expr`) |
+| `Content.iter_permission_conditions` | Core-internal `backend.registry.iter_permission_conditions` or `trusts.checks.iter_live_permission_conditions` |
+| `Content._conditions` | Per-backend `TrustsRegistry.conditions` |
+| `Junction.register_junction` | `donate_junction_content_permission_conditions` |
+| `from trusts.conditions import condition_refs` in production / Meta | Builder `lambda u, p, o: ...` or a named `def` |
+| `backend.register_relationship(...)` / `backend.register_permission_condition(...)` | `backend.register(trust=..., condition=lambda t: ...)` / `backend.add_named_filter(..., predicate=...)` |
+
+`PermissionConditionNotQueryable` is imported from `trusts.conditions`
+only. There is no `trusts.zero.models` alias.
+
+Hosts that previously donated only TUP and relied on
+`HistoricalGroupQueryCompiler` must call
+`register_zero_content(backend, Model)` (TUP + both TGP alternatives)
+for each terminal. `register_zero_relations` still donates Trust-as-content
+only. `HistoricalGroupQueryCompiler` is removed; use core
+`PlanQueryCompiler`.
+
+## Relation helpers (backend.register)
+
+Zero production donation takes the configured backend and calls
+`backend.register(trust=..., ...)` with validated Django `__` path
+strings (or already-supported #208 path lambdas) for `user=`,
+`permission=`, and dynamic `content=`. Customizable `content_via`
+helpers return or compose those public path strings, not `Ref` objects.
+
+Ceiling overlays use the accepted 1.0 condition grammar: a trust-rooted
+one-argument symbolic lambda, collection `.contains(registered_permission_path)`,
+and no public `permission_in(...)`, literal Python `in`, or `predicate=`.
+
+| | Old | New |
+| --- | --- | --- |
+| Helper argument | `register_zero_content(handle, Model)` | `register_zero_content(backend, Model)` |
+| TUP paths | `backend.register_relationship(TrustUserPermission, user="entity", permission="permission", content="trust__<reverse>")` | `backend.register(trust=TrustUserPermission, user="entity", permission="permission", content="trust__<reverse>")` |
+| TGP user / permission | `user="trustgroup__group__user"` / `permission="permission"` on `register_relationship` | unchanged string bindings on `register(trust=...)` |
+| TGP group ceiling | `condition=permission_in("trustgroup__group__permissions")` | `condition=lambda t: t.trustgroup.group.permissions.contains(t.permission)` |
+| TGP role ceiling | `condition=permission_in("trustgroup__group__roles__permissions")` | `condition=lambda t: t.trustgroup.group.roles.permissions.contains(t.permission)` |
+| Named filter | `backend.register_permission_condition(Document, "own", builder)` | `backend.add_named_filter(Document, "own", predicate=builder)` |
+| Trust reverse / `content_via` | `"trust__" + get_accessor_name()` (public `__` string) | unchanged |
+| Literal Python `in` | unsupported | still unsupported; do not write `t.permission in t.trustgroup.group.permissions` |
+
+```python
+# Old first-party donation (removed BackendHandle.register_relationship)
+backend.register_relationship(
+    TrustUserPermission,
+    user="entity",
+    permission="permission",
+    content="trust__<reverse>",
+)
+backend.register_relationship(
+    TrustGroupPermission,
+    user="trustgroup__group__user",
+    permission="permission",
+    content="trustgroup__trust__<reverse>",
+    condition=permission_in("trustgroup__group__permissions"),
+)
+backend.register_relationship(
+    TrustGroupPermission,
+    user="trustgroup__group__user",
+    permission="permission",
+    content="trustgroup__trust__<reverse>",
+    condition=permission_in("trustgroup__group__roles__permissions"),
+)
+
+# New public register() (trust-rooted symbolic ceilings)
+backend.register(
+    trust=TrustUserPermission,
+    user="entity",
+    permission="permission",
+    content="trust__<reverse>",
+)
+backend.register(
+    trust=TrustGroupPermission,
+    user="trustgroup__group__user",
+    permission="permission",
+    content="trustgroup__trust__<reverse>",
+    condition=lambda t: t.trustgroup.group.permissions.contains(t.permission),
+)
+backend.register(
+    trust=TrustGroupPermission,
+    user="trustgroup__group__user",
+    permission="permission",
+    content="trustgroup__trust__<reverse>",
+    condition=lambda t: t.trustgroup.group.roles.permissions.contains(
+        t.permission,
+    ),
+)
+```
+
+The predicate runs once at registration. Stored policy is private
+`PermissionIn` IR and contains no callable. Donation remains idempotent
+and is designed to perform zero SQL at startup.
+
+Application donation does not call `register_relationship(`,
+`permission_in(`, `register_permission_condition(`, or `.registry` for
+idempotency. Repeated `ZeroConfig.ready()` / helper donation is proved
+through the public configured-backend contract and remains zero SQL.
+Isolated compiler tests may still inspect stored records on the
+backend's registry as a Core-internal fixture.
+
+```python
+from trusts.apps import implementation_for_path
+from trusts.zero.apps import CANONICAL_BACKEND_PATH
+from trusts.zero.registration import register_zero_content
+
+owner = implementation_for_path(CANONICAL_BACKEND_PATH)
+backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
+register_zero_content(backend, Document)
+```
+
+## Moved views / templates / admin / management commands
+
+| Surface | Old (0.x / leftover core path) | New (Zero-owned) |
+| --- | --- | --- |
+| Views | `from trusts.views import NewTeamView, TeamView, newteam, team` | `from trusts.zero.views import NewTeamView, TeamView, newteam, team` |
+| Legacy request decorators | `from trusts.decorators import P, R, K, G, O, permission_required` | `from trusts.zero.decorators import P, R, K, G, O, permission_required` |
+| URLs | `include('trusts.urls')` | `include('trusts.zero.urls')` |
+| Admin | `from trusts.admin import register_auto_modeladmins` | `from trusts.zero.admin import register_auto_modeladmins` |
+| Authorization helpers | `from trusts.authorization import AuthorizationDenied, has_trust_row_perm` | `from trusts.zero.authorization import AuthorizationDenied, has_trust_row_perm` |
+| Templates | `auth/group_detail.html`, `auth/group_form.html` | `trusts_zero/team_detail.html`, `trusts_zero/team_form.html` |
+| `create_trust_root` | historical `trusts` command | `trusts.zero.management.commands.create_trust_root` |
+| `grandfather_trust_group_permissions` | historical `trusts` command | `trusts.zero.management.commands.grandfather_trust_group_permissions` |
+| `update_roles_permissions` | historical `trusts` command | `trusts.zero.management.commands.update_roles_permissions` |
+
+URL namespace `app_name = 'trusts'` is unchanged (`trusts:team_create`,
+`trusts:team_detail`); only the include path changes. Django still
+discovers the three management commands through app label `trusts`.
+
+The legacy request decorator family (`P`, `R`, `K`, `G`, `O`,
+`permission_required`, plus the private helpers that implementation
+needs) is Zero-owned. Retarget:
+
+```python
+# Old (0.x / leftover core path)
+from trusts.decorators import P, R, K, G, O, permission_required
+
+# New
+from trusts.zero.decorators import P, R, K, G, O, permission_required
+```
+
+Behavior is unchanged. Do not replace this family with Core
+`authorization_required` on the 0.x → Zero route.
+
+`create_trust_root` creates the self-referential root when missing.
+`grandfather_trust_group_permissions` is `--dry-run` by default; pass
+`--apply` to copy each TrustGroup's current global ceiling into local
+`TrustGroupPermission` rows. `update_roles_permissions` refreshes
+`Role` / `RolePermission` rows from `Meta.roles` /
+`Meta.content_roles`.
+
+## Query / registration / policy imports
+
+Supported model imports (`Trust`, `Content`, `Junction`, `Role`,
+`TrustUserPermission`, `TrustGroup`, `TrustGroupPermission`,
+`ReadonlyFieldsMixin`) stay on `trusts.zero.models`. Helpers that used
+to live on that module moved:
+
+```python
+from trusts.zero.registration import (
+    donate_content_permission_conditions,
+    donate_installed_permission_conditions,
+    donate_junction_content_permission_conditions,
+    register_zero_content,
+    register_zero_direct,
+    register_zero_group,
+    register_zero_relations,
+)
+from trusts.zero.query import (
+    ContentQuerySet, ContentManager, TrustManager,
+    compile_registered_condition_q,
+    django_permission_filter,
+    filter_scope_rows,
+)
+from trusts.zero.policy import (
+    get_group_global_ceiling,
+    permission_in_global_ceiling,
+    reject_queryable_condition,
+    resolve_content_permission,
+)
+from trusts.conditions import PermissionConditionNotQueryable
+from trusts.core import PlanQueryCompiler
+```
+
+Zero-only `Meta` option names (`roles`, `content_roles`,
+`content_permission_conditions`, `auto_modeladmin`) are registered when
+`trusts.zero.apps` is imported, not in `ZeroConfig.ready()` and not by
+importing `trusts.zero.models`. Generic `permission_conditions` is
+registered by core `trusts.conditions`.
+
+`has_trust_row_perm` uses `Trust.objects.filter_by_user_content_perm`
+/ public core `filter_authorized_scopes`. There is no Zero wrapper and
+no `trust_grant_q` fallback.
+
+## Write conveniences (direct ORM)
+
+Write conveniences are gone. Actor gating stays application code after
+a read/guard. `TrustGroupPermission.clean` / `save` / `bulk_create`
+still reject local grants outside the group's global ceiling.
+
+```python
+perm = Receipt.objects.get_permission('read')
+
+TrustUserPermission.objects.get_or_create(
+    trust=receipt.trust, entity=trustee, permission=perm)
+TrustUserPermission.objects.filter(
+    trust=receipt.trust, entity=trustee, permission=perm).delete()
+
+trust.groups.add(accountants)
+trust.groups.remove(accountants)
+
+tg, _ = TrustGroup.objects.get_or_create(trust=trust, group=accountants)
+TrustGroupPermission.objects.get_or_create(trustgroup=tg, permission=perm)
+TrustGroupPermission.objects.filter(trustgroup=tg, permission=perm).delete()
+
+accountants.user_set.add(user)
+accountants.permissions.add(perm)  # global ceiling
+```
+
+Create-under-Trust: `Trust.objects.filter_by_user_content_perm(user, Category, 'add')` must resolve `add_category`, not `add_trust`. A trustee grant of `add_trust` alone is insufficient.
+
+| Removed | Replacement |
+| --- | --- |
+| `Content.grant` / `Content.revoke` | `TrustUserPermission.objects.get_or_create` / `.filter(...).delete()` |
+| `Trust.associate_group` | `trust.groups.add` / `TrustGroup.objects.get_or_create` |
+| `Trust.grant_group_permission` / `revoke_group_permission` / `set_group_permissions` | `TrustGroupPermission` ORM |
+| `TrustGroup.grant_permission` / `revoke_permission` / `set_permissions` | `TrustGroupPermission` ORM |
+
+Do not restore those methods.
+
+## Migration-bot checklist
+
+Search application code and settings for:
+
+```text
+INSTALLED_APPS.*trusts
+AUTHENTICATION_BACKENDS.*trusts.backends
+from trusts.backends import TrustModelBackend
+from trusts.apps import kernel_config
+from trusts.apps import AppConfig
+from trusts.models import
+from trusts import ENTITY_MODEL_NAME
+from trusts import ROOT_PK
+from trusts.views import
+from trusts.urls import
+from trusts.admin import
+from trusts.authorization import
+from trusts.decorators import
+from trusts.decorators import P
+from trusts.decorators import permission_required
+include('trusts.urls')
+auth/group_detail.html
+auth/group_form.html
+from trusts.zero.models import compile_registered_condition_q
+from trusts.zero.models import donate_
+from trusts.zero.models import register_zero_
+from trusts.zero.models import ContentQuerySet
+from trusts.zero.backends import HistoricalGroupQueryCompiler
+from trusts.conditions import condition_refs
+from trusts.conditions import legacy_permission_callbacks_allowed
+from trusts.core import Ref
+Ref(
+register_relationship(
+permission_in(
+Python 'in' is unsupported
+register_permission_condition(
+handle
+.registry
+e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4
+.registry.register(
+.registry.register_strategy(
+Along(
+register_zero_content(registry
+register_zero_content(handle
+register_zero_direct(registry
+register_zero_group(registry
+register_zero_relations(registry
+Content.register_permission_condition
+Content.register_content
+trusts.conditions._ir
+set_condition_lookup
+TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS
+.content.grant(
+.content.revoke(
+.associate_group(
+.grant_group_permission(
+.revoke_group_permission(
+.set_group_permissions(
+.grant_permission(
+.set_permissions(
+```
+
+Then:
+
+- [ ] Install `django-trusts-zero` (it pulls `django-trusts` 1.x). Do not add `'trusts'` to `INSTALLED_APPS`.
+- [ ] Set `INSTALLED_APPS` to `'trusts.zero.apps.ZeroConfig'` (plus Django contrib).
+- [ ] Set `AUTHENTICATION_BACKENDS` to `'trusts.zero.backends.TrustModelBackend'`. Remove `'trusts.backends.TrustModelBackend'`.
+- [ ] Replace `from trusts.backends import TrustModelBackend` with `from trusts.zero.backends import TrustModelBackend`.
+- [ ] Replace `from trusts.models import …` with `from trusts.zero.models import …`.
+- [ ] Move settings constants used by migrations/commands to `trusts.zero`.
+- [ ] Delete any `kernel_config()` or core `AppConfig` usage. Those names are not on the supported core library.
+- [ ] Convert Meta / explicit condition registrations to builders. Call `backend.add_named_filter(..., predicate=...)` from `AppConfig.ready()`, not on the post-ready frozen live registry.
+- [ ] Search production for `trusts.conditions._ir` and `set_condition_lookup`. Do not import or bind them. Tests that inject a fake or unbind may keep the call.
+- [ ] Remove `TRUSTS_ALLOW_LEGACY_PERMISSION_CALLBACKS`, `legacy_permission_callbacks_allowed`, `condition_refs`, `trusts.E002`, and `trusts.W001`. A leftover `True` setting is `trusts.E007`.
+- [ ] Retarget `include('trusts.urls')` to `include('trusts.zero.urls')`. Move template overrides to `trusts_zero/team_{detail,form}.html`.
+- [ ] Retarget views, admin, authorization helpers, and management-command imports to `trusts.zero.*`.
+- [ ] Replace `from trusts.decorators import P, R, K, G, O, permission_required` with `from trusts.zero.decorators import P, R, K, G, O, permission_required`. Do not switch this family to Core `authorization_required` as part of the 0.x → Zero route.
+- [ ] Retarget query / registration / policy helpers that used to import from `trusts.zero.models`.
+- [ ] Confirm `register_zero_content(backend, Model)` for each host terminal that needs TUP + TGP. Do not pass a bare registry or construct `Ref` / `Along(` in production donation. Call `backend.register(trust=..., ...)`. Do not call `register_relationship(`, `permission_in(`, or `register_permission_condition(`. Do not write literal Python `in` for a ceiling. Do not rely on `HistoricalGroupQueryCompiler`.
+- [ ] Confirm startup: canonical settings succeed; old backend path raises `ImproperlyConfigured`.
+- [ ] Confirm no installed core `AppConfig` and exactly one implementation owner.
+- [ ] `python -m django migrate --plan` — no Trusts operations on an already-current database.
+- [ ] `python -m django makemigrations trusts --check` — quiet.
+- [ ] Confirm `ContentType` natural keys `trusts | trust` (and siblings) and `COUNT(*)` on every Trusts table are unchanged.
+- [ ] Confirm model labels, migration keys, permissions, and representative rows are unchanged.
+- [ ] Run `create_trust_root` if the root row is missing. Dry-run, then optionally `--apply`, `grandfather_trust_group_permissions` if you want former implicit group-derived Trust access copied into local TGP rows. Run `update_roles_permissions` if `Meta.roles` / `Meta.content_roles` changed.
+- [ ] Confirm object/list authorization, fail-closed anonymous/inactive/undeclared cases, and fixed query counts.
+- [ ] Confirm `pip` refuses django-trusts below `1.0.0rc1` against this wheel (`django-trusts>=1.0.0rc1,<2`).
+- [ ] Confirm `pip uninstall django-trusts-zero` does not delete `trusts/__init__.py`.
+- [ ] Confirm uninstalling core makes `trusts.zero.backends` unusable.
+- [ ] Replace `Content.grant`/`revoke`, `Trust.associate_group`/`grant_group_permission`/`revoke_group_permission`/`set_group_permissions`, and `TrustGroup.grant_permission`/`revoke_permission`/`set_permissions` with the ORM snippets above. Do not restore those methods.
+- [ ] Keep ceiling writes on `TrustGroupPermission` (`.full_clean()` / `save` / `bulk_create`); do not bypass `local_grant_outside_ceiling`.
+- [ ] `filter_by_user_content_perm(user, ContentModel, 'add')` must keep authorizing the **content** permission (e.g. `add_category`), not `add_trust`.
+- [ ] Confirm first-party donation remains zero-SQL and idempotent on re-entry to `ready()`.
+- [ ] Confirm a frozen backend raises `TrustsConfigurationError` before the builder is invoked.
+- [ ] Search application-facing Zero paths for `register_relationship(`, `permission_in(`, `register_permission_condition(`, `handle`, `.registry` used for donation idempotency, and Core pin `e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4`. Literal Python `in` stays unsupported. Classify genuine Core-internal test fixtures separately.
+- [ ] Do not apply a new Trusts schema or data migration; none was added.
+- [ ] Leave Zero package version at `0.12.0.dev0` and django-trusts floor at `1.0.0rc1`.
+
+## Named-filter `has_perm` (#181 compatibility)
+
+| | Old | New |
+| --- | --- | --- |
+| Missing `:name` on `has_perm` | Instance `user.has_perm('app.codename:missing', obj)` raised `AttributeError` | Runtime fail-closed non-match (`False`, 0 SQL) so Django can still consult sibling backends |
+| `.permitted` / `.authorized` unknown name | `AttributeError` | Unchanged. Keep raising. Aggregation is a separate track |
+| QuerySet coordinator hook | Tests called Core's private `_is_collection_coordinator()` | Hook is gone. Each exact backend path evaluates only its own plan. Inapplicable path: `False` / 0 SQL. Same path listed twice is two Django invocations where Django does not short-circuit |
+
+Malformed or unbound policy this applicable backend owns still raises. The single-backend Zero baseline is unchanged: one configured Trusts path still authorizes in one SQL.
+
+Migration-bot checklist:
+
+- `has_perm(` with a `:name` suffix
+- `_is_collection_coordinator(`
+- `except AttributeError` around `has_perm(` named filters
+
+## Unused / removed `trusts.utils.get_short_model_name` (#217)
+
+Schema-neutral django-trusts no longer provides
+`trusts.utils.get_short_model_name`. The Zero / 0.x upgrade route owns
+this guidance. The API-removal boundary is recorded on django-trusts
+[PR #219](https://github.com/django-trusts/django-trusts/pull/219) /
+[issue #217](https://github.com/django-trusts/django-trusts/issues/217).
+
+**Old behavior** (exact historical helper semantics):
+
+- strings → returned unchanged
+- Django model subclasses → `app_label.ObjectName`
+- other class objects → `''`
+- non-string, non-class values may raise `TypeError` at `issubclass(klass, Model)`
+
+**New:** django-trusts no longer provides this helper. 0.x applications
+on the Zero route must not rely on it from schema-neutral django-trusts.
+
+**Replacement:**
+
+- Search consumer imports and calls.
+- Replace them with consumer-owned formatting appropriate to the caller.
+- Use retained `get_short_model_name_lower` only where its intentionally
+  different lowercase semantics are required.
+- Do not treat `get_short_model_name_lower` as a drop-in: strings are
+  lowercased; Django model subclasses produce `app_label.model_name`
+  rather than `app_label.ObjectName`.
+
+Migration-bot checklist:
+
+- `from trusts.utils import get_short_model_name`
+- `from trusts import utils` plus `utils.get_short_model_name`
+- `get_short_model_name(`
+- classify string / Django model subclass / other class / non-string non-class
+- replace intentionally with consumer-owned formatting
+- verify casing-sensitive expectations (`ObjectName` vs `model_name`)
+- run consumer tests
+- confirm no remaining reference
+
+## Archaeology
+
+This file is the live executable route only. It does not inline Core
+#8–#151 chronology or unpublished internal development snapshots.
+
+The full historical Core `migrates.md` is archived at both of these
+URLs (tag for convenience; SHA for immutability):
+
+- https://github.com/django-trusts/django-trusts/blob/migration-archive-pre-1.0/migrates.md
+- https://github.com/django-trusts/django-trusts/blob/7414886263faafb6edfb44c0c5fcf9fc8fa14e79/migrates.md
+
+Zero git history at
+[`841004af49687c31c466ed03dbfd4f8ce9c7f153`](https://github.com/django-trusts/django-trusts-zero/commit/841004af49687c31c466ed03dbfd4f8ce9c7f153)
+still holds the pre-curation Zero file (the previous default-branch
+guide, including chronological Zero records). Read that commit for
+Zero's own pre-reset text. Do not copy the Core archive into this
+package or wheel.
