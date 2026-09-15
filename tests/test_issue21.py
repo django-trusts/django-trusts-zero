@@ -147,6 +147,29 @@ class ZeroMigratesRouteTest(SimpleTestCase):
             with self.subTest(banned=banned):
                 self.assertNotIn(banned, text)
 
+    def test_migrates_records_removed_get_short_model_name(self):
+        text = (ROOT / "migrates.md").read_text()
+        heading = "## Unused / removed `trusts.utils.get_short_model_name` (#217)"
+        self.assertIn(heading, text)
+        section = text[text.index(heading) : text.index("## Archaeology")]
+        self.assertIn("strings → returned unchanged", section)
+        self.assertIn("app_label.ObjectName", section)
+        self.assertIn("other class objects → `''`", section)
+        self.assertIn("issubclass(klass, Model)", section)
+        self.assertIn("from trusts.utils import get_short_model_name", section)
+        self.assertIn("utils.get_short_model_name", section)
+        self.assertIn("get_short_model_name_lower", section)
+        self.assertIn("app_label.model_name", section)
+        self.assertIn(
+            "https://github.com/django-trusts/django-trusts/pull/219",
+            section,
+        )
+        self.assertIn(
+            "https://github.com/django-trusts/django-trusts/issues/217",
+            section,
+        )
+        self.assertNotIn("from Core", section)
+
     def test_zero_tree_does_not_vendor_core_archive(self):
         manifest = (ROOT / "MANIFEST.in").read_text()
         self.assertIn("include migrates.md", manifest)
