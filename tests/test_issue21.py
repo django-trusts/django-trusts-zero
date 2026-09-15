@@ -65,7 +65,7 @@ class ZeroDocumentationSurfaceTest(SimpleTestCase):
         self.assertIn('project = "django-trusts-zero"', conf)
         self.assertIn('author = "BeeDesk, Inc."', conf)
         self.assertIn('copyright = "2015-2026, BeeDesk, Inc."', conf)
-        self.assertIn('version = "1.0.0.dev0"', conf)
+        self.assertIn('version = "0.12.0.dev0"', conf)
 
         pyproject = (ROOT / "pyproject.toml").read_text()
         self.assertIn(
@@ -122,7 +122,7 @@ class ZeroMigratesRouteTest(SimpleTestCase):
         self.assertIn("from trusts.zero.models import", text)
         self.assertIn("0001_initial", text)
         self.assertIn("0002_trustgroup", text)
-        self.assertIn("django-trusts>=1.0.0.dev3,<2", text)
+        self.assertIn("django-trusts>=1.0.0rc1,<2", text)
         self.assertIn("trusts.conditions._ir", text)
         self.assertIn("set_condition_lookup", text)
         self.assertIn("include('trusts.zero.urls')", text)

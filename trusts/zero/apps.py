@@ -11,12 +11,13 @@ register_zero_meta_option_names()
 
 CANONICAL_BACKEND_PATH = 'trusts.zero.backends.TrustModelBackend'
 DEPRECATED_CORE_BACKEND_PATH = 'trusts.backends.TrustModelBackend'
-CORE_REQUIREMENT = 'django-trusts>=1.0.0.dev3,<2'
+CORE_REQUIREMENT = 'django-trusts>=1.0.0rc1,<2'
 FLOOR_MESSAGE = (
-    'django-trusts-zero 1.0.0.dev0 requires %s '
+    'django-trusts-zero 0.12.0.dev0 requires %s '
     '(TrustsImplementationConfig and implementation_for_path / '
     'implementation_for_class). The installed django-trusts is below '
-    'the supported core floor. Upgrade django-trusts to 1.0.0.dev3 or later.'
+    'the supported django-trusts floor. Upgrade django-trusts to '
+    '1.0.0rc1 or later.'
     % CORE_REQUIREMENT
 )
 

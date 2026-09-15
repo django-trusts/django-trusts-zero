@@ -184,7 +184,7 @@ Supported versions and limits
 
 * Python 3.12, 3.13, and 3.14
 * Django 6.1
-* ``django-trusts>=1.0.0.dev3,<2``
+* ``django-trusts>=1.0.0rc1,<2``
 * Named permission conditions are registration-time builders. Core
   invokes the callable once with symbolic ``(u, p, o)``, stores IR only,
   and never runs it during ``has_perm`` or ``.permitted()``.

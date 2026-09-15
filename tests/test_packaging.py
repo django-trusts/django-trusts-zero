@@ -177,13 +177,14 @@ class ZeroPublishMetadataTests(SimpleTestCase):
     def test_pyproject_requires_final_core_floor(self):
         text = (ROOT / 'pyproject.toml').read_text()
         self.assertIn('name = "django-trusts-zero"', text)
-        self.assertIn('version = "1.0.0.dev0"', text)
-        self.assertIn('"django-trusts>=1.0.0.dev3,<2"', text)
+        self.assertIn('version = "0.12.0.dev0"', text)
+        self.assertIn('"django-trusts>=1.0.0rc1,<2"', text)
         self.assertIn('"Django>=6.1,<6.2"', text)
         self.assertIn('readme = "README.md"', text)
         self.assertNotIn('readme = "DEV.md"', text)
         self.assertIn('license = "BSD-2-Clause"', text)
-        companion = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
+        companion = 'b85bf44e610c53a99d4fc743b14a079340a256f2'
+        stale_r5b = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
         stale_companion = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
         stale = (
             'b59087d62d945089049dab676a502fb4a68327cd',
@@ -203,6 +204,7 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
         dev = (ROOT / 'DEV.md').read_text()
         self.assertIn('COMPANION_KERNEL_SHA: %s' % companion, ci)
+        self.assertNotIn(stale_r5b, ci)
         self.assertNotIn(stale_companion, ci)
         self.assertIn('pair with exact django-trusts candidate', ci)
         self.assertNotIn('pair with merged core C-methods', ci)

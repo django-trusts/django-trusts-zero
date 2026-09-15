@@ -1,4 +1,4 @@
-# migrates.md — django-trusts-zero 1.0.0.dev0
+# migrates.md — django-trusts-zero 0.12.0.dev0
 
 This file is the **executable 0.x → Zero route**. Stored schema and
 authorization **data** stay compatible. Public **imports and settings**
@@ -9,7 +9,7 @@ Unrelated to Zero Trust network architecture.
 Do **not** install a core Django app, call `kernel_config()`, list
 `trusts.backends.TrustModelBackend`, or plan a later `dev4` cleanup.
 Those surfaces are gone on the supported core library. The core floor
-is `django-trusts>=1.0.0.dev3,<2`. Do not follow a companion-SHA
+is `django-trusts>=1.0.0rc1,<2`. Do not follow a companion-SHA
 staircase.
 
 ## Audience
@@ -44,7 +44,7 @@ Execute in this order. Fail closed at each step.
 
 ## Package / settings / AppConfig / backend
 
-| Surface | Old (django-trusts 0.x) | New (`django-trusts-zero==1.0.0.dev0`) |
+| Surface | Old (django-trusts 0.x) | New (`django-trusts-zero==0.12.0.dev0`) |
 | --- | --- | --- |
 | Distribution | `django-trusts` (library + concrete models) | `django-trusts` (library) + `django-trusts-zero` |
 | `INSTALLED_APPS` | `'trusts'` | **`'trusts.zero.apps.ZeroConfig'` only**. Do not add `'trusts'`. |
@@ -67,7 +67,7 @@ Execute in this order. Fail closed at each step.
 | `AUTHENTICATION_BACKENDS = ['trusts.backends.TrustModelBackend']` | **`ImproperlyConfigured`** naming `trusts.zero.backends.TrustModelBackend`. No forwarding. |
 | Both backend paths listed | **`ImproperlyConfigured`** (old path is not Zero identity) |
 | Canonical path missing | **`ImproperlyConfigured`** from `ZeroConfig.ready()` |
-| Core below `1.0.0.dev3` | **Metadata refuse** (`Requires-Dist: django-trusts>=1.0.0.dev3,<2`) and **startup belt** `ImproperlyConfigured` if `TrustsImplementationConfig` is missing |
+| django-trusts below `1.0.0rc1` | **Metadata refuse** (`Requires-Dist: django-trusts>=1.0.0rc1,<2`) and **startup belt** `ImproperlyConfigured` if `TrustsImplementationConfig` is missing |
 
 Do **not** add transparent core-path forwarding or make the old backend
 path succeed.
@@ -468,7 +468,7 @@ Then:
 - [ ] Confirm model labels, migration keys, permissions, and representative rows are unchanged.
 - [ ] Run `create_trust_root` if the root row is missing. Dry-run, then optionally `--apply`, `grandfather_trust_group_permissions` if you want former implicit group-derived Trust access copied into local TGP rows. Run `update_roles_permissions` if `Meta.roles` / `Meta.content_roles` changed.
 - [ ] Confirm object/list authorization, fail-closed anonymous/inactive/undeclared cases, and fixed query counts.
-- [ ] Confirm `pip` refuses core below `1.0.0.dev3` against this wheel (`django-trusts>=1.0.0.dev3,<2`).
+- [ ] Confirm `pip` refuses django-trusts below `1.0.0rc1` against this wheel (`django-trusts>=1.0.0rc1,<2`).
 - [ ] Confirm `pip uninstall django-trusts-zero` does not delete `trusts/__init__.py`.
 - [ ] Confirm uninstalling core makes `trusts.zero.backends` unusable.
 - [ ] Replace `Content.grant`/`revoke`, `Trust.associate_group`/`grant_group_permission`/`revoke_group_permission`/`set_group_permissions`, and `TrustGroup.grant_permission`/`revoke_permission`/`set_permissions` with the ORM snippets above. Do not restore those methods.
@@ -478,7 +478,7 @@ Then:
 - [ ] Confirm a frozen backend raises `TrustsConfigurationError` before the builder is invoked.
 - [ ] Search application-facing Zero paths for `register_relationship(`, `permission_in(`, `register_permission_condition(`, `handle`, `.registry` used for donation idempotency, and Core pin `e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4`. Literal Python `in` stays unsupported. Classify genuine Core-internal test fixtures separately.
 - [ ] Do not apply a new Trusts schema or data migration; none was added.
-- [ ] Leave Zero package version at `1.0.0.dev0` and core floor at `1.0.0.dev3`.
+- [ ] Leave Zero package version at `0.12.0.dev0` and django-trusts floor at `1.0.0rc1`.
 
 ## Named-filter `has_perm` (#181 compatibility)
 
