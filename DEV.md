@@ -8,8 +8,9 @@ points at `README.md`, not this file.
 ## Current pairing
 
 This tree is `django-trusts-zero==0.12.0.dev0` pairing against the
-merged django-trusts `1.0.0rc1` revision
-`b85bf44e610c53a99d4fc743b14a079340a256f2`.
+django-trusts `1.0.0rc1` candidate
+`4e063756ebd32c1911f42946c1d77ca09f19a43b`
+(explicit `register(..., group=...)`, Core PR #253).
 
 Earlier unpublished Zero snapshots used `2.0.0.dev0` / `dev1` / `dev2`.
 Those values are not a public compatibility line.
@@ -48,7 +49,7 @@ See `docs/source/index.rst` and `migrates.md`.
 
 ## Verification
 
-Pair CI pins django-trusts `b85bf44e610c53a99d4fc743b14a079340a256f2`
+Pair CI pins django-trusts `4e063756ebd32c1911f42946c1d77ca09f19a43b`
 only. The Zero suite (including `tests/legacy/` historical copies),
 fresh-install, old-path fail-closed, wheel RECORD, and
 uninstall-isolation scripts must run against that revision without

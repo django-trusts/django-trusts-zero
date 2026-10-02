@@ -95,34 +95,37 @@ def register_zero_direct(backend, content_models, content_via=None):
 
 
 def register_zero_group(backend, content_models, content_via=None):
-    """Two alternative TGP registrations on the same bindings.
+    """Explicit ``auth.Group`` registration plus the role ceiling.
 
-    Local TrustGroupPermission grant AND the group's direct
-    ``permissions`` ceiling, or the same local grant AND the
-    ``roles.permissions`` ceiling. The plan ORs complete records.
+    ``TrustGroup`` uses ``group=`` ending at Django ``auth.Group``.
+    The compiler appends ``Group.permissions``. The local-grant
+    condition keeps a bare association from authorizing. ``TrustGroupPermission``
+    stays an ordinary ``permission=`` path for ``roles.permissions``.
+    Core rejects different terminal bindings on one root and content
+    model, so these are two roots. The plan ORs complete records.
+    The role path is not Django group enumeration.
     """
-    from trusts.zero.models import TrustGroupPermission
+    from trusts.zero.models import TrustGroup, TrustGroupPermission
 
     backend = _require_backend(backend)
     for model in content_models:
-        content = _content_path(model, content_via, prefix='trustgroup')
         # auth.Group reverse membership is related_query_name="user"
         # (Python accessor remains group.user_set). Core path validation
         # uses _meta.get_field, so the hop must be the query name.
+        # Do not append permissions; the compiler owns that hop.
+        # .contains member is that compiler-owned permission path.
         backend.register(
-            trust=TrustGroupPermission,
-            user='trustgroup__group__user',
-            permission='permission',
-            content=content,
-            condition=lambda t: t.trustgroup.group.permissions.contains(
-                t.permission,
-            ),
+            trust=TrustGroup,
+            user='group__user',
+            content=_content_path(model, content_via),
+            group='group',
+            condition=lambda t: t.permissions.contains(t.group.permissions),
         )
         backend.register(
             trust=TrustGroupPermission,
             user='trustgroup__group__user',
             permission='permission',
-            content=content,
+            content=_content_path(model, content_via, prefix='trustgroup'),
             condition=lambda t: t.trustgroup.group.roles.permissions.contains(
                 t.permission,
             ),
@@ -130,13 +133,13 @@ def register_zero_group(backend, content_models, content_via=None):
 
 
 def register_zero_content(backend, model, content_via=None):
-    """TUP plus both TGP alternatives for one content terminal."""
+    """TUP, explicit ``auth.Group``, and the role ceiling for one terminal."""
     register_zero_direct(backend, (model,), content_via=content_via)
     register_zero_group(backend, (model,), content_via=content_via)
 
 
 def register_zero_relations(backend):
-    """Idempotent package donation: Trust-as-content TUP + both TGP alternatives."""
+    """Idempotent package donation: Trust-as-content TUP, group, and role."""
     from trusts.zero.models import Trust
 
     backend = _require_backend(backend)

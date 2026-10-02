@@ -11,9 +11,9 @@ from django.db.models import Model, Q
 from trusts.core import (
     TrustsConfigurationError,
     any_plan_records,
-    filter_authorized_scopes,
     granted,
 )
+from trusts.zero.compiler import filter_authorized_scopes
 from trusts.conditions import permission_has_condition
 from trusts.query import AuthorizedQuerySet, is_active_principal
 from trusts.zero import (
@@ -63,10 +63,11 @@ def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kw
     """Zero codec wrapper around public core ``filter_authorized_scopes``.
 
     Permission is resolved on ``content`` (``add_category``), not on the
-    Trust manager model (``add_trust``). Both TGP ceiling alternatives
-    are registered. Create-under-Trust is always the public core
-    prefix projection (including same-model proper prefixes). Handles
-    come from ``ZeroConfig``, never ``kernel_config()``.
+    Trust manager model (``add_trust``). The explicit ``auth.Group``
+    path and the role ceiling are both registered. Create-under-Trust
+    is always the public core prefix projection (including same-model
+    proper prefixes). Handles come from ``ZeroConfig``, never
+    ``kernel_config()``.
     """
     from trusts.zero.apps import zero_config
 
