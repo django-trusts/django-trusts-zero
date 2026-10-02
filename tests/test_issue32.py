@@ -1,7 +1,7 @@
 """Zero #32: migrate donation to the final configured-backend methods.
 
 Paired against the exact django-trusts candidate
-``b85bf44e610c53a99d4fc743b14a079340a256f2``.
+``4e063756ebd32c1911f42946c1d77ca09f19a43b``.
 """
 
 import inspect
@@ -14,7 +14,9 @@ from django.test.utils import isolate_apps
 
 from trusts.core import TrustsConfigurationError, TrustsRegistry
 from trusts.zero.apps import CANONICAL_BACKEND_PATH, ZeroConfig, zero_config
-from trusts.zero.models import Junction, Trust, TrustGroupPermission, TrustUserPermission
+from trusts.zero.models import (
+    Junction, Trust, TrustGroup, TrustGroupPermission, TrustUserPermission,
+)
 from trusts.zero.registration import (
     donate_content_permission_conditions,
     donate_installed_permission_conditions,
@@ -27,7 +29,7 @@ from tests.models import Ticket
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = 'b85bf44e610c53a99d4fc743b14a079340a256f2'
+CORE_PIN = '4e063756ebd32c1911f42946c1d77ca09f19a43b'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
 STALE_PIN = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
 
@@ -68,6 +70,11 @@ class ZMethodsSurfaceTests(SimpleTestCase):
         self.assertIn('permission_in("trustgroup__group__permissions")', migrates)
         self.assertIn(
             't.trustgroup.group.permissions.contains(t.permission)',
+            migrates,
+        )
+        self.assertIn('group="group"', migrates)
+        self.assertIn(
+            't.permissions.contains(t.group.permissions)',
             migrates,
         )
         self.assertIn('predicate=', migrates)
@@ -116,27 +123,34 @@ class ZMethodsPlanTests(SimpleTestCase):
         register_zero_relations(backend)
         tup = backend.registry.records_for_root(TrustUserPermission)
         tgp = backend.registry.records_for_root(TrustGroupPermission)
+        grouped = backend.registry.records_for_root(TrustGroup)
         self.assertEqual(len(tup), 1)
-        self.assertEqual(len(tgp), 2)
+        self.assertEqual(len(tgp), 1)
+        self.assertEqual(len(grouped), 1)
         self.assertIs(tup[0].content_model, Trust)
         self.assertEqual(tup[0].user_field, 'entity')
-        self.assertEqual(tgp[0].user_path, tgp[1].user_path)
-        self.assertEqual(tgp[0].permission_path, tgp[1].permission_path)
-        self.assertNotEqual(tgp[0].condition, tgp[1].condition)
+        self.assertFalse(tgp[0].via_group)
+        self.assertEqual(tgp[0].permission_path, ('permission',))
+        self.assertTrue(grouped[0].via_group)
+        self.assertEqual(grouped[0].group_path, ('group',))
+        self.assertEqual(grouped[0].permission_path, ('group', 'permissions'))
+        self.assertNotEqual(tgp[0].condition, grouped[0].condition)
         self.assertFalse(callable(tup[0].condition))
         self.assertFalse(callable(tgp[0].condition))
-        self.assertFalse(callable(tgp[1].condition))
+        self.assertFalse(callable(grouped[0].condition))
         self.assertEqual(
-            {row.content_model for row in tup + tgp},
+            {row.content_model for row in tup + tgp + grouped},
             {Trust},
         )
 
-    def test_register_zero_group_keeps_two_alternatives(self):
+    def test_register_zero_group_keeps_auth_group_and_role(self):
         backend = isolated_backend()
         register_zero_group(backend, (Trust,))
-        rows = backend.registry.records_for_root(TrustGroupPermission)
-        self.assertEqual(len(rows), 2)
-        self.assertNotEqual(rows[0].condition, rows[1].condition)
+        role = backend.registry.records_for_root(TrustGroupPermission)
+        grouped = backend.registry.records_for_root(TrustGroup)
+        self.assertEqual(len(role), 1)
+        self.assertEqual(len(grouped), 1)
+        self.assertNotEqual(role[0].condition, grouped[0].condition)
 
 
 class ZMethodsDonationOnceTests(TestCase):

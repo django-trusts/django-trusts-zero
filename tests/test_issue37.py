@@ -6,7 +6,9 @@ from pathlib import Path
 
 from django.test import SimpleTestCase, TestCase
 
-from trusts.zero.models import Trust, TrustGroupPermission, TrustUserPermission
+from trusts.zero.models import (
+    Trust, TrustGroup, TrustGroupPermission, TrustUserPermission,
+)
 from trusts.zero.registration import (
     register_zero_direct,
     register_zero_group,
@@ -18,7 +20,7 @@ from tests.models import Category
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = 'b85bf44e610c53a99d4fc743b14a079340a256f2'
+CORE_PIN = '4e063756ebd32c1911f42946c1d77ca09f19a43b'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
 STALE_PIN = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
 REGISTRATION = ROOT / 'trusts' / 'zero' / 'registration.py'
@@ -30,8 +32,11 @@ class RegisterMigrationSurfaceTests(SimpleTestCase):
         source = REGISTRATION.read_text()
         self.assertIn('backend.register(', source)
         self.assertIn('trust=TrustUserPermission', source)
+        self.assertIn('trust=TrustGroup,', source)
         self.assertIn('trust=TrustGroupPermission', source)
-        self.assertIn(
+        self.assertIn("group='group'", source)
+        self.assertIn('t.permissions.contains(t.group.permissions)', source)
+        self.assertNotIn(
             't.trustgroup.group.permissions.contains(', source,
         )
         self.assertIn(
@@ -85,6 +90,11 @@ class RegisterMigrationSurfaceTests(SimpleTestCase):
             't.permission)',
             text,
         )
+        self.assertIn('group="group"', text)
+        self.assertIn(
+            'condition=lambda t: t.permissions.contains(t.group.permissions)',
+            text,
+        )
         self.assertIn(
             't.trustgroup.group.roles.permissions.contains(',
             text,
@@ -122,22 +132,22 @@ class PublicRegisterDonationTests(TestCase):
 
         register_zero_group(backend, (Trust,))
         tgp = backend.registry.records_for_root(TrustGroupPermission)
-        self.assertEqual(len(tgp), 2)
-        self.assertEqual(tgp[0].user_path, tgp[1].user_path)
-        self.assertEqual(tgp[0].permission_path, tgp[1].permission_path)
-        self.assertNotEqual(tgp[0].condition, tgp[1].condition)
-        representations = {repr(row.condition) for row in tgp}
-        self.assertTrue(
-            any('roles' not in item and 'permissions' in item
-                for item in representations),
-            representations,
-        )
-        self.assertTrue(
-            any('roles' in item and 'permissions' in item
-                for item in representations),
-            representations,
-        )
-        for row in tgp:
+        grouped = backend.registry.records_for_root(TrustGroup)
+        self.assertEqual(len(tgp), 1)
+        self.assertEqual(len(grouped), 1)
+        self.assertNotEqual(tgp[0].condition, grouped[0].condition)
+        self.assertFalse(tgp[0].via_group)
+        self.assertTrue(grouped[0].via_group)
+        self.assertEqual(grouped[0].group_field, 'group')
+        self.assertEqual(grouped[0].permission_field, 'group__permissions')
+        self.assertNotIn('permissions', grouped[0].group_path)
+        role_repr = repr(tgp[0].condition)
+        group_repr = repr(grouped[0].condition)
+        self.assertIn('roles', role_repr)
+        self.assertIn('permissions', role_repr)
+        self.assertNotIn('roles', group_repr)
+        self.assertIn('permissions', group_repr)
+        for row in tgp + grouped:
             self.assertFalse(callable(row.condition))
             self.assertFalse(callable(row))
             self.assertNotIsInstance(row.condition, type(lambda: None))
@@ -152,7 +162,9 @@ class PublicRegisterDonationTests(TestCase):
         self.assertEqual(len(first), 3)
         for row in first:
             self.assertFalse(callable(row.condition))
-            for value in (row.condition, row.user_path, row.permission_path):
+            for value in (
+                row.condition, row.user_path, row.permission_path, row.group_path,
+            ):
                 self.assertFalse(inspect.isfunction(value))
                 self.assertFalse(inspect.isbuiltin(value))
 
@@ -221,9 +233,18 @@ class PublicRegisterAuthorizationTests(TestCase):
         self.assertFalse(hasattr(backend, 'register_relationship'))
         tup = backend.registry.records_for_root(TrustUserPermission)
         tgp = backend.registry.records_for_root(TrustGroupPermission)
+        grouped = backend.registry.records_for_root(TrustGroup)
         self.assertTrue(any(row.content_model is Category for row in tup))
-        self.assertGreaterEqual(len([row for row in tgp if row.content_model is Category]), 2)
-        for row in tup + tgp:
+        self.assertEqual(
+            len([row for row in tgp if row.content_model is Category]), 1,
+        )
+        category_groups = [
+            row for row in grouped if row.content_model is Category
+        ]
+        self.assertEqual(len(category_groups), 1)
+        self.assertTrue(category_groups[0].via_group)
+        self.assertFalse(any(row.via_group for row in tgp))
+        for row in tup + tgp + grouped:
             self.assertFalse(callable(row.condition))
 
     def test_direct_user_grant_still_allows(self):
