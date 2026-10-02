@@ -165,17 +165,19 @@ only. There is no `trusts.zero.models` alias.
 
 Hosts that previously donated only TUP and relied on
 `HistoricalGroupQueryCompiler` must call
-`register_zero_content(backend, Model)` (TUP + both TGP alternatives)
-for each terminal. `register_zero_relations` still donates Trust-as-content
-only. `HistoricalGroupQueryCompiler` is removed; use core
-`PlanQueryCompiler`.
+`register_zero_content(backend, Model)` (TUP, explicit `auth.Group`,
+and the role ceiling) for each terminal. `register_zero_relations`
+still donates Trust-as-content only. `HistoricalGroupQueryCompiler`
+is removed; use core `PlanQueryCompiler`. Do not infer a Django group
+from a many-to-many user path.
 
 ## Relation helpers (backend.register)
 
 Zero production donation takes the configured backend and calls
 `backend.register(trust=..., ...)` with validated Django `__` path
 strings (or already-supported #208 path lambdas) for `user=`,
-`permission=`, and dynamic `content=`. Customizable `content_via`
+`permission=` or `group=`, and dynamic `content=`. `permission=` and
+`group=` are mutually exclusive. Customizable `content_via`
 helpers return or compose those public path strings, not `Ref` objects.
 
 Ceiling overlays use the accepted 1.0 condition grammar: a trust-rooted
@@ -186,9 +188,10 @@ and no public `permission_in(...)`, literal Python `in`, or `predicate=`.
 | --- | --- | --- |
 | Helper argument | `register_zero_content(handle, Model)` | `register_zero_content(backend, Model)` |
 | TUP paths | `backend.register_relationship(TrustUserPermission, user="entity", permission="permission", content="trust__<reverse>")` | `backend.register(trust=TrustUserPermission, user="entity", permission="permission", content="trust__<reverse>")` |
-| TGP user / permission | `user="trustgroup__group__user"` / `permission="permission"` on `register_relationship` | unchanged string bindings on `register(trust=...)` |
-| TGP group ceiling | `condition=permission_in("trustgroup__group__permissions")` | `condition=lambda t: t.trustgroup.group.permissions.contains(t.permission)` |
-| TGP role ceiling | `condition=permission_in("trustgroup__group__roles__permissions")` | `condition=lambda t: t.trustgroup.group.roles.permissions.contains(t.permission)` |
+| TGP user / permission | `user="trustgroup__group__user"` / `permission="permission"` on `register_relationship` | role ceiling only; see below |
+| auth.Group ceiling | `permission=` plus `trustgroup__group__user`, inferred as a Django group | `register(trust=TrustGroup, user="group__user", group="group", ...)` |
+| TGP group ceiling | `condition=permission_in("trustgroup__group__permissions")` | removed; compiler owns `Group.permissions`. Local intersection is `t.permissions.contains(t.group.permissions)` |
+| TGP role ceiling | `condition=permission_in("trustgroup__group__roles__permissions")` | `condition=lambda t: t.trustgroup.group.roles.permissions.contains(t.permission)` on `permission=` |
 | Named filter | `backend.register_permission_condition(Document, "own", builder)` | `backend.add_named_filter(Document, "own", predicate=builder)` |
 | Trust reverse / `content_via` | `"trust__" + get_accessor_name()` (public `__` string) | unchanged |
 | Literal Python `in` | unsupported | still unsupported; do not write `t.permission in t.trustgroup.group.permissions` |
@@ -216,7 +219,8 @@ backend.register_relationship(
     condition=permission_in("trustgroup__group__roles__permissions"),
 )
 
-# New public register() (trust-rooted symbolic ceilings)
+# Previous public register() (membership-shaped permission= ceilings).
+# Core no longer treats that user path as get_group_permissions.
 backend.register(
     trust=TrustUserPermission,
     user="entity",
@@ -229,6 +233,32 @@ backend.register(
     permission="permission",
     content="trustgroup__trust__<reverse>",
     condition=lambda t: t.trustgroup.group.permissions.contains(t.permission),
+)
+backend.register(
+    trust=TrustGroupPermission,
+    user="trustgroup__group__user",
+    permission="permission",
+    content="trustgroup__trust__<reverse>",
+    condition=lambda t: t.trustgroup.group.roles.permissions.contains(
+        t.permission,
+    ),
+)
+
+# Current donation. group= ends at auth.Group. The compiler appends
+# Group.permissions. The role ceiling stays ordinary permission=.
+# Different roots: one content terminal cannot mix group= and permission=.
+backend.register(
+    trust=TrustUserPermission,
+    user="entity",
+    permission="permission",
+    content="trust__<reverse>",
+)
+backend.register(
+    trust=TrustGroup,
+    user="group__user",
+    content="trust__<reverse>",
+    group="group",
+    condition=lambda t: t.permissions.contains(t.group.permissions),
 )
 backend.register(
     trust=TrustGroupPermission,
@@ -459,7 +489,7 @@ Then:
 - [ ] Retarget views, admin, authorization helpers, and management-command imports to `trusts.zero.*`.
 - [ ] Replace `from trusts.decorators import P, R, K, G, O, permission_required` with `from trusts.zero.decorators import P, R, K, G, O, permission_required`. Do not switch this family to Core `authorization_required` as part of the 0.x → Zero route.
 - [ ] Retarget query / registration / policy helpers that used to import from `trusts.zero.models`.
-- [ ] Confirm `register_zero_content(backend, Model)` for each host terminal that needs TUP + TGP. Do not pass a bare registry or construct `Ref` / `Along(` in production donation. Call `backend.register(trust=..., ...)`. Do not call `register_relationship(`, `permission_in(`, or `register_permission_condition(`. Do not write literal Python `in` for a ceiling. Do not rely on `HistoricalGroupQueryCompiler`.
+- [ ] Confirm `register_zero_content(backend, Model)` for each host terminal that needs TUP, explicit `auth.Group`, and the role ceiling. Do not pass a bare registry or construct `Ref` / `Along(` in production donation. Call `backend.register(trust=..., ...)`. Do not call `register_relationship(`, `permission_in(`, or `register_permission_condition(`. Do not write literal Python `in` for a ceiling. Do not put `permissions` on a `group=` path. Do not rely on `HistoricalGroupQueryCompiler` or on inferring a Django group from a many-to-many user path.
 - [ ] Confirm startup: canonical settings succeed; old backend path raises `ImproperlyConfigured`.
 - [ ] Confirm no installed core `AppConfig` and exactly one implementation owner.
 - [ ] `python -m django migrate --plan` — no Trusts operations on an already-current database.
