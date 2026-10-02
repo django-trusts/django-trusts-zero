@@ -20,6 +20,7 @@ from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import (
     Role,
     Trust,
+    TrustGroup,
     TrustGroupPermission,
     TrustUserPermission,
 )
@@ -160,7 +161,9 @@ class BackendAndRegistrationTests(SimpleTestCase):
             'HistoricalGroupQueryCompiler',
         ))
         backends = (ROOT / 'trusts' / 'zero' / 'backends.py').read_text()
-        self.assertIn('query_compiler = PlanQueryCompiler()', backends)
+        self.assertIn('query_compiler = ZeroPlanQueryCompiler()', backends)
+        self.assertIn('PlanQueryCompiler', backends)
+        self.assertNotIn('HistoricalGroupQueryCompiler', backends)
         self.assertNotIn('inspect', backends)
         self.assertNotIn('RelationPlan', backends)
         self.assertNotIn('group_exists', backends)
@@ -181,14 +184,26 @@ class BackendAndRegistrationTests(SimpleTestCase):
         register_zero_relations(backend)
         self.assertEqual(list(backend.registry.records), first)
         tgp = backend.registry.records_for_root(TrustGroupPermission)
-        self.assertEqual(len(tgp), 2)
+        groups = backend.registry.records_for_root(TrustGroup)
+        self.assertEqual(len(tgp), 1)
+        self.assertEqual(len(groups), 1)
+        self.assertFalse(tgp[0].via_group)
+        self.assertTrue(groups[0].via_group)
 
-    def test_register_zero_group_two_alternatives(self):
+    def test_register_zero_group_splits_auth_group_and_role(self):
         backend = isolated_backend()
         register_zero_group(backend, (Trust,))
-        rows = backend.registry.records_for_root(TrustGroupPermission)
-        self.assertEqual(len(rows), 2)
-        self.assertNotEqual(rows[0].condition, rows[1].condition)
+        role = backend.registry.records_for_root(TrustGroupPermission)
+        grouped = backend.registry.records_for_root(TrustGroup)
+        self.assertEqual(len(role), 1)
+        self.assertEqual(len(grouped), 1)
+        self.assertFalse(role[0].via_group)
+        self.assertEqual(role[0].permission_path, ('permission',))
+        self.assertEqual(role[0].group_path, ())
+        self.assertTrue(grouped[0].via_group)
+        self.assertEqual(grouped[0].group_path, ('group',))
+        self.assertEqual(grouped[0].permission_path, ('group', 'permissions'))
+        self.assertNotEqual(role[0].condition, grouped[0].condition)
 
     def test_relation_helpers_require_backend_and_public_paths(self):
         from trusts.zero import apps as zero_apps
@@ -205,9 +220,13 @@ class BackendAndRegistrationTests(SimpleTestCase):
         self.assertNotIn('predicate=', inspect.getsource(register_zero_group))
         self.assertIn('backend.register(', source)
         self.assertIn('trust=TrustUserPermission', source)
+        self.assertIn('trust=TrustGroup,', source)
         self.assertIn('trust=TrustGroupPermission', source)
+        self.assertIn("user='group__user'", source)
+        self.assertIn("group='group'", source)
+        self.assertIn('t.permissions.contains(t.group.permissions)', source)
         self.assertIn("user='trustgroup__group__user'", source)
-        self.assertIn(
+        self.assertNotIn(
             't.trustgroup.group.permissions.contains(', source,
         )
         self.assertIn(
