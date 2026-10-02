@@ -35,6 +35,7 @@ from trusts.core import (
 from trusts.zero.models import (
     Content,
     Trust,
+    TrustGroup,
     TrustGroupPermission,
     TrustUserPermission,
 )
@@ -138,7 +139,8 @@ class TrustContributionIdempotenceTest(SimpleTestCase):
         self.assertEqual(len(isolated.registry.records), 4)
         roots = {record.root for record in isolated.registry.records}
         self.assertEqual(
-            roots, {OtherTrustGrant, TrustUserPermission, TrustGroupPermission},
+            roots,
+            {OtherTrustGrant, TrustUserPermission, TrustGroup, TrustGroupPermission},
         )
         plan = isolated.registry.plan_for(Trust)
         self.assertEqual(len(plan.records), 4)
@@ -185,7 +187,7 @@ class TrustContributionIdempotenceTest(SimpleTestCase):
         self.assertIs(tup[0].content_model, Trust._meta.concrete_model)
         self.assertEqual(
             {record.root for record in isolated.registry.records},
-            {TrustUserPermission, TrustGroupPermission},
+            {TrustUserPermission, TrustGroup, TrustGroupPermission},
         )
         self.assertEqual(self.live_registry.records, live_before)
 

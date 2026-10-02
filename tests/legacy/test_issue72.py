@@ -36,6 +36,7 @@ from trusts.core import (
 from trusts.zero.models import (
     Content,
     Trust,
+    TrustGroup,
     TrustGroupPermission,
     TrustUserPermission,
 )
@@ -190,7 +191,7 @@ class TicketContributionIdempotenceTest(SimpleTestCase):
         roots = {record.root for record in isolated.records}
         self.assertEqual(
             roots,
-            {OtherTicketGrant, TrustUserPermission, TrustGroupPermission},
+            {OtherTicketGrant, TrustUserPermission, TrustGroup, TrustGroupPermission},
         )
         plan = isolated.plan_for(Ticket)
         self.assertEqual(len(plan.records), 4)
