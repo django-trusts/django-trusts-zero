@@ -111,13 +111,16 @@ donates each additional ``Content`` model from its ``AppConfig.ready()``:
    backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
    register_zero_content(backend, Receipt)
 
-``register_zero_content`` registers the direct
-``TrustUserPermission`` path and two complete same-root
-``TrustGroupPermission`` alternatives. A local group grant must also be
-within either ``group.permissions`` or ``group.roles.permissions``. Complete
-paths combine by OR. ``register_zero_relations`` performs only Zero's
-Trust-as-content donation; host applications remain responsible for donating
-their own content models.
+``register_zero_content`` registers three complete paths. Direct
+``TrustUserPermission`` uses ``permission=``. ``TrustGroup`` uses
+explicit ``group=`` ending at Django ``auth.Group``; the compiler
+appends ``Group.permissions``, and a local grant must contain that
+permission. ``TrustGroupPermission`` keeps the role ceiling as ordinary
+``permission=`` authorization. That role path does not appear in
+``get_group_permissions``. Complete paths combine by OR.
+``register_zero_relations`` performs only Zero's Trust-as-content
+donation; host applications remain responsible for donating their own
+content models.
 
 Registered ``Meta.permission_conditions`` (including built-in
 ``Trust:own``) are builder callables donated through

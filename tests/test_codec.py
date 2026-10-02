@@ -61,16 +61,20 @@ class RegistrationAndCodecTests(TestCase):
         self.assertIs(records[0].content_model, Trust)
         self.assertEqual(records[0].user_field, 'entity')
 
-    def test_tgp_register_uses_two_ceiling_alternatives(self):
+    def test_tgp_register_uses_group_and_role_ceilings(self):
         backend = isolated_backend()
         register_zero_group(backend, (Trust,))
-        records = backend.registry.records_for_root(TrustGroupPermission)
-        self.assertEqual(len(records), 2)
-        self.assertIs(records[0].content_model, Trust)
-        self.assertIs(records[1].content_model, Trust)
-        self.assertEqual(records[0].user_path, records[1].user_path)
-        self.assertEqual(records[0].permission_path, records[1].permission_path)
-        self.assertNotEqual(records[0].condition, records[1].condition)
+        role = backend.registry.records_for_root(TrustGroupPermission)
+        grouped = backend.registry.records_for_root(TrustGroup)
+        self.assertEqual(len(role), 1)
+        self.assertEqual(len(grouped), 1)
+        self.assertIs(role[0].content_model, Trust)
+        self.assertIs(grouped[0].content_model, Trust)
+        self.assertFalse(role[0].via_group)
+        self.assertTrue(grouped[0].via_group)
+        self.assertEqual(grouped[0].permission_path, ('group', 'permissions'))
+        self.assertEqual(role[0].permission_path, ('permission',))
+        self.assertNotEqual(role[0].condition, grouped[0].condition)
 
     def test_live_registry_has_tup_trust_and_bound_condition_lookup(self):
         backend = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
