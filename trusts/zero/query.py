@@ -11,9 +11,9 @@ from django.db.models import Model, Q
 from trusts.core import (
     TrustsConfigurationError,
     any_plan_records,
+    filter_authorized_scopes,
     granted,
 )
-from trusts.zero.compiler import filter_authorized_scopes
 from trusts.conditions import permission_has_condition
 from trusts.query import AuthorizedQuerySet, is_active_principal
 from trusts.zero import (
