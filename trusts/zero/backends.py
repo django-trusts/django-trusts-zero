@@ -10,15 +10,15 @@ from django.contrib.auth.backends import ModelBackend
 
 from trusts.backends import TrustModelBackendMixin
 from trusts.core import PlanQueryCompiler
-from trusts.zero.compiler import ZeroPlanQueryCompiler
 
 
 class TrustModelBackend(TrustModelBackendMixin, ModelBackend):
     """Durable Zero backend. Registry identity is this class object.
 
-    ``ZeroPlanQueryCompiler`` is a ``PlanQueryCompiler``. It only shares
-    the compiler-owned ``Group.permissions`` join for explicit ``group=``
-    records. It does not infer a group from a membership-shaped path.
+    Uses Core ``PlanQueryCompiler``. Explicit ``group=`` ceilings share
+    one ``Group.permissions`` join in Core. This backend does not keep a
+    second compiler and does not infer a group from a membership-shaped
+    path.
     """
 
-    query_compiler = ZeroPlanQueryCompiler()
+    query_compiler = PlanQueryCompiler()
