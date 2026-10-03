@@ -1,7 +1,7 @@
 """Zero #32: migrate donation to the final configured-backend methods.
 
 Paired against the exact django-trusts candidate
-``4e063756ebd32c1911f42946c1d77ca09f19a43b``.
+``e085898277682a4ee3de5d49985053cba9979cbe``.
 """
 
 import inspect
@@ -29,7 +29,7 @@ from tests.models import Ticket
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = '4e063756ebd32c1911f42946c1d77ca09f19a43b'
+CORE_PIN = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
 STALE_PIN = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
 
