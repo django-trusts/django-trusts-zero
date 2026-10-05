@@ -183,11 +183,13 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         self.assertIn('readme = "README.md"', text)
         self.assertNotIn('readme = "DEV.md"', text)
         self.assertIn('license = "BSD-2-Clause"', text)
-        companion = '71699ba35f960780fd9eb1a7fe027623584e8034'
+        companion = '1f35b31c2698c797ff97f6558c8cf9481a49338a'
+        stale_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
         stale_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
         stale_r5b = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
         stale_companion = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
         stale = (
+            stale_269,
             stale_253,
             'b59087d62d945089049dab676a502fb4a68327cd',
             'de8b20ef72e19048dd8642402271c5058e50e54d',
@@ -210,6 +212,7 @@ class ZeroPublishMetadataTests(SimpleTestCase):
             'django-trusts.git@%s' % companion,
             (ROOT / 'requirements.txt').read_text(),
         )
+        self.assertNotIn(stale_269, ci)
         self.assertNotIn(stale_253, ci)
         self.assertNotIn(stale_r5b, ci)
         self.assertNotIn(stale_companion, ci)
