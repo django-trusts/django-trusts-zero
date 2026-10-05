@@ -9,9 +9,11 @@ points at `README.md`, not this file.
 
 This tree is `django-trusts-zero==0.12.0.dev0` pairing against the
 django-trusts `1.0.0rc1` candidate
-`71699ba35f960780fd9eb1a7fe027623584e8034`
-(Core #267: a permission whose `content_type` is not the protected
-object is a denial on every projection, draft PR #269).
+`1f35b31c2698c797ff97f6558c8cf9481a49338a`
+(Core #267, approved unmerged PR #269: an `auth.Permission` whose
+`content_type` is not the protected object is a denial. `user.has_perm`
+is the permission string. A custom permission model keeps primary-key
+identity).
 
 Earlier unpublished Zero snapshots used `2.0.0.dev0` / `dev1` / `dev2`.
 Those values are not a public compatibility line.
@@ -50,7 +52,7 @@ See `docs/source/index.rst` and `migrates.md`.
 
 ## Verification
 
-Pair CI pins django-trusts `71699ba35f960780fd9eb1a7fe027623584e8034`
+Pair CI pins django-trusts `1f35b31c2698c797ff97f6558c8cf9481a49338a`
 only. It checks out that django-trusts candidate and does not install
 `django-trusts-example`. The Zero suite (including `tests/legacy/` historical copies),
 fresh-install, old-path fail-closed, wheel RECORD, and
