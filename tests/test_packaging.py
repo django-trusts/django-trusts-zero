@@ -183,10 +183,12 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         self.assertIn('readme = "README.md"', text)
         self.assertNotIn('readme = "DEV.md"', text)
         self.assertIn('license = "BSD-2-Clause"', text)
-        companion = 'e085898277682a4ee3de5d49985053cba9979cbe'
+        companion = '71699ba35f960780fd9eb1a7fe027623584e8034'
+        stale_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
         stale_r5b = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
         stale_companion = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
         stale = (
+            stale_253,
             'b59087d62d945089049dab676a502fb4a68327cd',
             'de8b20ef72e19048dd8642402271c5058e50e54d',
             'f5211c11047eb6810680f5d1b13bf34b2c376635',
@@ -204,6 +206,11 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
         dev = (ROOT / 'DEV.md').read_text()
         self.assertIn('COMPANION_KERNEL_SHA: %s' % companion, ci)
+        self.assertIn(
+            'django-trusts.git@%s' % companion,
+            (ROOT / 'requirements.txt').read_text(),
+        )
+        self.assertNotIn(stale_253, ci)
         self.assertNotIn(stale_r5b, ci)
         self.assertNotIn(stale_companion, ci)
         self.assertIn('pair with exact django-trusts candidate', ci)

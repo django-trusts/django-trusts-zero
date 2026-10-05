@@ -526,6 +526,35 @@ Migration-bot checklist:
 - `_is_collection_coordinator(`
 - `except AttributeError` around `has_perm(` named filters
 
+## Permission content type must match the object (Core #267)
+
+Zero stores `auth.Permission` rows on `TrustUserPermission` and on a
+Trust's local group grants. A Django group can also hold permissions
+for more than one model. Those rows used to authorize whichever
+protected object the registration reached, including a permission whose
+`content_type` was a different model.
+
+| | Old | New |
+| --- | --- | --- |
+| Permission row used on a different model than `Permission.content_type`, including a group that contains both | Grant on `has_perm`, enumeration, `.permitted()` / `.authorized()`, and create-under-trust filtering | Denial: `False` / empty. Not an exception |
+| Same-model grant, including a custom codename such as `add_topic_to_category` | Grant | Unchanged grant |
+| Active superuser `user.has_perm` | Django returns `True` before backends | Unchanged. Queryset and enumeration projections do not copy that shortcut |
+
+No schema migration. Existing crossed positives become denials. This
+package does not ship `trusts-policy.lock.yaml`. An application that
+renders one from these registrations must regenerate it: `auth.Permission`
+grants gain `const` parameters for the protected model's content identity.
+
+Migration-bot checklist:
+
+- `has_perm(`
+- `get_all_permissions(`
+- `get_group_permissions(`
+- `.permitted(`
+- `.authorized(`
+- `filter_by_user_content_perm(`
+- a group `permissions` set that mixes content types
+
 ## Unused / removed `trusts.utils.get_short_model_name` (#217)
 
 Schema-neutral django-trusts no longer provides

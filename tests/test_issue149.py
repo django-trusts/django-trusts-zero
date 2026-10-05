@@ -13,7 +13,8 @@ from tests.runtests import NORMAL_SUITE
 
 
 ROOT = Path(__file__).resolve().parents[1]
-KERNEL_CANDIDATE = 'e085898277682a4ee3de5d49985053cba9979cbe'
+KERNEL_CANDIDATE = '71699ba35f960780fd9eb1a7fe027623584e8034'
+STALE_KERNEL_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_KERNEL_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
 STALE_KERNEL_211 = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
 
@@ -69,6 +70,8 @@ class ExactDjangoTrustsCandidatePinTest(SimpleTestCase):
         verifier = (ROOT / 'scripts' / 'verify-kernel-checkout.py').read_text()
         self.assertIn('COMPANION_KERNEL_SHA: %s' % KERNEL_CANDIDATE, ci)
         self.assertIn("KERNEL_HEAD = '%s'" % KERNEL_CANDIDATE, verifier)
+        self.assertNotIn(STALE_KERNEL_253, ci)
+        self.assertNotIn(STALE_KERNEL_253, verifier)
         self.assertNotIn(STALE_KERNEL_R5B, ci)
         self.assertNotIn(STALE_KERNEL_R5B, verifier)
         self.assertNotIn(STALE_KERNEL_211, ci)

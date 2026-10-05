@@ -1,7 +1,7 @@
 """Zero #32: migrate donation to the final configured-backend methods.
 
 Paired against the exact django-trusts candidate
-``e085898277682a4ee3de5d49985053cba9979cbe``.
+``71699ba35f960780fd9eb1a7fe027623584e8034``.
 """
 
 import inspect
@@ -29,7 +29,8 @@ from tests.models import Ticket
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = 'e085898277682a4ee3de5d49985053cba9979cbe'
+CORE_PIN = '71699ba35f960780fd9eb1a7fe027623584e8034'
+STALE_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
 STALE_PIN = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
 
@@ -87,6 +88,7 @@ class ZMethodsSurfaceTests(SimpleTestCase):
                     needle, text,
                     '%s still teaches %s' % (path.relative_to(ROOT), needle),
                 )
+            self.assertNotIn(STALE_253, text)
             self.assertNotIn(STALE_R5B, text)
             self.assertNotIn(STALE_PIN, text)
         self.assertNotIn('def _require_handle', registration)
@@ -99,6 +101,7 @@ class ZMethodsSurfaceTests(SimpleTestCase):
     def test_ci_pins_exact_django_trusts_candidate(self):
         ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
         self.assertIn('COMPANION_KERNEL_SHA: %s' % CORE_PIN, ci)
+        self.assertNotIn(STALE_253, ci)
         self.assertNotIn(STALE_R5B, ci)
         self.assertNotIn(STALE_PIN, ci)
         self.assertNotIn('#211', ci)
