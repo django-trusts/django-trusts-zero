@@ -20,7 +20,8 @@ from tests.models import Category
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = '71699ba35f960780fd9eb1a7fe027623584e8034'
+CORE_PIN = '1f35b31c2698c797ff97f6558c8cf9481a49338a'
+STALE_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
 STALE_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
 STALE_PIN = '8bfe6151b5a65af2d0667ab3a71680eecc90a691'
@@ -111,6 +112,7 @@ class RegisterMigrationSurfaceTests(SimpleTestCase):
     def test_companion_pin_is_exact_django_trusts_candidate(self):
         ci = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text()
         self.assertIn('COMPANION_KERNEL_SHA: %s' % CORE_PIN, ci)
+        self.assertNotIn(STALE_269, ci)
         self.assertNotIn(STALE_253, ci)
         self.assertNotIn(STALE_R5B, ci)
         self.assertNotIn(STALE_PIN, ci)
