@@ -297,7 +297,6 @@ register_zero_content(backend, Document)
 | Surface | Old (0.x / leftover core path) | New (Zero-owned) |
 | --- | --- | --- |
 | Views | `from trusts.views import NewTeamView, TeamView, newteam, team` | `from trusts.zero.views import NewTeamView, TeamView, newteam, team` |
-| Legacy request decorators | `from trusts.decorators import P, R, K, G, O, permission_required` | `from trusts.zero.decorators import P, R, K, G, O, permission_required` |
 | URLs | `include('trusts.urls')` | `include('trusts.zero.urls')` |
 | Admin | `from trusts.admin import register_auto_modeladmins` | `from trusts.zero.admin import register_auto_modeladmins` |
 | Authorization helpers | `from trusts.authorization import AuthorizationDenied, has_trust_row_perm` | `from trusts.zero.authorization import AuthorizationDenied, has_trust_row_perm` |
@@ -305,6 +304,7 @@ register_zero_content(backend, Document)
 | `create_trust_root` | historical `trusts` command | `trusts.zero.management.commands.create_trust_root` |
 | `grandfather_trust_group_permissions` | historical `trusts` command | `trusts.zero.management.commands.grandfather_trust_group_permissions` |
 | `update_roles_permissions` | historical `trusts` command | `trusts.zero.management.commands.update_roles_permissions` |
+| Legacy request decorators | `from trusts.decorators import P, R, K, G, O, permission_required` | `from trusts.zero.decorators import P, R, K, G, O, permission_required` |
 
 URL namespace `app_name = 'trusts'` is unchanged (`trusts:team_create`,
 `trusts:team_detail`); only the include path changes. Django still
@@ -536,7 +536,7 @@ protected object the registration reached, including a permission whose
 
 | | Old | New |
 | --- | --- | --- |
-| Permission row used on a different model than `Permission.content_type`, including a group that contains both | Grant on `has_perm`, enumeration, `.permitted()` / `.authorized()`, and create-under-trust filtering | Denial: `False` / empty. Not an exception |
+| `auth.Permission` row used on a different model than `Permission.content_type`, including a group that contains both | Grant on string `has_perm`, enumeration, `.permitted()` / `.authorized()`, and create-under-trust filtering | Denial: `False` / empty. Not an exception. `user.has_perm` stays a permission string |
 | Same-model grant, including a custom codename such as `add_topic_to_category` | Grant | Unchanged grant |
 | Active superuser `user.has_perm` | Django returns `True` before backends | Unchanged. Queryset and enumeration projections do not copy that shortcut |
 
