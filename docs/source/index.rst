@@ -72,6 +72,19 @@ Zero's backend uses core ``PlanQueryCompiler``. Its supported relational
 object decisions and authorized listings compile through the same registered
 policy and remain fixed-query with respect to candidate count.
 
+An ``auth.Permission`` matches an object only when ``Permission.content_type``
+is that object's content type. A group that holds both a category
+permission and a group permission grants each one only on its own model.
+Asking the group permission about a category is a denial (``False``, and
+the codename is absent from ``get_all_permissions``, ``get_group_permissions``,
+and ``.permitted()`` / ``.authorized()``). ``user.has_perm`` takes the
+permission string. The permission row is passed to ``.authorized()`` and
+``filter_by_user_content_perm``. The string check does not raise, and
+it does not read the codename. Django's active-superuser shortcut can
+still make ``user.has_perm`` return ``True`` before this check runs.
+``.authorized()``, enumeration, and create-under-trust filtering do not
+copy that shortcut.
+
 Filter before slicing or pagination:
 
 .. code-block:: python
