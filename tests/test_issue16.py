@@ -1,7 +1,7 @@
 """Zero #16: donate Meta conditions to the configured backend.
 
 Paired against the exact django-trusts candidate
-``47ae25cffcfa542b3e4a2940f528a63fcb32062d``.
+``6917f56a1290b184092b4c167d0721fbc0dc516e``.
 """
 
 import inspect
