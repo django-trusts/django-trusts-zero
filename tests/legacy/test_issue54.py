@@ -440,9 +440,13 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
         with patch('trusts.query.is_active_principal') as active:
             with patch.object(Category.objects, 'get_permission') as get_perm:
                 pks = _pks(_authorized(Category, self.alice, self.read))
+                inactive_pks = _pks(AuthorizedQuerySet(Category).authorized(
+                    self.alice, self.read, allow_inactive_user=True,
+                ))
         active.assert_not_called()
         get_perm.assert_not_called()
-        self.assertEqual(pks, {self.cat_a.pk})
+        self.assertEqual(pks, set())
+        self.assertEqual(inactive_pks, {self.cat_a.pk})
 
     def test_extra_q_is_and_overlay_and_never_creates_a_grant(self):
         extra = Q(pk=self.cat_a.pk)
@@ -466,12 +470,17 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
         with self.assertNumQueries(0):
             self.assertFalse(qs.exists())
 
-    def test_non_instance_user_is_configuration_error_without_codec(self):
+    def test_anonymous_is_denied_and_invalid_user_raises_without_codec(self):
         with self.assertNumQueries(0):
-            with self.assertRaises(TrustsConfigurationError):
-                _authorized(Category, AnonymousUser(), self.read)
-            with self.assertRaises(TrustsConfigurationError):
-                _authorized(Category, None, self.read)
+            for include_inactive in (False, True):
+                rows = AuthorizedQuerySet(Category).authorized(
+                    AnonymousUser(), self.read,
+                    allow_inactive_user=include_inactive,
+                )
+                self.assertEqual(list(rows), [])
+            for invalid_user in (None, object()):
+                with self.assertRaises(TrustsConfigurationError):
+                    _authorized(Category, invalid_user, self.read)
 
 
 @isolate_apps('tests', 'django.contrib.auth', 'django.contrib.contenttypes')
