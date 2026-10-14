@@ -39,10 +39,12 @@ class MalformedCompilerBackend(TrustModelBackendMixin, ModelBackend):
 
 
 class _RaisingQueryCompiler(object):
-    def complete_exists(self, plan, candidates, user, permission):
+    def complete_exists(self, plan, candidates, user, permission, *,
+                        skip_is_active=False, skipped=()):
         raise RuntimeError('compiler exploded')
 
-    def group_exists(self, plan, candidates, user, permission):
+    def group_exists(self, plan, candidates, user, permission, *,
+                     skip_is_active=False, skipped=()):
         raise RuntimeError('compiler exploded')
 
 

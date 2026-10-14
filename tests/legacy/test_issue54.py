@@ -441,7 +441,7 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
             with patch.object(Category.objects, 'get_permission') as get_perm:
                 pks = _pks(_authorized(Category, self.alice, self.read))
                 inactive_pks = _pks(AuthorizedQuerySet(Category).authorized(
-                    self.alice, self.read, allow_inactive_user=True,
+                    self.alice, self.read, skip_is_active=True,
                 ))
         active.assert_not_called()
         get_perm.assert_not_called()
@@ -475,7 +475,7 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
             for include_inactive in (False, True):
                 rows = AuthorizedQuerySet(Category).authorized(
                     AnonymousUser(), self.read,
-                    allow_inactive_user=include_inactive,
+                    skip_is_active=include_inactive,
                 )
                 self.assertEqual(list(rows), [])
             for invalid_user in (None, object()):
