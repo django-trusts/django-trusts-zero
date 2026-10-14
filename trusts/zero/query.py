@@ -15,7 +15,7 @@ from trusts.core import (
     granted,
 )
 from trusts.conditions import permission_has_condition
-from trusts.query import AuthorizedQuerySet, is_active_principal
+from trusts.query import AuthorizedQuerySet
 from trusts.zero import (
     ROOT_PK,
     supported_entity_contract,
@@ -25,6 +25,24 @@ from trusts.zero.policy import (
     reject_queryable_condition,
     resolve_content_permission,
 )
+
+
+def is_active_principal(user):
+    """Anonymous and inactive users are denied.
+
+    Core removed ``trusts.query.is_active_principal``. This is Zero's
+    own check for the list and administration shortcuts. A missing
+    ``is_active`` is a denial. Superuser access is not decided here.
+    """
+    if user is None:
+        return False
+    if getattr(user, 'is_anonymous', False):
+        return False
+    if not getattr(user, 'is_authenticated', True):
+        return False
+    if not getattr(user, 'is_active', False):
+        return False
+    return True
 
 
 def compile_registered_condition_q(model, perm, user):

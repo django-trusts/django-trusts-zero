@@ -19,8 +19,8 @@ administrative ``change`` on every trust that uses the group.
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
-from trusts.query import is_active_principal
 from trusts.zero import get_entity_model, get_group_model
+from trusts.zero.query import is_active_principal
 
 
 def _trusts_model(name):

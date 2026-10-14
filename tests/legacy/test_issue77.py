@@ -36,7 +36,7 @@ from trusts.zero.models import (
     TrustUserPermission,
 )
 from trusts.zero.query import ContentManager
-from trusts.query import is_active_principal
+from trusts.zero.query import is_active_principal
 from tests.legacy.helpers import (
     enable_local_group_grant,
     forget_condition,

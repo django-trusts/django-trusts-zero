@@ -49,8 +49,8 @@ from trusts.conditions import PermissionConditionNotQueryable
 from trusts.query import (
     AuthorizedManager,
     AuthorizedQuerySet,
-    is_active_principal,
 )
+from trusts.zero.query import is_active_principal
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
@@ -404,7 +404,7 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
 
     def test_wrong_permission_type_is_zero_sql_configuration_error(self):
         qs = AuthorizedQuerySet(Category)
-        with patch('trusts.query.is_active_principal', wraps=is_active_principal) as active:
+        with patch('trusts.zero.query.is_active_principal', wraps=is_active_principal) as active:
             with patch.object(Category.objects, 'get_permission') as get_perm:
                 with self.assertNumQueries(0):
                     with self.assertRaises(TrustsConfigurationError):
@@ -437,11 +437,11 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
         self.alice.is_active = False
         self.alice.save()
         self._reload()
-        with patch('trusts.query.is_active_principal') as active:
+        with patch('trusts.zero.query.is_active_principal') as active:
             with patch.object(Category.objects, 'get_permission') as get_perm:
                 pks = _pks(_authorized(Category, self.alice, self.read))
                 inactive_pks = _pks(AuthorizedQuerySet(Category).authorized(
-                    self.alice, self.read, allow_inactive_user=True,
+                    self.alice, self.read, skip_is_active=True,
                 ))
         active.assert_not_called()
         get_perm.assert_not_called()
@@ -475,7 +475,7 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
             for include_inactive in (False, True):
                 rows = AuthorizedQuerySet(Category).authorized(
                     AnonymousUser(), self.read,
-                    allow_inactive_user=include_inactive,
+                    skip_is_active=include_inactive,
                 )
                 self.assertEqual(list(rows), [])
             for invalid_user in (None, object()):
