@@ -20,7 +20,6 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
 from trusts.zero import get_entity_model, get_group_model
-from trusts.zero.query import is_active_principal
 
 
 def _trusts_model(name):
@@ -61,7 +60,7 @@ def content_permission_code(model, action):
 
 
 def can_read_content(user, obj):
-    if not is_active_principal(user):
+    if not (user is not None and user.is_authenticated and not user.is_anonymous and user.is_active):
         return False
     return user.has_perm(content_permission_code(obj.__class__, 'read'), obj)
 
@@ -71,7 +70,7 @@ def can_administer_content(user, obj):
 
     ``read`` and group membership alone are insufficient.
     """
-    if not is_active_principal(user):
+    if not (user is not None and user.is_authenticated and not user.is_anonymous and user.is_active):
         return False
     return user.has_perm(content_permission_code(obj.__class__, 'change'), obj)
 
@@ -87,7 +86,7 @@ def has_trust_row_perm(user, trust, perm):
     (``filter_by_user_content_perm`` / ``filter_authorized_scopes``),
     not a deleted ``trust_grant_q`` fallback.
     """
-    if not is_active_principal(user) or trust is None:
+    if not (user is not None and user.is_authenticated and not user.is_anonymous and user.is_active) or trust is None:
         return False
     Trust = _trust_model()
     return Trust.objects.filter_by_user_content_perm(
@@ -120,7 +119,7 @@ def can_manage_group_membership(user, group, via_content=None):
     currently uses the group. An unused group has no trust scope and
     cannot be managed here. Being a member of the group is not enough.
     """
-    if not is_active_principal(user) or group is None:
+    if not (user is not None and user.is_authenticated and not user.is_anonymous and user.is_active) or group is None:
         return False
     trusts = list(trusts_using_group(group))
     if not trusts:

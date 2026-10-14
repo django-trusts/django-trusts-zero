@@ -36,7 +36,6 @@ from trusts.zero.models import (
     TrustUserPermission,
 )
 from trusts.zero.query import ContentManager
-from trusts.zero.query import is_active_principal
 from tests.legacy.helpers import (
     enable_local_group_grant,
     forget_condition,
@@ -243,7 +242,7 @@ class OnePathAuthorizationTest(_UsersMixin, TestCase):
         self.alice.is_active = False
         self.alice.save()
         self.alice = User.objects.get(pk=self.alice.pk)
-        self.assertFalse(is_active_principal(self.alice))
+        self.assertFalse(self.alice is not None and self.alice.is_authenticated and not self.alice.is_anonymous and self.alice.is_active)
         self.assertFalse(self.alice.has_perm(self.change_code, self.cat_a1))
         self.assertFalse(
             self.alice.has_perm(

@@ -27,24 +27,6 @@ from trusts.zero.policy import (
 )
 
 
-def is_active_principal(user):
-    """Anonymous and inactive users are denied.
-
-    Core removed ``trusts.query.is_active_principal``. This is Zero's
-    own check for the list and administration shortcuts. A missing
-    ``is_active`` is a denial. Superuser access is not decided here.
-    """
-    if user is None:
-        return False
-    if getattr(user, 'is_anonymous', False):
-        return False
-    if not getattr(user, 'is_authenticated', True):
-        return False
-    if not getattr(user, 'is_active', False):
-        return False
-    return True
-
-
 def compile_registered_condition_q(model, perm, user):
     """Compile a ``:condition`` suffix via the configured Zero backend.
 
@@ -69,7 +51,7 @@ def django_permission_filter(qs, perm, user):
     condition_q = None
     if permission_has_condition(perm):
         condition_q = compile_registered_condition_q(qs.model, perm, user)
-    if not is_active_principal(user):
+    if not (user is not None and user.is_authenticated and not user.is_anonymous and user.is_active):
         return qs.none()
     if not supported_entity_contract() or not supported_permission_contract():
         return qs.none()
@@ -92,7 +74,7 @@ def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kw
     reject_queryable_condition(
         perm_name, 'Trust.objects.filter_by_user_content_perm'
     )
-    if not is_active_principal(user):
+    if not (user is not None and user.is_authenticated and not user.is_anonymous and user.is_active):
         return manager.none()
     if not supported_entity_contract() or not supported_permission_contract():
         return manager.none()
