@@ -49,6 +49,7 @@ NORMAL_SUITE = [
     'tests.test_issue149',
     'tests.test_issue248',
     'tests.test_issue267',
+    'tests.test_issue314',
     'tests.test_decorators',
     'tests.test_smoke',
     'tests.legacy.test_historical',
