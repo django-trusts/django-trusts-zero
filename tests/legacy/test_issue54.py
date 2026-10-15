@@ -49,7 +49,6 @@ from trusts.conditions import PermissionConditionNotQueryable
 from trusts.query import (
     AuthorizedManager,
     AuthorizedQuerySet,
-    is_active_principal,
 )
 from tests.legacy.helpers import (
     enable_local_group_grant,
@@ -404,18 +403,16 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
 
     def test_wrong_permission_type_is_zero_sql_configuration_error(self):
         qs = AuthorizedQuerySet(Category)
-        with patch('trusts.query.is_active_principal', wraps=is_active_principal) as active:
-            with patch.object(Category.objects, 'get_permission') as get_perm:
-                with self.assertNumQueries(0):
-                    with self.assertRaises(TrustsConfigurationError):
-                        qs.authorized(self.alice, 'read_category')
-                    with self.assertRaises(TrustsConfigurationError):
-                        qs.authorized(self.alice, 'trusts_zero_tests.read_category')
-                    with self.assertRaises(TrustsConfigurationError):
-                        qs.authorized(self.alice, 'read_category:own')
-                    with self.assertRaises(TrustsConfigurationError):
-                        qs.authorized(self.alice, None)
-        active.assert_not_called()
+        with patch.object(Category.objects, 'get_permission') as get_perm:
+            with self.assertNumQueries(0):
+                with self.assertRaises(TrustsConfigurationError):
+                    qs.authorized(self.alice, 'read_category')
+                with self.assertRaises(TrustsConfigurationError):
+                    qs.authorized(self.alice, 'trusts_zero_tests.read_category')
+                with self.assertRaises(TrustsConfigurationError):
+                    qs.authorized(self.alice, 'read_category:own')
+                with self.assertRaises(TrustsConfigurationError):
+                    qs.authorized(self.alice, None)
         get_perm.assert_not_called()
 
     def test_instance_filter_matches_trustee_and_group_and_stays_lazy(self):
@@ -433,17 +430,15 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
         self.assertFalse(_authorized(Category, self.bob, self.read).exists())
         self.assertFalse(_authorized(Category, self.alice, self.change).exists())
 
-    def test_does_not_call_is_active_principal_or_get_permission(self):
+    def test_inactive_user_is_denied_unless_skip_is_active(self):
         self.alice.is_active = False
         self.alice.save()
         self._reload()
-        with patch('trusts.query.is_active_principal') as active:
-            with patch.object(Category.objects, 'get_permission') as get_perm:
-                pks = _pks(_authorized(Category, self.alice, self.read))
-                inactive_pks = _pks(AuthorizedQuerySet(Category).authorized(
-                    self.alice, self.read, allow_inactive_user=True,
-                ))
-        active.assert_not_called()
+        with patch.object(Category.objects, 'get_permission') as get_perm:
+            pks = _pks(_authorized(Category, self.alice, self.read))
+            inactive_pks = _pks(AuthorizedQuerySet(Category).authorized(
+                self.alice, self.read, skip_is_active=True,
+            ))
         get_perm.assert_not_called()
         self.assertEqual(pks, set())
         self.assertEqual(inactive_pks, {self.cat_a.pk})
@@ -475,7 +470,7 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
             for include_inactive in (False, True):
                 rows = AuthorizedQuerySet(Category).authorized(
                     AnonymousUser(), self.read,
-                    allow_inactive_user=include_inactive,
+                    skip_is_active=include_inactive,
                 )
                 self.assertEqual(list(rows), [])
             for invalid_user in (None, object()):

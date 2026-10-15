@@ -15,7 +15,7 @@ from trusts.core import (
     granted,
 )
 from trusts.conditions import permission_has_condition
-from trusts.query import AuthorizedQuerySet, is_active_principal
+from trusts.query import AuthorizedQuerySet
 from trusts.zero import (
     ROOT_PK,
     supported_entity_contract,
@@ -51,7 +51,7 @@ def django_permission_filter(qs, perm, user):
     condition_q = None
     if permission_has_condition(perm):
         condition_q = compile_registered_condition_q(qs.model, perm, user)
-    if not is_active_principal(user):
+    if not (user is not None and user.is_authenticated and not user.is_anonymous and user.is_active):
         return qs.none()
     if not supported_entity_contract() or not supported_permission_contract():
         return qs.none()
@@ -74,7 +74,7 @@ def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kw
     reject_queryable_condition(
         perm_name, 'Trust.objects.filter_by_user_content_perm'
     )
-    if not is_active_principal(user):
+    if not (user is not None and user.is_authenticated and not user.is_anonymous and user.is_active):
         return manager.none()
     if not supported_entity_contract() or not supported_permission_contract():
         return manager.none()
