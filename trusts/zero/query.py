@@ -10,7 +10,7 @@ from django.db.models import Exists, Model, OuterRef, Q
 
 from trusts.core import TrustsConfigurationError, granted
 from trusts.conditions import permission_has_condition
-from trusts.query import AuthorizedQuerySet, is_active_principal
+from trusts.query import AuthorizedQuerySet
 from trusts.zero import (
     ROOT_PK,
     supported_entity_contract,
@@ -46,7 +46,12 @@ def django_permission_filter(qs, perm, user):
     condition_q = None
     if permission_has_condition(perm):
         condition_q = compile_registered_condition_q(qs.model, perm, user)
-    if not is_active_principal(user):
+    if (
+        user is None
+        or getattr(user, 'is_anonymous', False)
+        or not getattr(user, 'is_authenticated', True)
+        or not getattr(user, 'is_active', False)
+    ):
         return qs.none()
     if not supported_entity_contract() or not supported_permission_contract():
         return qs.none()
@@ -168,7 +173,12 @@ class TrustManager(ContentManager):
         reject_queryable_condition(
             perm_name, 'Trust.objects.filter_by_user_content_perm'
         )
-        if not is_active_principal(user):
+        if (
+            user is None
+            or getattr(user, 'is_anonymous', False)
+            or not getattr(user, 'is_authenticated', True)
+            or not getattr(user, 'is_active', False)
+        ):
             return self.none()
         if not supported_entity_contract() or not supported_permission_contract():
             return self.none()

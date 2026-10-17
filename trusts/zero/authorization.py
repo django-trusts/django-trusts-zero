@@ -19,7 +19,6 @@ administrative ``change`` on every trust that uses the group.
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
-from trusts.query import is_active_principal
 from trusts.zero import get_entity_model, get_group_model
 
 
@@ -61,7 +60,12 @@ def content_permission_code(model, action):
 
 
 def can_read_content(user, obj):
-    if not is_active_principal(user):
+    if (
+        user is None
+        or getattr(user, 'is_anonymous', False)
+        or not getattr(user, 'is_authenticated', True)
+        or not getattr(user, 'is_active', False)
+    ):
         return False
     return user.has_perm(content_permission_code(obj.__class__, 'read'), obj)
 
@@ -71,7 +75,12 @@ def can_administer_content(user, obj):
 
     ``read`` and group membership alone are insufficient.
     """
-    if not is_active_principal(user):
+    if (
+        user is None
+        or getattr(user, 'is_anonymous', False)
+        or not getattr(user, 'is_authenticated', True)
+        or not getattr(user, 'is_active', False)
+    ):
         return False
     return user.has_perm(content_permission_code(obj.__class__, 'change'), obj)
 
@@ -88,7 +97,13 @@ def has_trust_row_perm(user, trust, perm):
     filters Trust rows directly over Zero's stored trustee and
     TrustGroup grants. It does not call core scope machinery.
     """
-    if not is_active_principal(user) or trust is None:
+    if (
+        user is None
+        or getattr(user, 'is_anonymous', False)
+        or not getattr(user, 'is_authenticated', True)
+        or not getattr(user, 'is_active', False)
+        or trust is None
+    ):
         return False
     Trust = _trust_model()
     return Trust.objects.filter_by_user_content_perm(
@@ -121,7 +136,13 @@ def can_manage_group_membership(user, group, via_content=None):
     currently uses the group. An unused group has no trust scope and
     cannot be managed here. Being a member of the group is not enough.
     """
-    if not is_active_principal(user) or group is None:
+    if (
+        user is None
+        or getattr(user, 'is_anonymous', False)
+        or not getattr(user, 'is_authenticated', True)
+        or not getattr(user, 'is_active', False)
+        or group is None
+    ):
         return False
     trusts = list(trusts_using_group(group))
     if not trusts:
