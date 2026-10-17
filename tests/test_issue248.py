@@ -102,16 +102,9 @@ class ExplicitGroupAuthorizationTests(TestCase):
                 'pk', flat=True,
             ),
         )
-        self.assertFalse(
-            Trust.objects.filter_by_user_content_perm(
-                self.user, Category, 'change', exclude_root=True,
-            ).filter(pk=self.org.pk).exists()
-        )
-        self.assertTrue(
-            Trust.objects.filter_by_user_content_perm(
-                self.user, Category, 'read', exclude_root=True,
-            ).filter(pk=self.org.pk).exists()
-        )
+        # ``filter_by_user_content_perm`` no longer answers
+        # create-under (non-Trust content returns empty); the
+        # ungranted-permission denial above is via ``permitted``.
 
     def test_role_ceiling_authorizes_without_group_enumeration(self):
         role, _created = Role.objects.get_or_create(name='iss248-role')

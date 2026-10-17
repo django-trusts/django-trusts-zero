@@ -431,13 +431,17 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
         self.assertFalse(_authorized(Category, self.alice, self.change).exists())
 
     def test_does_not_call_get_permission(self):
+        # Core #284 contract: an inactive principal is denied in the
+        # authorized queryset itself, so the result is empty. The
+        # intent preserved here is that this denial does not go
+        # through the Zero codec (``get_permission`` is not called).
         self.alice.is_active = False
         self.alice.save()
         self._reload()
         with patch.object(Category.objects, 'get_permission') as get_perm:
             pks = _pks(_authorized(Category, self.alice, self.read))
         get_perm.assert_not_called()
-        self.assertEqual(pks, {self.cat_a.pk})
+        self.assertEqual(pks, set())
 
     def test_extra_q_is_and_overlay_and_never_creates_a_grant(self):
         extra = Q(pk=self.cat_a.pk)
@@ -461,10 +465,14 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
         with self.assertNumQueries(0):
             self.assertFalse(qs.exists())
 
-    def test_non_instance_user_is_configuration_error_without_codec(self):
+    def test_anonymous_user_is_empty_and_none_is_configuration_error(self):
+        # Core #284 contract: an anonymous principal is denied with an
+        # empty queryset, not a configuration error. ``None`` is not a
+        # principal at all and still raises without the Zero codec.
         with self.assertNumQueries(0):
-            with self.assertRaises(TrustsConfigurationError):
-                _authorized(Category, AnonymousUser(), self.read)
+            self.assertFalse(
+                _authorized(Category, AnonymousUser(), self.read).exists()
+            )
             with self.assertRaises(TrustsConfigurationError):
                 _authorized(Category, None, self.read)
 
