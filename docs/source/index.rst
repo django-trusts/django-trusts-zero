@@ -93,20 +93,26 @@ Filter before slicing or pagination:
 
 ``ContentQuerySet.permitted`` is Zero's Django-permission codec over
 ``.authorized``. ``get_permission`` resolves a Django permission for the
-model. Create-under-Trust filtering uses the permission on the requested
-content model:
+model. To list the Trust rows a user may administer, filter by the
+permission held on the Trust row itself:
 
 .. code-block:: python
 
    targets = Trust.objects.filter_by_user_content_perm(
        request.user,
-       Receipt,
-       "add",
+       Trust,
+       "change",
    )
 
-That scope projection is implemented by core ``filter_authorized_scopes``.
-The shared query primitives are ``granted`` and ``filter_authorized_scopes``;
-malformed, unsupported, or unregistered policy fails closed.
+That returns Trust rows where the user holds ``change_trust`` through a
+trustee grant on the row, or through a TrustGroup local grant on the row
+that is also in the group's global ceiling. It filters Zero's stored
+grants directly and does not call core. It answers only Trust content;
+any other content model returns an empty queryset. Inactive or
+anonymous users also get an empty queryset, and a ``:condition`` suffix
+is refused. Malformed, unsupported, or unregistered policy fails closed
+on the other surfaces. List filtering for content rows still compiles
+through core ``granted`` by way of ``.authorized``.
 
 Register protected content
 --------------------------

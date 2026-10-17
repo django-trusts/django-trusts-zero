@@ -353,7 +353,6 @@ from trusts.zero.query import (
     ContentQuerySet, ContentManager, TrustManager,
     compile_registered_condition_q,
     django_permission_filter,
-    filter_scope_rows,
 )
 from trusts.zero.policy import (
     get_group_global_ceiling,
@@ -371,9 +370,9 @@ Zero-only `Meta` option names (`roles`, `content_roles`,
 importing `trusts.zero.models`. Generic `permission_conditions` is
 registered by core `trusts.conditions`.
 
-`has_trust_row_perm` uses `Trust.objects.filter_by_user_content_perm`
-/ public core `filter_authorized_scopes`. There is no Zero wrapper and
-no `trust_grant_q` fallback.
+`has_trust_row_perm` uses `Trust.objects.filter_by_user_content_perm`,
+which filters Trust rows directly over Zero's stored trustee and
+TrustGroup grants. It does not call core scope machinery.
 
 ## Write conveniences (direct ORM)
 
@@ -400,7 +399,7 @@ accountants.user_set.add(user)
 accountants.permissions.add(perm)  # global ceiling
 ```
 
-Create-under-Trust: `Trust.objects.filter_by_user_content_perm(user, Category, 'add')` must resolve `add_category`, not `add_trust`. A trustee grant of `add_trust` alone is insufficient.
+Trust-row filtering: `Trust.objects.filter_by_user_content_perm(user, Trust, 'change')` resolves `change_trust` and returns the Trust rows the user holds that grant on — a trustee grant on the row, or a TrustGroup local grant on the row that is also in the group's global ceiling. Settlor identity alone is not a grant. Any content model other than Trust returns an empty queryset.
 
 | Removed | Replacement |
 | --- | --- |
@@ -503,7 +502,7 @@ Then:
 - [ ] Confirm uninstalling core makes `trusts.zero.backends` unusable.
 - [ ] Replace `Content.grant`/`revoke`, `Trust.associate_group`/`grant_group_permission`/`revoke_group_permission`/`set_group_permissions`, and `TrustGroup.grant_permission`/`revoke_permission`/`set_permissions` with the ORM snippets above. Do not restore those methods.
 - [ ] Keep ceiling writes on `TrustGroupPermission` (`.full_clean()` / `save` / `bulk_create`); do not bypass `local_grant_outside_ceiling`.
-- [ ] `filter_by_user_content_perm(user, ContentModel, 'add')` must keep authorizing the **content** permission (e.g. `add_category`), not `add_trust`.
+- [ ] `filter_by_user_content_perm(user, Trust, 'change')` must keep returning the Trust rows the user holds `change_trust` on; any other content model returns an empty queryset.
 - [ ] Confirm first-party donation remains zero-SQL and idempotent on re-entry to `ready()`.
 - [ ] Confirm a frozen backend raises `TrustsConfigurationError` before the builder is invoked.
 - [ ] Search application-facing Zero paths for `register_relationship(`, `permission_in(`, `register_permission_condition(`, `handle`, `.registry` used for donation idempotency, and Core pin `e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4`. Literal Python `in` stays unsupported. Classify genuine Core-internal test fixtures separately.

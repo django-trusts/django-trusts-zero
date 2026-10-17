@@ -737,11 +737,6 @@ class DependentAuthorizationTest(_RegistryRestoreMixin, _UsersMixin, Transaction
         self.assertEqual(self.alice.get_all_permissions(self.orphan), set())
         self.assertEqual(self.alice.get_group_permissions(self.orphan), set())
         self.assertFalse(self.Orphan.objects.permitted(self.orphan_code, self.alice).exists())
-        self.assertFalse(
-            Trust.objects.filter_by_user_content_perm(
-                self.alice, self.Orphan, 'change_orphandoc',
-            ).exists()
-        )
 
     def test_inactive_anonymous_obj_none(self):
         self.assertFalse(self.alice.has_perm(self.image_code))

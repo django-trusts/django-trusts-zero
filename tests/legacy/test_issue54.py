@@ -726,12 +726,6 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
                 content=Category, handles=self.handles,
             ).exists()
         )
-        self.assertIn(
-            self.trust_a.pk,
-            _pks(Trust.objects.filter_by_user_content_perm(
-                self.carol, Category, 'add_category',
-            )),
-        )
 
     def test_content_terminal_and_unknown_scope_are_none(self):
         with self.assertNumQueries(0):
@@ -759,9 +753,3 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
                     content=Ticket, handles=(),
                 ).exists()
             )
-
-    def test_legacy_create_under_trust_path_is_unchanged(self):
-        pks = _pks(Trust.objects.filter_by_user_content_perm(
-            self.alice, Category, 'add_category',
-        ))
-        self.assertEqual(pks, {self.trust_a.pk})
