@@ -47,7 +47,6 @@ class ZeroDocumentationSurfaceTest(SimpleTestCase):
             "from trusts.zero.models import",
             "PlanQueryCompiler",
             "granted",
-            "filter_authorized_scopes",
             "register_zero_content",
             "register_zero_content(backend, Receipt)",
             "trusts.zero.urls",

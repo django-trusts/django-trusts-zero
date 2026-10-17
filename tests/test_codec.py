@@ -124,30 +124,16 @@ class RegistrationAndCodecTests(TestCase):
         self.assertIn(self.org, qs)
         self.assertNotIn(self.root, qs)
         self.assertNotIn(self.isolated, qs)
+        by_instance = Trust.objects.filter_by_user_content_perm(
+            self.user, self.org, 'change',
+        )
+        self.assertIn(self.org, by_instance)
         empty = Trust.objects.filter_by_user_content_perm(
             self.user, Category, 'add',
         )
-        # Category is declared; user has no add_category grant.
+        # Non-Trust content is not answered by this Trust-row method.
         self.assertIsNone(empty._result_cache)
         self.assertEqual(list(empty), [])
-
-    def test_filter_by_user_content_perm_resolves_on_content_model(self):
-        add_category = Category.objects.get_permission('add')
-        add_trust = Trust.objects.get_permission('add')
-        TrustUserPermission(
-            trust=self.org, entity=self.user, permission=add_category,
-        ).save()
-        TrustUserPermission(
-            trust=self.isolated, entity=self.user, permission=add_trust,
-        ).save()
-        qs = Trust.objects.filter_by_user_content_perm(
-            self.user, Category, 'add',
-        )
-        self.assertIsNone(qs._result_cache)
-        self.assertIn(self.org, qs)
-        self.assertNotIn(self.isolated, qs)
-        self.assertNotIn(self.root, qs)
-        self.assertNotIn(self.child, qs)
 
     def test_filter_by_user_content_perm_rejects_condition(self):
         with self.assertRaises(PermissionConditionNotQueryable):

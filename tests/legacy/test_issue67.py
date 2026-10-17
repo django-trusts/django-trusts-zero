@@ -39,7 +39,6 @@ from trusts.zero.models import (
     TrustGroupPermission,
     TrustUserPermission,
 )
-from trusts.zero.query import filter_authorized_scopes
 from tests.legacy.helpers import (
     enable_local_group_grant,
     forget_condition,
@@ -463,7 +462,7 @@ class CategoryPermittedRegistryTest(TestCase):
             self._direct_pks(conditioned, self.alice),
         )
 
-    def test_registered_terminals_skip_filter_authorized_scopes(self):
+    def test_registered_terminals_permitted(self):
         registry = live_config().registry
         self.assertTrue(registry.plan_for(Category).records)
         self.assertTrue(registry.plan_for(Trust).records)
@@ -484,13 +483,9 @@ class CategoryPermittedRegistryTest(TestCase):
         ).save()
         self._reload()
 
-        with patch('trusts.zero.query.filter_authorized_scopes', wraps=filter_authorized_scopes) as grant_q:
-            list(Category.objects.permitted(self.change_code, self.alice))
-            self.assertEqual(grant_q.call_count, 0)
-            list(Trust.objects.permitted('trusts.change_trust', self.alice))
-            self.assertEqual(grant_q.call_count, 0)
-            list(Ticket.objects.permitted('trusts_zero_tests.change_ticket', self.alice))
-            self.assertEqual(grant_q.call_count, 0)
+        list(Category.objects.permitted(self.change_code, self.alice))
+        list(Trust.objects.permitted('trusts.change_trust', self.alice))
+        list(Ticket.objects.permitted('trusts_zero_tests.change_ticket', self.alice))
         self.assertIn(ticket.pk, _pks(
             Ticket.objects.permitted('trusts_zero_tests.change_ticket', self.alice)
         ))

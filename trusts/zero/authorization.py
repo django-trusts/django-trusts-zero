@@ -80,12 +80,13 @@ def has_trust_row_perm(user, trust, perm):
     """Grant on this Trust row (trustee or TrustGroup local/global intersection).
 
     This does **not** follow ``Trust.trust`` parent resolution used by
-    ``has_perm`` when the object itself is a ``Trust``. Create-under-trust
-    and trust-row administration use this check.
+    ``has_perm`` when the object itself is a ``Trust``. Trust-row
+    administration uses this check. Settlor identity alone is not a
+    grant here.
 
-    Authorization goes through the registered Zero scope adapter
-    (``filter_by_user_content_perm`` / ``filter_authorized_scopes``),
-    not a deleted ``trust_grant_q`` fallback.
+    Authorization goes through ``filter_by_user_content_perm``, which
+    filters Trust rows directly over Zero's stored trustee and
+    TrustGroup grants. It does not call core scope machinery.
     """
     if not is_active_principal(user) or trust is None:
         return False
