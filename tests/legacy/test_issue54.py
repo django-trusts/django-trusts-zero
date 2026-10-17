@@ -49,7 +49,6 @@ from trusts.conditions import PermissionConditionNotQueryable
 from trusts.query import (
     AuthorizedManager,
     AuthorizedQuerySet,
-    is_active_principal,
 )
 from tests.legacy.helpers import (
     enable_local_group_grant,
@@ -404,18 +403,16 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
 
     def test_wrong_permission_type_is_zero_sql_configuration_error(self):
         qs = AuthorizedQuerySet(Category)
-        with patch('trusts.query.is_active_principal', wraps=is_active_principal) as active:
-            with patch.object(Category.objects, 'get_permission') as get_perm:
-                with self.assertNumQueries(0):
-                    with self.assertRaises(TrustsConfigurationError):
-                        qs.authorized(self.alice, 'read_category')
-                    with self.assertRaises(TrustsConfigurationError):
-                        qs.authorized(self.alice, 'trusts_zero_tests.read_category')
-                    with self.assertRaises(TrustsConfigurationError):
-                        qs.authorized(self.alice, 'read_category:own')
-                    with self.assertRaises(TrustsConfigurationError):
-                        qs.authorized(self.alice, None)
-        active.assert_not_called()
+        with patch.object(Category.objects, 'get_permission') as get_perm:
+            with self.assertNumQueries(0):
+                with self.assertRaises(TrustsConfigurationError):
+                    qs.authorized(self.alice, 'read_category')
+                with self.assertRaises(TrustsConfigurationError):
+                    qs.authorized(self.alice, 'trusts_zero_tests.read_category')
+                with self.assertRaises(TrustsConfigurationError):
+                    qs.authorized(self.alice, 'read_category:own')
+                with self.assertRaises(TrustsConfigurationError):
+                    qs.authorized(self.alice, None)
         get_perm.assert_not_called()
 
     def test_instance_filter_matches_trustee_and_group_and_stays_lazy(self):
@@ -433,16 +430,18 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
         self.assertFalse(_authorized(Category, self.bob, self.read).exists())
         self.assertFalse(_authorized(Category, self.alice, self.change).exists())
 
-    def test_does_not_call_is_active_principal_or_get_permission(self):
+    def test_does_not_call_get_permission(self):
+        # Core #284 contract: an inactive principal is denied in the
+        # authorized queryset itself, so the result is empty. The
+        # intent preserved here is that this denial does not go
+        # through the Zero codec (``get_permission`` is not called).
         self.alice.is_active = False
         self.alice.save()
         self._reload()
-        with patch('trusts.query.is_active_principal') as active:
-            with patch.object(Category.objects, 'get_permission') as get_perm:
-                pks = _pks(_authorized(Category, self.alice, self.read))
-        active.assert_not_called()
+        with patch.object(Category.objects, 'get_permission') as get_perm:
+            pks = _pks(_authorized(Category, self.alice, self.read))
         get_perm.assert_not_called()
-        self.assertEqual(pks, {self.cat_a.pk})
+        self.assertEqual(pks, set())
 
     def test_extra_q_is_and_overlay_and_never_creates_a_grant(self):
         extra = Q(pk=self.cat_a.pk)
@@ -466,10 +465,14 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
         with self.assertNumQueries(0):
             self.assertFalse(qs.exists())
 
-    def test_non_instance_user_is_configuration_error_without_codec(self):
+    def test_anonymous_user_is_empty_and_none_is_configuration_error(self):
+        # Core #284 contract: an anonymous principal is denied with an
+        # empty queryset, not a configuration error. ``None`` is not a
+        # principal at all and still raises without the Zero codec.
         with self.assertNumQueries(0):
-            with self.assertRaises(TrustsConfigurationError):
-                _authorized(Category, AnonymousUser(), self.read)
+            self.assertFalse(
+                _authorized(Category, AnonymousUser(), self.read).exists()
+            )
             with self.assertRaises(TrustsConfigurationError):
                 _authorized(Category, None, self.read)
 
@@ -726,12 +729,6 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
                 content=Category, handles=self.handles,
             ).exists()
         )
-        self.assertIn(
-            self.trust_a.pk,
-            _pks(Trust.objects.filter_by_user_content_perm(
-                self.carol, Category, 'add_category',
-            )),
-        )
 
     def test_content_terminal_and_unknown_scope_are_none(self):
         with self.assertNumQueries(0):
@@ -759,9 +756,3 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
                     content=Ticket, handles=(),
                 ).exists()
             )
-
-    def test_legacy_create_under_trust_path_is_unchanged(self):
-        pks = _pks(Trust.objects.filter_by_user_content_perm(
-            self.alice, Category, 'add_category',
-        ))
-        self.assertEqual(pks, {self.trust_a.pk})

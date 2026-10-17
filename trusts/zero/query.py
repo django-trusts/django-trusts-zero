@@ -1,4 +1,4 @@
-"""Zero list/object adapters over core ``granted`` / ``filter_authorized_scopes``.
+"""Zero list/object adapters over core ``granted``.
 
 ``ContentQuerySet``, ``ContentManager``, and ``TrustManager`` live here
 so ``models.py`` stays declarative. Manager *attachment* remains on the
@@ -6,16 +6,11 @@ model classes.
 """
 
 from django.db import models
-from django.db.models import Model, Q
+from django.db.models import Exists, Model, OuterRef, Q
 
-from trusts.core import (
-    TrustsConfigurationError,
-    any_plan_records,
-    filter_authorized_scopes,
-    granted,
-)
+from trusts.core import TrustsConfigurationError, granted
 from trusts.conditions import permission_has_condition
-from trusts.query import AuthorizedQuerySet, is_active_principal
+from trusts.query import AuthorizedQuerySet
 from trusts.zero import (
     ROOT_PK,
     supported_entity_contract,
@@ -51,47 +46,17 @@ def django_permission_filter(qs, perm, user):
     condition_q = None
     if permission_has_condition(perm):
         condition_q = compile_registered_condition_q(qs.model, perm, user)
-    if not is_active_principal(user):
+    if (
+        user is None
+        or getattr(user, 'is_anonymous', False)
+        or not getattr(user, 'is_authenticated', True)
+        or not getattr(user, 'is_active', False)
+    ):
         return qs.none()
     if not supported_entity_contract() or not supported_permission_contract():
         return qs.none()
     permission = resolve_content_permission(qs.model, perm)
     return qs.authorized(user, permission, extra_q=condition_q)
-
-
-def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kwargs):
-    """Zero codec wrapper around public core ``filter_authorized_scopes``.
-
-    Permission is resolved on ``content`` (``add_category``), not on the
-    Trust manager model (``add_trust``). The explicit ``auth.Group``
-    path and the role ceiling are both registered. Create-under-Trust
-    is always the public core prefix projection (including same-model
-    proper prefixes). Handles come from ``ZeroConfig``, never
-    ``kernel_config()``.
-    """
-    from trusts.zero.apps import zero_config
-
-    reject_queryable_condition(
-        perm_name, 'Trust.objects.filter_by_user_content_perm'
-    )
-    if not is_active_principal(user):
-        return manager.none()
-    if not supported_entity_contract() or not supported_permission_contract():
-        return manager.none()
-    if not isinstance(content, type):
-        content = content.__class__
-    handles = zero_config().configured_handles()
-    if not any_plan_records(handles, content):
-        return manager.none()
-    content = getattr(content._meta, 'concrete_model', content)
-    permission = resolve_content_permission(content, perm_name)
-    qs = filter_authorized_scopes(
-        manager.filter(**kwargs), user, permission,
-        content=content, handles=handles,
-    )
-    if exclude_root and ROOT_PK is not None:
-        qs = qs.exclude(pk=ROOT_PK)
-    return qs.distinct()
 
 
 class ContentQuerySet(AuthorizedQuerySet):
@@ -176,32 +141,71 @@ class TrustManager(ContentManager):
         return self.filter(Q(groups__user=user) | Q(trustees__entity=user), **kwargs)
 
     def filter_by_user_content_perm(self, user, content, perm_name, exclude_root=True, **kwargs):
-        """Return Trusts under which ``user`` may exercise ``perm_name``.
+        """Return Trust rows ``user`` holds ``perm_name`` on for Trust content.
 
-        Create-under-trust semantics (verified, not inherited from #9):
+        Row-administration semantics, restored from the historical direct
+        ORM implementation (and adapted to the modern schema):
 
-        - A Trust is included when ``user`` has ``perm_name`` for ``content``
-          via trustee grants or the TrustGroup local/global intersection
-          **on that Trust row**. Role-derived permissions are the global
-          ceiling, not a local assignment.
+        - A Trust is included when ``user`` has the permission resolved
+          for Trust content via a trustee grant **on that Trust row**, or
+          via the TrustGroup local/global intersection on that row:
+          a local ``TrustGroupPermission`` for the permission, group
+          membership, and the permission in the group's global ceiling
+          (``Group.permissions`` or a role's permissions). Role-derived
+          permissions are the global ceiling, not a local assignment.
+        - Only Trust content is answered. Any other content model
+          returns an empty queryset: creating content under a Trust is
+          not a question this method answers.
         - Parent-trust relations (``trust__trustees`` / ``trust__groups``)
-          are not queried. ``#9`` did that accidentally.
-        - Settlor identity is not a grant. Use ``has_perm(..., :own)`` for
-          settlor-only operations (not this queryset).
-        - This API filters Trust rows by grants, not by existing content
-          rows. A Trust with no content yet can still be a create target.
+          are not queried; the grant must be stored on the row itself.
+        - Settlor identity is not a grant. Use ``has_perm(..., :own)``
+          for settlor-only operations (not this queryset).
         - Inactive / anonymous principals yield an empty queryset.
-        - ``exclude_root=True`` drops ``TRUSTS_ROOT_PK`` (typical for
-          organization content).
+        - ``exclude_root=True`` drops ``TRUSTS_ROOT_PK``.
         - ``filter_by_user_perm`` is unchanged (membership/trustee, no
           permission name).
         - A ``:condition`` suffix raises ``PermissionConditionNotQueryable``.
-          This API filters Trust rows, not content rows, so it does not
+          This API filters Trust rows by stored grants, so it does not
           compile V1 conditions (unlike ``ContentQuerySet.permitted``).
         """
         if 'group__user' in kwargs:
             raise TypeError('"%s" are invalid keyword arguments' % 'group__user')
-        return filter_scope_rows(
-            self, user, content, perm_name,
-            exclude_root=exclude_root, **kwargs
+        reject_queryable_condition(
+            perm_name, 'Trust.objects.filter_by_user_content_perm'
         )
+        if (
+            user is None
+            or getattr(user, 'is_anonymous', False)
+            or not getattr(user, 'is_authenticated', True)
+            or not getattr(user, 'is_active', False)
+        ):
+            return self.none()
+        if not supported_entity_contract() or not supported_permission_contract():
+            return self.none()
+        if not isinstance(content, type):
+            content = content.__class__
+        content = getattr(content._meta, 'concrete_model', content)
+        if content is not self.model._meta.concrete_model:
+            return self.none()
+        permission = resolve_content_permission(content, perm_name)
+        trustee_model = self.model._meta.get_field('trustees').related_model
+        trust_group_model = self.model._meta.get_field('trustgroups').related_model
+        trustee_grant = Exists(
+            trustee_model.objects.filter(
+                trust=OuterRef('pk'), entity=user, permission=permission,
+            )
+        )
+        group_grant = Exists(
+            trust_group_model.objects.filter(
+                trust=OuterRef('pk'),
+                group__user=user,
+                trustgrouppermissions__permission=permission,
+            ).filter(
+                Q(group__permissions=permission)
+                | Q(group__roles__permissions=permission)
+            )
+        )
+        qs = self.filter(trustee_grant | group_grant, **kwargs)
+        if exclude_root and ROOT_PK is not None:
+            qs = qs.exclude(pk=ROOT_PK)
+        return qs.distinct()

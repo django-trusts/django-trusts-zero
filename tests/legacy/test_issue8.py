@@ -169,19 +169,25 @@ class PermittedQuerySetTest(Issue8FixtureMixin, TestCase):
 
 
 class FilterByUserContentPermTest(Issue8FixtureMixin, TestCase):
+    def _change_trust(self):
+        return Permission.objects.get(
+            content_type=ContentType.objects.get_for_model(Trust),
+            codename='change_trust',
+        )
+
     def test_filter_by_user_perm_name_still_discovered(self):
         # The historical PR renamed this test and dropped discovery. Master
         # kept the original name; this asserts it is still a real test.
         from tests.legacy.test_historical import TrustTest
         self.assertTrue(callable(TrustTest.test_filter_by_user_perm))
 
-    def test_create_under_trust_requires_named_grant(self):
+    def test_trust_row_requires_named_grant(self):
         TrustUserPermission(
-            trust=self.org, entity=self.user, permission=self.perm_add
+            trust=self.org, entity=self.user, permission=self._change_trust()
         ).save()
         reload_test_users(self)
         trusts = Trust.objects.filter_by_user_content_perm(
-            self.user, Category, 'add_category', exclude_root=True
+            self.user, Trust, 'change_trust', exclude_root=True
         )
         pks = set(trusts.values_list('pk', flat=True))
         self.assertIn(self.org.pk, pks)
@@ -189,31 +195,16 @@ class FilterByUserContentPermTest(Issue8FixtureMixin, TestCase):
         self.assertNotIn(Trust.objects.get_root().pk, pks)
 
     def test_settlor_shortcut_is_not_a_grant(self):
-        # user is settlor of org but has no add grant.
+        # user is settlor of org but has no change_trust grant on the row.
         trusts = Trust.objects.filter_by_user_content_perm(
-            self.user, Category, 'add', exclude_root=True
+            self.user, Trust, 'change', exclude_root=True
         )
         self.assertNotIn(self.org.pk, trusts.values_list('pk', flat=True))
 
-    def test_does_not_query_parent_trust_relations(self):
-        # Grant add on the parent (root) must not list the child org.
-        root = Trust.objects.get_root()
-        TrustUserPermission(
-            trust=root, entity=self.user, permission=self.perm_add
-        ).save()
-        reload_test_users(self)
-        trusts = Trust.objects.filter_by_user_content_perm(
-            self.user, Category, 'add_category', exclude_root=False
-        )
-        self.assertIn(root.pk, trusts.values_list('pk', flat=True))
-        self.assertNotIn(self.org.pk, trusts.values_list('pk', flat=True))
-
-    def test_inactive_user_empty(self):
+    def test_non_trust_content_is_empty(self):
         TrustUserPermission(
             trust=self.org, entity=self.user, permission=self.perm_add
         ).save()
-        self.user.is_active = False
-        self.user.save()
         reload_test_users(self)
         self.assertFalse(
             Trust.objects.filter_by_user_content_perm(
@@ -221,40 +212,61 @@ class FilterByUserContentPermTest(Issue8FixtureMixin, TestCase):
             ).exists()
         )
 
-    def test_role_path_included(self):
-        call_command('update_roles_permissions')
-        admin_role = Role.objects.get(name='admin')
-        self.group.user_set.add(self.user)
-        self.org.groups.add(self.group)
-        admin_role.groups.add(self.group)
-        enable_local_group_grant(self.org, self.group, self.perm_add)
+    def test_does_not_query_parent_trust_relations(self):
+        # Grant change_trust on the parent (root) must not list the child org.
+        root = Trust.objects.get_root()
+        TrustUserPermission(
+            trust=root, entity=self.user, permission=self._change_trust()
+        ).save()
         reload_test_users(self)
         trusts = Trust.objects.filter_by_user_content_perm(
-            self.user, Category, 'add_category'
+            self.user, Trust, 'change_trust', exclude_root=False
+        )
+        self.assertIn(root.pk, trusts.values_list('pk', flat=True))
+        self.assertNotIn(self.org.pk, trusts.values_list('pk', flat=True))
+
+    def test_inactive_user_empty(self):
+        TrustUserPermission(
+            trust=self.org, entity=self.user, permission=self._change_trust()
+        ).save()
+        self.user.is_active = False
+        self.user.save()
+        reload_test_users(self)
+        self.assertFalse(
+            Trust.objects.filter_by_user_content_perm(
+                self.user, Trust, 'change'
+            ).exists()
+        )
+
+    def test_role_path_included(self):
+        change_trust = self._change_trust()
+        role = Role.objects.create(name='trust-row-admin')
+        role.permissions.add(change_trust)
+        self.group.user_set.add(self.user)
+        self.org.groups.add(self.group)
+        role.groups.add(self.group)
+        enable_local_group_grant(self.org, self.group, change_trust)
+        reload_test_users(self)
+        trusts = Trust.objects.filter_by_user_content_perm(
+            self.user, Trust, 'change_trust'
         )
         self.assertIn(self.org.pk, trusts.values_list('pk', flat=True))
 
     def test_conditioned_perm_fails_closed(self):
-        publish_permission_condition(
-            Category, 'never', lambda u, p, o: o.name == '__never__',
-        )
-        self.addCleanup(self._forget_never_condition)
         TrustUserPermission(
-            trust=self.org, entity=self.user, permission=self.perm_add
+            trust=self.org, entity=self.user, permission=self._change_trust()
         ).save()
         reload_test_users(self)
-        unconditioned = self.get_perm_code(self.perm_add)
-        conditioned = '%s:never' % unconditioned
         with self.assertRaises(PermissionConditionNotQueryable):
             Trust.objects.filter_by_user_content_perm(
-                self.user, Category, conditioned
+                self.user, Trust, 'trusts.change_trust:never'
             )
         with self.assertRaises(PermissionConditionNotQueryable):
             Trust.objects.filter_by_user_content_perm(
-                self.user, Category, 'add_category:own'
+                self.user, Trust, 'change_trust:own'
             )
         trusts = Trust.objects.filter_by_user_content_perm(
-            self.user, Category, unconditioned, exclude_root=True
+            self.user, Trust, 'trusts.change_trust', exclude_root=True
         )
         self.assertEqual(set(trusts.values_list('pk', flat=True)), {self.org.pk})
 

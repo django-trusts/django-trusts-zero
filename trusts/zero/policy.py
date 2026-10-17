@@ -23,8 +23,8 @@ def reject_queryable_condition(perm, api_name):
     if permission_has_condition(perm):
         raise PermissionConditionNotQueryable(
             '%s does not support permission conditions (%r). '
-            'Create-under-trust filters Trust rows, not the content '
-            'model the condition is registered on. Use the unconditioned '
+            'Trust-row filtering filters Trust rows by stored grants, not '
+            'content rows. Use the unconditioned '
             'permission for this queryset, or ContentQuerySet.permitted '
             'for V1 declarative conditions on content rows.' % (api_name, perm)
         )

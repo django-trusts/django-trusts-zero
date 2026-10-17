@@ -218,10 +218,6 @@ class TrustGroupIntersectionTest(Issue8FixtureMixin, TestCase):
             'JOIN' in sql.upper() or 'EXISTS' in sql.upper(),
             'permitted() must filter in SQL. SQL was: %s' % sql,
         )
-        trusts = Trust.objects.filter_by_user_content_perm(
-            self.user, Category, 'read', exclude_root=True
-        )
-        self.assertEqual(set(trusts.values_list('pk', flat=True)), {self.org.pk, self.org_b.pk})
 
     def test_12_legacy_association_preserves_rows_but_grants_nothing(self):
         self.org.groups.add(self.group)
@@ -231,11 +227,6 @@ class TrustGroupIntersectionTest(Issue8FixtureMixin, TestCase):
         self.assertEqual(tg.permissions.count(), 0)
         self.assertFalse(self._has_read(self.user, self.content))
         self.assertFalse(self._has_change(self.user, self.content))
-        self.assertFalse(
-            Trust.objects.filter_by_user_content_perm(
-                self.user, Category, 'read', exclude_root=True
-            ).filter(pk=self.org.pk).exists()
-        )
 
     def test_13_grandfather_dry_run_and_apply(self):
         self.org.groups.add(self.group)

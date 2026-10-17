@@ -7,10 +7,10 @@ Final-state adaptations: Zero test app label, core registry APIs, no Content._co
 
 Registers ``TrustUserPermission → Trust ← Ticket`` from
 ``tests.apps.TestsConfig.ready()`` so ``Ticket.objects.permitted(...)``
-uses the common relation plan. Ticket has its own sentinel; Category's
-sentinel is not reused. Backend ``has_perm`` and
-``filter_by_user_content_perm`` stay on the old path. Isolated core
-tests keep constructing their own ``TrustsRegistry()``.
+uses the common relation plan. Ticket has its own sentinel;
+Category's sentinel is not reused. Backend ``has_perm`` stays on the
+old path. Isolated core tests keep constructing their own
+``TrustsRegistry()``.
 """
 
 from unittest.mock import patch
@@ -40,7 +40,6 @@ from trusts.zero.models import (
     TrustGroupPermission,
     TrustUserPermission,
 )
-from trusts.zero.query import filter_authorized_scopes
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
@@ -563,15 +562,6 @@ class TicketPermittedRegistryTest(TestCase):
         self.assertTrue(registry.plan_for(Trust).records)
         self.assertTrue(registry.plan_for(Ticket).records)
         self.assertTrue(registry.plan_for(Group).records)
-
-    def test_create_under_trust_uses_filter_authorized_scopes(self):
-        with patch('trusts.zero.query.filter_authorized_scopes', wraps=filter_authorized_scopes) as grant_q:
-            pks = _pks(Trust.objects.filter_by_user_content_perm(
-                self.alice, Ticket, 'change_ticket',
-            ))
-            self.assertGreaterEqual(grant_q.call_count, 1)
-        self.assertIn(self.trust_a.pk, pks)
-        self.assertNotIn(self.trust_b.pk, pks)
 
     def test_inactive_and_anonymous_remain_empty(self):
         self.alice.is_active = False

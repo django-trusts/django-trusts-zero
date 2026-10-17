@@ -28,7 +28,7 @@ from trusts.zero.policy import (
     get_group_global_ceiling,
     permission_in_global_ceiling,
 )
-from trusts.zero.query import filter_scope_rows
+from trusts.zero.query import TrustManager
 from trusts.zero.registration import (
     ZERO_META_OPTION_NAMES,
     register_zero_direct,
@@ -104,9 +104,11 @@ class ModelsDeclarativeOnlyTests(SimpleTestCase):
         self.assertIsNot(
             inspect.getmodule(models_mod.TrustManager), models_mod,
         )
-        src = inspect.getsource(filter_scope_rows)
-        self.assertIn('filter_authorized_scopes', src)
-        self.assertNotIn('trust_grant_q', src)
+        src = inspect.getsource(TrustManager.filter_by_user_content_perm)
+        self.assertNotIn('filter_authorized_scopes', src)
+        self.assertNotIn('any_plan_records', src)
+        self.assertNotIn('filter_scope_rows', src)
+        self.assertIn('trustees', src)
 
     def test_models_import_does_not_register_meta_names(self):
         source = inspect.getsourcefile(__import__('trusts.zero.models', fromlist=['Trust']))
@@ -280,10 +282,6 @@ class GroupCeilingPathTests(TestCase):
             self.category.pk,
             Category.objects.permitted('read', self.user).values_list('pk', flat=True),
         )
-        trusts = Trust.objects.filter_by_user_content_perm(
-            self.user, Category, 'read',
-        )
-        self.assertIn(self.org.pk, trusts.values_list('pk', flat=True))
 
     def test_role_permissions_ceiling_grants(self):
         role, _created = Role.objects.get_or_create(name='public')
