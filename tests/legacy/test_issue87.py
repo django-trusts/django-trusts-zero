@@ -29,7 +29,7 @@ from tests.models import Category, TestGroupJunction, Ticket
 from trusts.backends import TrustModelBackendMixin
 from trusts.core import PlanQueryCompiler
 from trusts.zero.backends import TrustModelBackend
-from trusts.checks import check_permission_conditions
+from trusts.inspect.checks import check_permission_conditions
 from trusts.core import (
     PlanQueryCompiler,
     Ref,

@@ -181,7 +181,7 @@ class RegistrationAndCodecTests(TestCase):
         with self.assertRaises(AttributeError):
             list(Ticket.objects.permitted('read:nope', self.user))
 
-    def test_frozen_live_register_does_not_invoke_builder(self):
+    def test_live_register_invokes_builder_once_at_registration(self):
         calls = []
 
         def boom(u, p, o):
@@ -189,10 +189,20 @@ class RegistrationAndCodecTests(TestCase):
             return o.name == 'n'
 
         backend = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
-        with self.assertRaises(TrustsConfigurationError) as ctx:
+        try:
             backend.add_named_filter(Category, 'cb', predicate=boom)
-        self.assertIn('frozen', str(ctx.exception).lower())
-        self.assertEqual(calls, [])
+            # The builder runs once, at registration; a later build
+            # sees the new filter without re-invoking it.
+            self.assertEqual(len(calls), 1)
+            self.assertIsNotNone(
+                backend.registry.get_permission_condition_record(Category, 'cb')
+            )
+            backend.build_registry()
+            self.assertEqual(len(calls), 1)
+        finally:
+            backend.registry.conditions._records.pop(
+                (Category._meta.label, 'cb'), None,
+            )
 
     def test_builder_condition_is_queryable_without_reinvoke(self):
         calls = []

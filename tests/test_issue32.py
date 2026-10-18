@@ -217,16 +217,24 @@ class ZMethodsDonationOnceTests(TestCase):
         self.assertNotIn('_zero_z1_relation_ids', source)
         self.assertNotIn('_zero_condition_donation_id', source)
 
-    def test_frozen_add_named_filter_is_before_builder(self):
+    def test_live_add_named_filter_invokes_builder_once(self):
         calls = []
 
         def boom(u, p, o):
             calls.append((u, p, o))
             return u == o.settlor
 
-        with self.assertRaises(TrustsConfigurationError):
-            live_backend().add_named_filter(Trust, 'late32', predicate=boom)
-        self.assertEqual(calls, [])
+        backend = live_backend()
+        try:
+            backend.add_named_filter(Trust, 'late32', predicate=boom)
+            self.assertEqual(len(calls), 1)
+            self.assertIsNotNone(
+                backend.registry.get_permission_condition_record(Trust, 'late32')
+            )
+        finally:
+            backend.registry.conditions._records.pop(
+                (Trust._meta.label, 'late32'), None,
+            )
 
     @isolate_apps('tests', 'django.contrib.auth', 'django.contrib.contenttypes')
     def test_missing_junction_filter_is_not_on_live_backend(self):

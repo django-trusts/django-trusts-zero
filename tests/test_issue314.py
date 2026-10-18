@@ -17,7 +17,7 @@ from tests.legacy.helpers import get_or_create_root_user
 from tests.models import Category
 from tests.runtests import NORMAL_SUITE
 from trusts.query import PermittedUsersMixin
-from trusts.user_rules import UserCondition, concrete_rule
+from trusts.plan.standards import UserCondition, concrete_rule
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
 
