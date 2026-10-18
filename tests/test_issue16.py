@@ -13,7 +13,7 @@ from django.db import models
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import isolate_apps
 
-from trusts.checks import (
+from trusts.inspect.checks import (
     CHECK_ID_OBSOLETE_CALLBACK_SETTING,
     check_obsolete_legacy_callback_setting,
     check_permission_conditions,
@@ -338,11 +338,21 @@ class BuilderOnceTests(TestCase):
         self.assertFalse(user.has_perm('trusts_zero_tests.read_category:spy16', self.drop))
         self.assertEqual(len(self.log.calls), 1)
 
-    def test_frozen_live_register_is_before_builder(self):
+    def test_live_register_invokes_builder_once_at_registration(self):
         late = _BuilderLog(lambda u, p, o: o.name == 'keep')
-        with self.assertRaises(TrustsConfigurationError):
-            live_backend().add_named_filter(Category, 'late16', predicate=late)
-        self.assertEqual(late.calls, [])
+        backend = live_backend()
+        try:
+            backend.add_named_filter(Category, 'late16', predicate=late)
+            self.assertEqual(len(late.calls), 1)
+            self.assertIsNotNone(
+                backend.registry.get_permission_condition_record(
+                    Category, 'late16',
+                )
+            )
+        finally:
+            backend.registry.conditions._records.pop(
+                (Category._meta.label, 'late16'), None,
+            )
 
     def test_checks_never_reinvoke_builder(self):
         self.assertEqual(len(self.log.calls), 1)

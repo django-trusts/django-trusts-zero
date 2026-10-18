@@ -40,7 +40,7 @@ from tests.models import Category, Organization, Ticket
 from trusts.backends import TrustModelBackendMixin
 from trusts.core import PlanQueryCompiler
 from trusts.zero.backends import TrustModelBackend
-from trusts.checks import CHECK_ID_MISSING_COMPILER, check_query_compilers
+from trusts.inspect.checks import CHECK_ID_MISSING_COMPILER, check_query_compilers
 from trusts.core import (
     BackendHandle,
     PlanQueryCompiler,

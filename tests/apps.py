@@ -57,11 +57,9 @@ def live_registry(apps_registry=None):
 
 
 def publish_permission_condition(model, cond_code, builder_or_expr, registry=None):
-    """Register on an unfrozen registry, then publish the IR onto live.
+    """Register on an isolated registry, then publish the IR onto live.
 
-    After ``apps.ready``, the live backend registry is frozen and
-    ``add_named_filter`` raises before a builder runs.
-    Isolated ``TrustsRegistry()`` never auto-freezes. Tests that need
+    Tests that need
     ad-hoc conditions on the live lookup copy the resulting IR record.
     This helper talks to Core's store directly; it is not an
     application-facing donation path.
@@ -78,7 +76,7 @@ def publish_permission_condition(model, cond_code, builder_or_expr, registry=Non
 
 
 def publish_donated_conditions(source, target=None):
-    """Copy condition IR records from an unfrozen source onto live."""
+    """Copy condition IR records from an isolated source onto live."""
     dest = live_registry() if target is None else target
     store = getattr(source, 'conditions', source)
     for model, code, record in store.iter_permission_conditions():
@@ -110,7 +108,7 @@ def junction_group_content_path(prefix, junction_model):
 
 
 def isolated_backend(registry=None, path='tests.isolated'):
-    """Wrap an unfrozen registry in a ``BackendHandle`` for isolated tests."""
+    """Wrap an isolated registry in a ``BackendHandle`` for isolated tests."""
     from trusts.core import BackendHandle, PlanQueryCompiler, TrustsRegistry
 
     if registry is None:
