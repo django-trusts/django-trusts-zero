@@ -1,7 +1,10 @@
 from contextlib import contextmanager
 
-from django.apps import AppConfig
+from django.contrib.auth import get_user_model
 
+from tests.host import TestsConfig
+from trusts.compile.catalogs import Catalog
+from trusts.compile.factory import RegistryFactory
 from trusts.errors import TrustsConfigurationError
 from trusts.zero.apps import CANONICAL_BACKEND_PATH
 
@@ -50,25 +53,33 @@ def build_catalog(contribute=None, *, recorder=None, user_model=None,
     """Build ``Catalog(factory.build())`` from one recorder.
 
     ``contribute`` is called with the recorder before the build. The
-    returned catalog does not share the factory.
+    returned catalog does not share the factory. The recorder freezes
+    here, the same way the ready-time sweep freezes before compile.
     """
-    from django.contrib.auth import get_user_model
-
-    from trusts.compile.catalogs import Catalog
-    from trusts.compile.factory import compile_recorder
-    from trusts.plan.relations import PlanQueryCompiler
-
     target = isolated_recorder() if recorder is None else recorder
     if contribute is not None:
         contribute(target)
-    shape = compile_recorder(
-        target,
+    factory = RegistryFactory(
         path=path,
         family='relationship',
-        compiler=PlanQueryCompiler(),
         user_model=user_model or get_user_model(),
     )
-    return Catalog(shape)
+    target.freeze()
+    for entry in target.rows:
+        kind = entry[0]
+        if kind == 'condition':
+            factory.set_user_condition(entry[1], entry[2], on=entry[3])
+        elif kind == 'override':
+            factory.set_user_override(entry[1], entry[2], on=entry[3])
+        elif kind == 'filter':
+            factory.register_permission_condition(entry[1], entry[2], entry[3])
+        elif kind == 'register':
+            factory.register_public(**entry[1])
+        else:
+            raise TrustsConfigurationError(
+                'Unknown recorder row %r.' % (kind,)
+            )
+    return Catalog(factory.build())
 
 
 def junction_content_field(junction_model):
@@ -95,46 +106,43 @@ def junction_group_content_path(prefix, junction_model):
     return '__'.join(part for part in parts if part)
 
 
-class TestsConfig(AppConfig):
-    name = 'tests'
-    label = 'trusts_zero_tests'
-    default_auto_field = 'django.db.models.AutoField'
+def register_installed_terminals(config):
+    """Register Category, Ticket, and Group before Zero builds the catalog.
 
-    def ready(self):
-        # Register test terminals on Zero's recorder before ZeroConfig
-        # builds the catalog. An isolated Apps instance, or a recorder
-        # the sweep already froze, must not record again.
-        if getattr(self, 'apps', None) is None:
-            return
-        from django.apps import apps as django_apps
+    An isolated Apps instance, or a recorder the sweep already froze,
+    must not record again.
+    """
+    if getattr(config, 'apps', None) is None:
+        return
+    from django.apps import apps as django_apps
 
-        if self.apps is not django_apps:
-            return
-        recorder = live_recorder()
-        if recorder.frozen:
-            return
-        try:
-            from django.contrib.auth.models import Group
-            from tests.models import Category, TestGroupJunction, Ticket
-            from trusts.zero.registration import register_zero_content
-        except ImportError:
-            return
+    if config.apps is not django_apps:
+        return
+    recorder = live_recorder()
+    if recorder.frozen:
+        return
+    try:
+        from django.contrib.auth.models import Group
+        from tests.models import Category, TestGroupJunction, Ticket
+        from trusts.zero.registration import register_zero_content
+    except ImportError:
+        return
 
-        if not getattr(self, '_trusts_tup_category_done', False):
-            register_zero_content(recorder, Category)
-            self._trusts_tup_category_done = True
-        if not getattr(self, '_trusts_tup_ticket_done', False):
-            register_zero_content(recorder, Ticket)
-            self._trusts_tup_ticket_done = True
-        if not getattr(self, '_trusts_tup_group_done', False):
-            register_zero_content(
-                recorder,
-                Group,
-                content_via=lambda prefix, model: junction_group_content_path(
-                    prefix, TestGroupJunction,
-                ),
-            )
-            self._trusts_tup_group_done = True
+    if not getattr(config, '_trusts_tup_category_done', False):
+        register_zero_content(recorder, Category)
+        config._trusts_tup_category_done = True
+    if not getattr(config, '_trusts_tup_ticket_done', False):
+        register_zero_content(recorder, Ticket)
+        config._trusts_tup_ticket_done = True
+    if not getattr(config, '_trusts_tup_group_done', False):
+        register_zero_content(
+            recorder,
+            Group,
+            content_via=lambda prefix, model: junction_group_content_path(
+                prefix, TestGroupJunction,
+            ),
+        )
+        config._trusts_tup_group_done = True
 
 
 @contextmanager

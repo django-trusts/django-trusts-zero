@@ -163,9 +163,9 @@ class BackendAndRegistrationTests(SimpleTestCase):
             'HistoricalGroupQueryCompiler',
         ))
         backends = (ROOT / 'trusts' / 'zero' / 'backends.py').read_text()
-        self.assertIn('query_compiler = PlanQueryCompiler()', backends)
+        self.assertNotIn('query_compiler = PlanQueryCompiler()', backends)
         self.assertNotIn('ZeroPlanQueryCompiler', backends)
-        self.assertIn('PlanQueryCompiler', backends)
+        self.assertNotIn('PlanQueryCompiler', backends)
         self.assertNotIn('HistoricalGroupQueryCompiler', backends)
         self.assertNotIn('inspect', backends)
         self.assertNotIn('RelationPlan', backends)

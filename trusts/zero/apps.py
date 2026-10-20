@@ -1,6 +1,7 @@
-from django.apps import AppConfig as DjangoAppConfig
 from django.core.exceptions import ImproperlyConfigured
 
+from trusts.apps import TrustsImplementationConfig
+from trusts.errors import TrustsConfigurationError
 from trusts.zero.registration import register_zero_meta_option_names
 
 
@@ -11,27 +12,9 @@ register_zero_meta_option_names()
 
 CANONICAL_BACKEND_PATH = 'trusts.zero.backends.TrustModelBackend'
 DEPRECATED_CORE_BACKEND_PATH = 'trusts.backends.TrustModelBackend'
-CORE_REQUIREMENT = 'django-trusts>=1.0.0rc1,<2'
-FLOOR_MESSAGE = (
-    'django-trusts-zero 0.12.0.dev0 requires %s '
-    '(TrustsImplementationConfig). The installed django-trusts is below '
-    'the supported django-trusts floor. Upgrade django-trusts to '
-    '1.0.0rc1 or later.'
-    % CORE_REQUIREMENT
-)
 
 
-try:
-    from trusts.apps import TrustsImplementationConfig
-except ImportError:
-    # Raw ImportError is not an accepted fail path. ready() speaks.
-    TrustsImplementationConfig = None
-
-
-_ZeroBase = TrustsImplementationConfig or DjangoAppConfig
-
-
-class ZeroConfig(_ZeroBase):
+class ZeroConfig(TrustsImplementationConfig):
     """Historical concrete Trusts implementation owner.
 
     ``name`` is the Python package. ``label`` stays ``trusts`` so migration
@@ -62,9 +45,6 @@ class ZeroConfig(_ZeroBase):
         if django_apps.is_installed('django.contrib.admin'):
             from trusts.zero.admin import register_auto_modeladmins
             register_auto_modeladmins()
-
-        if TrustsImplementationConfig is None:
-            raise ImproperlyConfigured(FLOOR_MESSAGE)
 
         listed = tuple(settings.AUTHENTICATION_BACKENDS or ())
         if CANONICAL_BACKEND_PATH not in listed:
@@ -106,8 +86,7 @@ class ZeroConfig(_ZeroBase):
 
         Named conditions go through ``Recorder.add_named_filter``. The
         superclass build freezes the recorder and stores
-        ``Catalog(factory.build())``. A second ``ready()`` finds the
-        recorder frozen and leaves that catalog in place.
+        ``Catalog(factory.build())``. Donation is once per recorder.
         """
         from trusts.zero.backends import TrustModelBackend
         from trusts.zero.registration import (
@@ -116,8 +95,6 @@ class ZeroConfig(_ZeroBase):
         )
 
         recorder = TrustModelBackend().get_registry()
-        if recorder.frozen:
-            return
         register_zero_relations(recorder)
         donate_installed_permission_conditions(
             recorder, apps_registry=self.apps,
@@ -131,8 +108,6 @@ def zero_config(apps_registry=None):
     Django's global registry. Zero or several owners fail loud.
     """
     from django.apps import apps as django_apps
-
-    from trusts.errors import TrustsConfigurationError
 
     registry = django_apps if apps_registry is None else apps_registry
     matches = [
