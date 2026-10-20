@@ -5,16 +5,17 @@ scans conditions on the live catalog and does not re-invoke builders.
 """
 
 from io import StringIO
-from unittest.mock import patch
 
-from django.apps import apps
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core.checks import run_checks
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
-from tests.apps import build_catalog, forget_models, isolated_recorder, live_catalog, live_config
+from tests.apps import (
+    catalog_from, forget_models, isolated_catalog, isolated_factory,
+    live_catalog, live_config, register_relations,
+)
 from tests.legacy.helpers import (
     create_test_users,
     get_or_create_root_user,
@@ -30,10 +31,6 @@ from trusts.inspect.checks import (
     check_permission_conditions,
 )
 from trusts.zero.models import Content, Trust, TrustUserPermission
-from trusts.zero.registration import (
-    donate_content_permission_conditions,
-    register_zero_content,
-)
 
 
 def _messages_with_id(messages, check_id):
@@ -111,13 +108,15 @@ class PermissionConditionCheckTest(TestCase):
         )
 
     def test_valid_custom_builder_proxy_and_cross_app_fk_pass_check(self):
-        def contribute(recorder):
-            recorder.add_named_filter(Ticket, 'owned', lambda u, p, o: u == o.owner)
-            recorder.add_named_filter(
+        def register(factory):
+            factory.register_permission_condition(
+                Ticket, 'owned', lambda u, p, o: u == o.owner,
+            )
+            factory.register_permission_condition(
                 AutoAdminCategory, 'named', lambda u, p, o: o.name == 'ok',
             )
 
-        catalog = build_catalog(contribute)
+        catalog = isolated_catalog(register)
         with self.assertNumQueries(0):
             messages = check_permission_conditions(None)
         self.assertEqual(_messages_with_id(messages, CHECK_ID_INVALID_EXPR), [])
@@ -126,40 +125,37 @@ class PermissionConditionCheckTest(TestCase):
         named = catalog.get_permission_condition_record(AutoAdminCategory, 'named')
         self.assertIs(named.model, AutoAdminCategory)
 
-    def test_builder_unresolved_field_fails_at_build(self):
-        def contribute(recorder):
-            recorder.add_named_filter(
+    def test_builder_unresolved_field_fails_at_register(self):
+        def register(factory):
+            factory.register_permission_condition(
                 Ticket, 'missing', lambda u, p, o: u == o.not_a_field,
             )
 
         with self.assertRaises(PermissionConditionError) as ctx:
-            build_catalog(contribute)
+            isolated_catalog(register)
         self.assertIn('not_a_field', str(ctx.exception))
         self.assertIsNone(
             live_catalog().get_permission_condition_record(Ticket, 'missing')
         )
 
-    def test_named_filter_waits_for_build_when_models_are_not_ready(self):
-        recorder = isolated_recorder()
-        with patch.object(apps, 'models_ready', False):
-            recorder.add_named_filter(
-                Ticket, 'deferred_own', lambda u, p, o: u == o.owner,
-            )
-        catalog = build_catalog(recorder=recorder)
+    def test_register_permission_condition_invokes_the_builder_once(self):
+        factory = isolated_factory()
+        factory.register_permission_condition(
+            Ticket, 'deferred_own', lambda u, p, o: u == o.owner,
+        )
+        catalog = catalog_from(factory)
         record = catalog.get_permission_condition_record(Ticket, 'deferred_own')
         self.assertIs(record.model, Ticket)
         self.assertIsNotNone(record.expr)
         messages = check_permission_conditions(None)
         self.assertEqual(_messages_with_id(messages, CHECK_ID_INVALID_EXPR), [])
 
-        bad = isolated_recorder()
-        with patch.object(apps, 'models_ready', False):
-            bad.add_named_filter(
+        bad = isolated_factory()
+        with self.assertRaises(PermissionConditionError) as ctx:
+            bad.register_permission_condition(
                 Ticket, 'deferred_bad',
                 lambda u, p, o: u == o.deferred_missing,
             )
-        with self.assertRaises(PermissionConditionError) as ctx:
-            build_catalog(recorder=bad)
         self.assertIn('deferred_missing', str(ctx.exception))
 
     def test_meta_permission_conditions_fail_at_build(self):
@@ -173,30 +169,35 @@ class PermissionConditionCheckTest(TestCase):
                 )
 
         try:
-            def contribute(recorder):
-                donate_content_permission_conditions(recorder, ImportTimeBadTicket)
-
+            factory = isolated_factory()
             with self.assertRaises(PermissionConditionError) as ctx:
-                build_catalog(contribute)
+                for code, builder in ImportTimeBadTicket._meta.permission_conditions:
+                    factory.register_permission_condition(
+                        ImportTimeBadTicket, code, builder,
+                    )
             self.assertIn('missing_a', str(ctx.exception))
         finally:
             forget_models(ImportTimeBadTicket)
 
-    def test_incompatible_builder_fails_at_build(self):
-        def contribute(recorder):
-            recorder.add_named_filter(Ticket, 'types', lambda u, p, o: o.status == 1)
+    def test_incompatible_builder_fails_at_register(self):
+        def register(factory):
+            factory.register_permission_condition(
+                Ticket, 'types', lambda u, p, o: o.status == 1,
+            )
 
         with self.assertRaises(PermissionConditionError) as ctx:
-            build_catalog(contribute)
+            isolated_catalog(register)
         self.assertIn('incompatible', str(ctx.exception))
         self.assertIsNone(live_catalog().get_permission_condition_record(Ticket, 'types'))
 
     def test_manage_py_check_stays_green_when_invalid_builder_does_not_land(self):
-        def contribute(recorder):
-            recorder.add_named_filter(Ticket, 'typo', lambda u, p, o: u == o.nope)
+        def register(factory):
+            factory.register_permission_condition(
+                Ticket, 'typo', lambda u, p, o: u == o.nope,
+            )
 
         with self.assertRaises(PermissionConditionError):
-            build_catalog(contribute)
+            isolated_catalog(register)
         self.assertIsNone(live_catalog().get_permission_condition_record(Ticket, 'typo'))
         output = _run_manage_py_check()
         self.assertNotIn(CHECK_ID_INVALID_EXPR, output)
@@ -209,13 +210,13 @@ class PermissionConditionCheckTest(TestCase):
 
     @override_settings(SILENCED_SYSTEM_CHECKS=['trusts.E001', 'trusts.E003', 'fields.W342'])
     def test_silenced_expr_check_does_not_register_invalid_builder(self):
-        def contribute(recorder):
-            recorder.add_named_filter(
+        def register(factory):
+            factory.register_permission_condition(
                 Ticket, 'missing', lambda u, p, o: u == o.not_a_field,
             )
 
         with self.assertRaises(PermissionConditionError) as ctx:
-            build_catalog(contribute)
+            isolated_catalog(register)
         self.assertIn('not_a_field', str(ctx.exception))
         self.assertIsNone(live_catalog().get_permission_condition_record(Ticket, 'missing'))
         _run_manage_py_check()
@@ -229,11 +230,11 @@ class PermissionConditionCheckTest(TestCase):
     def test_builder_once_and_checks_do_not_reinvoke(self):
         log = _BuilderLog(lambda u, p, o: u == o.owner)
 
-        def contribute(recorder):
-            register_zero_content(recorder, Ticket)
-            recorder.add_named_filter(Ticket, 'spy', log)
+        def register(factory):
+            register_relations(factory, Ticket)
+            factory.register_permission_condition(Ticket, 'spy', log)
 
-        catalog = build_catalog(contribute)
+        catalog = isolated_catalog(register)
         self.assertEqual(len(log.calls), 1)
         with self.assertNumQueries(0):
             messages = check_permission_conditions(None)
@@ -259,10 +260,9 @@ class PermissionConditionCheckTest(TestCase):
     def test_leftover_setting_is_error_and_does_not_reinvoke_builder(self):
         log = _BuilderLog(lambda u, p, o: u == o.owner)
 
-        def contribute(recorder):
-            recorder.add_named_filter(Ticket, 'spy', log)
-
-        build_catalog(contribute)
+        factory = isolated_factory()
+        factory.register_permission_condition(Ticket, 'spy', log)
+        catalog_from(factory)
         leftover = check_obsolete_legacy_callback_setting(None)
         self.assertEqual(len(leftover), 1)
         self.assertEqual(leftover[0].id, CHECK_ID_OBSOLETE_CALLBACK_SETTING)
@@ -274,20 +274,22 @@ class PermissionConditionCheckTest(TestCase):
             AssertionError('callable must not run during checks')
         ))
 
-        def contribute(recorder):
-            recorder.add_named_filter(Ticket, 'boom', exploding)
+        def register(factory):
+            factory.register_permission_condition(Ticket, 'boom', exploding)
 
         with self.assertRaises(PermissionConditionError) as ctx:
-            build_catalog(contribute)
+            isolated_catalog(register)
         self.assertIn('AssertionError', str(ctx.exception))
         self.assertEqual(len(exploding.calls), 1)
 
     def test_ready_does_not_raise_when_invalid_builder_fails_at_build(self):
-        def contribute(recorder):
-            recorder.add_named_filter(Ticket, 'typo', lambda u, p, o: u == o.nope)
+        def register(factory):
+            factory.register_permission_condition(
+                Ticket, 'typo', lambda u, p, o: u == o.nope,
+            )
 
         with self.assertRaises(PermissionConditionError):
-            build_catalog(contribute)
+            isolated_catalog(register)
         live_config().ready()
         errors = _messages_with_id(
             check_permission_conditions(None), CHECK_ID_INVALID_EXPR

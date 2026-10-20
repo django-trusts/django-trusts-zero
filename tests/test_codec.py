@@ -19,16 +19,14 @@ from trusts.zero.query import (
     django_permission_filter,
 )
 from trusts.conditions import PermissionConditionNotQueryable
-from trusts.zero.registration import (
-    register_zero_content,
-    register_zero_direct,
-    register_zero_group,
-)
 from tests.apps import (
-    build_catalog,
-    isolated_recorder,
+    catalog_from,
+    isolated_catalog,
+    isolated_factory,
     live_catalog,
     records_for_root,
+    register_relations,
+    root_records,
 )
 from tests.models import Category, Ticket
 
@@ -57,21 +55,17 @@ class RegistrationAndCodecTests(TestCase):
         src = inspect.getsource(ContentQuerySet.permitted)
         self.assertIn('return django_permission_filter(', src)
 
-    def test_tup_register_on_isolated_catalog(self):
-        recorder = isolated_recorder()
-        register_zero_direct(recorder, (Trust,))
-        catalog = build_catalog(recorder=recorder)
-        records = records_for_root(catalog, TrustUserPermission)
+    def test_tup_register_on_the_live_catalog(self):
+        catalog = live_catalog()
+        records = root_records(catalog, TrustUserPermission, Trust)
         self.assertEqual(len(records), 1)
         self.assertIs(records[0].content_model, Trust)
         self.assertEqual(records[0].user_field, 'entity')
 
     def test_tgp_register_uses_group_and_role_ceilings(self):
-        recorder = isolated_recorder()
-        register_zero_group(recorder, (Trust,))
-        catalog = build_catalog(recorder=recorder)
-        role = records_for_root(catalog, TrustGroupPermission)
-        grouped = records_for_root(catalog, TrustGroup)
+        catalog = live_catalog()
+        role = root_records(catalog, TrustGroupPermission, Trust)
+        grouped = root_records(catalog, TrustGroup, Trust)
         self.assertEqual(len(role), 1)
         self.assertEqual(len(grouped), 1)
         self.assertIs(role[0].content_model, Trust)
@@ -191,11 +185,10 @@ class RegistrationAndCodecTests(TestCase):
             calls.append((u, p, o))
             return o.name == 'n'
 
-        def contribute(recorder):
-            recorder.add_named_filter(Category, 'cb', boom)
-            self.assertEqual(len(calls), 0)
-
-        catalog = build_catalog(contribute)
+        factory = isolated_factory()
+        self.assertEqual(len(calls), 0)
+        factory.register_permission_condition(Category, 'cb', boom)
+        catalog = catalog_from(factory)
         self.assertEqual(len(calls), 1)
         self.assertIsNotNone(
             catalog.get_permission_condition_record(Category, 'cb')
@@ -212,11 +205,11 @@ class RegistrationAndCodecTests(TestCase):
             calls.append((u, p, o))
             return o.name == 'n'
 
-        def contribute(recorder):
-            register_zero_content(recorder, Category)
-            recorder.add_named_filter(Category, 'cb', named_keep)
+        def register(factory):
+            register_relations(factory, Category)
+            factory.register_permission_condition(Category, 'cb', named_keep)
 
-        catalog = build_catalog(contribute)
+        catalog = isolated_catalog(register)
         cat = Category(name='n', trust=self.org)
         cat.save()
         other = Category(name='other', trust=self.org)

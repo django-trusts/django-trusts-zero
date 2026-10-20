@@ -11,7 +11,7 @@ from django.core.management import call_command
 from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase
 
-from tests.apps import build_catalog, isolated_recorder, live_catalog, records_for_root
+from tests.apps import isolated_recorder, live_catalog, root_records
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from trusts.zero.models import (
     Trust,
@@ -34,11 +34,7 @@ def _perm(model, codename):
 
 
 def _tup(catalog):
-    matches = [
-        record for record in records_for_root(catalog, TrustUserPermission)
-        if record.content_model is Trust._meta.concrete_model
-    ]
-    return matches[0]
+    return root_records(catalog, TrustUserPermission, Trust)[0]
 
 
 class TrustRelationRegistrationTest(SimpleTestCase):
@@ -48,8 +44,8 @@ class TrustRelationRegistrationTest(SimpleTestCase):
         first = list(recorder.rows)
         register_zero_relations(recorder)
         self.assertEqual(list(recorder.rows), first)
-        catalog = build_catalog(recorder=recorder)
-        self.assertEqual(len(records_for_root(catalog, TrustUserPermission)), 1)
+        catalog = live_catalog()
+        self.assertEqual(len(root_records(catalog, TrustUserPermission, Trust)), 1)
         self.assertEqual(
             {record.root for record in catalog.records},
             {TrustUserPermission, TrustGroup, TrustGroupPermission},

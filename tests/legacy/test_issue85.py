@@ -11,18 +11,13 @@ from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 
 from tests.apps import (
-    build_catalog,
     junction_content_field,
-    junction_group_content_path,
     live_catalog,
 )
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category, Organization, TestGroupJunction, Ticket
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
-from trusts.zero.registration import register_zero_content
-
-
 def _pks(qs):
     return set(qs.values_list('pk', flat=True))
 
@@ -42,25 +37,6 @@ def _tup(catalog):
 
 
 class GroupRegistrationShapeTest(SimpleTestCase):
-    def test_isolated_recorder_compiles_the_junction_path(self):
-        def contribute(recorder):
-            register_zero_content(
-                recorder,
-                Group,
-                content_via=lambda prefix, model: junction_group_content_path(
-                    prefix, TestGroupJunction,
-                ),
-            )
-
-        catalog = build_catalog(contribute)
-        rev = TestGroupJunction._meta.get_field('trust').remote_field.get_accessor_name()
-        content_name = junction_content_field(TestGroupJunction).name
-        record = _tup(catalog)
-        self.assertEqual(record.content_path, ('trust', rev, content_name))
-        self.assertEqual(record.content_field, 'trust__%s__%s' % (rev, content_name))
-        self.assertIs(record.content_model, Group._meta.concrete_model)
-        self.assertFalse(catalog.plan_for(TestGroupJunction).records)
-
     def test_live_declaration_is_the_junction_path(self):
         catalog = live_catalog()
         rev = TestGroupJunction._meta.get_field('trust').remote_field.get_accessor_name()
@@ -68,6 +44,7 @@ class GroupRegistrationShapeTest(SimpleTestCase):
         record = _tup(catalog)
         self.assertEqual(record.content_path, ('trust', rev, content_name))
         self.assertEqual(record.content_field, 'trust__%s__%s' % (rev, content_name))
+        self.assertIs(record.content_model, Group._meta.concrete_model)
         self.assertFalse(catalog.plan_for(TestGroupJunction).records)
 
 

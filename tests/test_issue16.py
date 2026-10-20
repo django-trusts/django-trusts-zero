@@ -33,13 +33,15 @@ from trusts.zero.registration import (
     donate_content_permission_conditions,
     donate_installed_permission_conditions,
     donate_junction_content_permission_conditions,
-    register_zero_content,
 )
 from tests.apps import (
-    build_catalog,
+    catalog_from,
+    isolated_catalog,
+    isolated_factory,
     isolated_recorder,
     live_catalog,
     live_recorder,
+    register_relations,
 )
 from tests.models import Category, Ticket, ticket_own
 
@@ -149,11 +151,11 @@ class MetaDonationOnceTests(SimpleTestCase):
                     ('via_memo', via_memo),
                 )
 
-        def contribute(recorder):
-            donate_junction_content_permission_conditions(recorder, MemoJunction)
-            donate_junction_content_permission_conditions(recorder, MemoJunction)
-
-        catalog = build_catalog(contribute)
+        factory = isolated_factory()
+        code, builder = MemoJunction._meta.content_permission_conditions[0]
+        factory.register_permission_condition(MemoJunction, code, builder)
+        factory.register_permission_condition(MemoJunction, code, builder)
+        catalog = catalog_from(factory)
         rows = _condition_rows(catalog, MemoJunction, 'via_memo')
         self.assertEqual(len(rows), 1)
         self.assertIsNotNone(rows[0][2].expr)
@@ -165,18 +167,18 @@ class MetaDonationOnceTests(SimpleTestCase):
 
 class OwnerIsolationTests(SimpleTestCase):
     def test_catalogs_do_not_share_condition_records(self):
-        def left_contribute(recorder):
-            recorder.add_named_filter(
+        def left_register(factory):
+            factory.register_permission_condition(
                 Ticket, 'own', lambda u, p, o: u == o.owner,
             )
 
-        def right_contribute(recorder):
-            recorder.add_named_filter(
+        def right_register(factory):
+            factory.register_permission_condition(
                 Ticket, 'own', lambda u, p, o: o.title == 'keep',
             )
 
-        left = build_catalog(left_contribute, path='tests.left')
-        right = build_catalog(right_contribute, path='tests.right')
+        left = isolated_catalog(left_register, path='tests.left')
+        right = isolated_catalog(right_register, path='tests.right')
         left_record = left.get_permission_condition_record(Ticket, 'own')
         right_record = right.get_permission_condition_record(Ticket, 'own')
         self.assertEqual(
@@ -192,7 +194,7 @@ class OwnerIsolationTests(SimpleTestCase):
         self.assertIsNot(live.expr, left_record.expr)
         self.assertIsNot(live.expr, right_record.expr)
 
-        empty = build_catalog(path='tests.empty')
+        empty = isolated_catalog(path='tests.empty')
         self.assertEqual(list(empty.iter_permission_conditions()), [])
         self.assertIsNone(empty.get_permission_condition_record(Trust, 'own'))
         self.assertIsNone(empty.get_permission_condition_record(Ticket, 'own'))
@@ -268,14 +270,14 @@ class ExprParityTests(TestCase):
                 user.has_perm('trusts_zero_tests.read_ticket:nope16', self.ticket),
             )
 
-        def contribute(recorder):
-            recorder.add_named_filter(
+        def register(factory):
+            factory.register_permission_condition(
                 Ticket, 'typo16', lambda u, p, o: u == o.nope,
             )
 
         with self.assertNumQueries(0):
             with self.assertRaises(PermissionConditionError) as typo:
-                build_catalog(contribute)
+                isolated_catalog(register)
         self.assertIn('nope', str(typo.exception))
         self.assertIsNone(
             live_catalog().get_permission_condition_record(Ticket, 'typo16')
@@ -304,11 +306,11 @@ class BuilderOnceTests(TestCase):
         ).save()
         self.log = _BuilderLog(lambda u, p, o: o.name == 'keep')
 
-        def contribute(recorder):
-            register_zero_content(recorder, Category)
-            recorder.add_named_filter(Category, 'spy16', self.log)
+        def register(factory):
+            register_relations(factory, Category)
+            factory.register_permission_condition(Category, 'spy16', self.log)
 
-        self.catalog = build_catalog(contribute)
+        self.catalog = isolated_catalog(register)
 
     def test_builder_once_object_and_queryset_parity(self):
         self.assertEqual(len(self.log.calls), 1)
@@ -330,11 +332,10 @@ class BuilderOnceTests(TestCase):
     def test_catalog_build_invokes_builder_once(self):
         late = _BuilderLog(lambda u, p, o: o.name == 'keep')
 
-        def contribute(recorder):
-            recorder.add_named_filter(Category, 'late16', late)
-            self.assertEqual(len(late.calls), 0)
-
-        catalog = build_catalog(contribute)
+        factory = isolated_factory()
+        self.assertEqual(len(late.calls), 0)
+        factory.register_permission_condition(Category, 'late16', late)
+        catalog = catalog_from(factory)
         self.assertEqual(len(late.calls), 1)
         self.assertIsNotNone(
             catalog.get_permission_condition_record(Category, 'late16')
@@ -358,11 +359,11 @@ class BuilderOnceTests(TestCase):
             AssertionError('callable must not run during checks')
         ))
 
-        def contribute(recorder):
-            recorder.add_named_filter(Category, 'boom16', exploding)
+        def register(factory):
+            factory.register_permission_condition(Category, 'boom16', exploding)
 
         with self.assertRaises(PermissionConditionError) as ctx:
-            build_catalog(contribute)
+            isolated_catalog(register)
         self.assertIn('AssertionError', str(ctx.exception))
         self.assertEqual(len(exploding.calls), 1)
 
@@ -384,7 +385,13 @@ class HelperDonationTests(TransactionTestCase):
         recorder = isolated_recorder()
         donate_content_permission_conditions(recorder, Ticket)
         donate_content_permission_conditions(recorder, Ticket)
-        catalog = build_catalog(recorder=recorder)
+        self.assertEqual(
+            len(recorder.rows), 2 * len(Ticket._meta.permission_conditions),
+        )
+        factory = isolated_factory()
+        for cond_code, condition in Ticket._meta.permission_conditions:
+            factory.register_permission_condition(Ticket, cond_code, condition)
+        catalog = catalog_from(factory)
         rows = _condition_rows(catalog, Ticket, 'own')
         self.assertEqual(len(rows), 1)
         record = catalog.get_permission_condition_record(Ticket, 'own')
@@ -404,7 +411,10 @@ class HelperDonationTests(TransactionTestCase):
         recorder = isolated_recorder()
         with self.assertNumQueries(0):
             donate_content_permission_conditions(recorder, Trust)
-            catalog = build_catalog(recorder=recorder)
+            factory = isolated_factory()
+            code, builder = Trust._meta.permission_conditions[0]
+            factory.register_permission_condition(Trust, code, builder)
+            catalog = catalog_from(factory)
         record = catalog.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(record)
         self.assertFalse(hasattr(record, 'func'))

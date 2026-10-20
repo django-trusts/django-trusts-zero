@@ -15,11 +15,13 @@ from django.db import models
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from tests.apps import (
-    build_catalog,
+    catalog_from,
     forget_models,
-    isolated_recorder,
+    isolated_factory,
     live_catalog,
     live_config,
+    live_recorder,
+    register_relations,
 )
 from tests.models import (
     AutoAdminCategory,
@@ -35,7 +37,6 @@ from trusts.inspect.checks import (
     check_query_compilers,
 )
 from trusts.zero.models import Content, Junction, Trust, TrustUserPermission
-from trusts.zero.registration import register_zero_content, register_zero_relations
 
 
 def _e003(messages=None):
@@ -60,12 +61,10 @@ def _dynamic_models(*model_classes):
 
 
 class RecorderFreezeTest(SimpleTestCase):
-    def test_build_freezes_the_recorder(self):
-        recorder = isolated_recorder()
-        register_zero_relations(recorder)
-        catalog = build_catalog(recorder=recorder)
+    def test_ready_freezes_the_live_recorder(self):
+        recorder = live_recorder()
         self.assertTrue(recorder.frozen)
-        self.assertTrue(catalog.plan_for(Trust).records)
+        self.assertTrue(live_catalog().plan_for(Trust).records)
         with self.assertRaises(TrustsConfigurationError):
             recorder.register(
                 trust=TrustUserPermission,
@@ -77,27 +76,36 @@ class RecorderFreezeTest(SimpleTestCase):
             recorder.add_named_filter(
                 Trust, 'late', lambda u, p, o: u == o.settlor,
             )
-        self.assertTrue(live_catalog().plan_for(Trust).records)
 
-    def test_duplicate_trust_registration_fails_at_build(self):
-        def contribute(recorder):
-            register_zero_relations(recorder)
-            register_zero_content(recorder, Trust)
-
+    def test_factory_build_freezes_the_factory(self):
+        factory = isolated_factory()
+        register_relations(factory, Trust)
+        catalog = catalog_from(factory)
+        self.assertTrue(factory.frozen)
+        self.assertTrue(catalog.plan_for(Trust).records)
         with self.assertRaises(TrustsConfigurationError):
-            build_catalog(contribute)
+            factory.register_public(
+                trust=TrustUserPermission,
+                user='entity',
+                permission='permission',
+                content='trust',
+            )
 
-    def test_malformed_path_fails_at_build(self):
-        def contribute(recorder):
-            recorder.register(
+    def test_duplicate_trust_registration_fails_at_register(self):
+        factory = isolated_factory()
+        register_relations(factory, Trust)
+        with self.assertRaises(TrustsConfigurationError):
+            register_relations(factory, Trust)
+
+    def test_malformed_path_fails_at_register(self):
+        factory = isolated_factory()
+        with self.assertRaises(TrustsConfigurationError):
+            factory.register_public(
                 trust=TrustUserPermission,
                 user='entity',
                 permission='permission',
                 content='not_a_field',
             )
-
-        with self.assertRaises(TrustsConfigurationError):
-            build_catalog(contribute)
 
     def test_ready_again_keeps_the_live_catalog(self):
         catalog = live_catalog()

@@ -1,10 +1,10 @@
 """Zero relation registration, Meta option names, and condition donation.
 
-Safe for phase-1 import: this module must not import Zero models at
-module level. ``ZeroConfig`` / ``apps.py`` import it so Zero-only
-``Meta`` option names exist before Django constructs host models.
+Phase-1 safe: do not import Zero models here. ``apps.py`` imports this
+module so Zero-only ``Meta`` names exist before host models are built.
 """
 
+from django.apps import apps as django_apps
 from django.db.models import options
 
 
@@ -62,6 +62,7 @@ def _content_path(model, content_via, prefix=''):
 
 
 def _require_recorder(recorder):
+    # AppRegistryNotReady: trusts.backends imports Permission at module top.
     from trusts.backends import Recorder
 
     if not isinstance(recorder, Recorder):
@@ -80,6 +81,7 @@ _donated_condition_recorders = set()
 
 def register_zero_direct(recorder, content_models, content_via=None):
     """TUP records for each content terminal."""
+    # AppRegistryNotReady: Zero models are not ready during phase-1 import.
     from trusts.zero.models import TrustUserPermission
 
     recorder = _require_recorder(recorder)
@@ -93,16 +95,8 @@ def register_zero_direct(recorder, content_models, content_via=None):
 
 
 def register_zero_group(recorder, content_models, content_via=None):
-    """Explicit ``auth.Group`` registration plus the role ceiling.
-
-    ``TrustGroup`` uses ``group=`` ending at Django ``auth.Group``.
-    The compiler appends ``Group.permissions``. The local-grant
-    condition keeps a bare association from authorizing. ``TrustGroupPermission``
-    stays an ordinary ``permission=`` path for ``roles.permissions``.
-    Core rejects different terminal bindings on one root and content
-    model, so these are two roots. The plan ORs complete records.
-    The role path is not Django group enumeration.
-    """
+    """``auth.Group`` record plus the role ceiling. Two roots; the plan ORs them."""
+    # AppRegistryNotReady: Zero models are not ready during phase-1 import.
     from trusts.zero.models import TrustGroup, TrustGroupPermission
 
     recorder = _require_recorder(recorder)
@@ -138,6 +132,7 @@ def register_zero_content(recorder, model, content_via=None):
 
 def register_zero_relations(recorder):
     """Idempotent package donation: Trust-as-content TUP, group, and role."""
+    # AppRegistryNotReady: Zero models are not ready during phase-1 import.
     from trusts.zero.models import Trust
 
     recorder = _require_recorder(recorder)
@@ -180,7 +175,7 @@ def donate_installed_permission_conditions(recorder, apps_registry=None):
     each become one condition on this recorder. The catalog build invokes
     each builder once.
     """
-    from django.apps import apps as django_apps
+    # AppRegistryNotReady: Content and Junction are Zero models.
     from trusts.zero.models import Content, Junction
 
     recorder = _require_recorder(recorder)

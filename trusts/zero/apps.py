@@ -1,3 +1,4 @@
+from django.apps import apps as django_apps
 from django.core.exceptions import ImproperlyConfigured
 
 from trusts.apps import TrustsImplementationConfig
@@ -5,30 +6,19 @@ from trusts.errors import TrustsConfigurationError
 from trusts.zero.registration import register_zero_meta_option_names
 
 
+CANONICAL_BACKEND_PATH = 'trusts.zero.backends.TrustModelBackend'
+DEPRECATED_CORE_BACKEND_PATH = 'trusts.backends.TrustModelBackend'
+
 # Phase-1: Zero-only Meta option names must exist before host models
 # that declare them are constructed. ready() is too late.
 register_zero_meta_option_names()
 
 
-CANONICAL_BACKEND_PATH = 'trusts.zero.backends.TrustModelBackend'
-DEPRECATED_CORE_BACKEND_PATH = 'trusts.backends.TrustModelBackend'
-
-
 class ZeroConfig(TrustsImplementationConfig):
-    """Historical concrete Trusts implementation owner.
+    """Concrete Trusts app. ``label`` stays ``trusts``.
 
-    ``name`` is the Python package. ``label`` stays ``trusts`` so migration
-    identity, table names, and content-type/permission natural keys remain
-    ``('trusts', '0001_initial')`` / ``('trusts', '0002_trustgroup')``.
-
-    Install with the explicit class path ``trusts.zero.apps.ZeroConfig``,
-    and list it after any app that registers relations in ``ready()``.
-    ``TrustsImplementationConfig.ready`` builds the catalog from the
-    recorder, so later ``ready()`` methods cannot add relations.
-    Do not list ``'trusts'`` (core is a library) and do not list the
-    temporary core historical backend path. Bare ``'trusts.zero'`` is
-    forbidden by the 2.0 ``migrates.md`` checklist even when ``default``
-    is true.
+    Install ``trusts.zero.apps.ZeroConfig`` after apps that register in
+    ``ready()``. Do not list ``'trusts'`` or the deprecated backend path.
     """
 
     name = 'trusts.zero'
@@ -39,6 +29,7 @@ class ZeroConfig(TrustsImplementationConfig):
     default_auto_field = 'django.db.models.AutoField'
 
     def ready(self):
+        # Stay in ready(): settings, and admin imports models at import.
         from django.apps import apps as django_apps
         from django.conf import settings
 
@@ -86,8 +77,9 @@ class ZeroConfig(TrustsImplementationConfig):
 
         Named conditions go through ``Recorder.add_named_filter``. The
         superclass build freezes the recorder and stores
-        ``Catalog(factory.build())``. Donation is once per recorder.
+        ``Catalog(factory.build())``.         Donation is once per recorder.
         """
+        # AppRegistryNotReady: backends imports Permission; helpers import models.
         from trusts.zero.backends import TrustModelBackend
         from trusts.zero.registration import (
             donate_installed_permission_conditions,
@@ -107,8 +99,6 @@ def zero_config(apps_registry=None):
     Optional ``apps_registry`` is an ``Apps`` instance; the default is
     Django's global registry. Zero or several owners fail loud.
     """
-    from django.apps import apps as django_apps
-
     registry = django_apps if apps_registry is None else apps_registry
     matches = [
         config for config in registry.get_app_configs()
