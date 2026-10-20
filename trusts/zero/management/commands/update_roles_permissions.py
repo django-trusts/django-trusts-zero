@@ -115,11 +115,9 @@ class Command(BaseCommand):
     def handle(self, **options):
         self.verbosity = int(options.get('verbosity', 1))
 
-        if 'apps' in options:
-            apps = options['apps']
-            Permission = apps.get_model('auth', 'Permission')
-            Role = apps.get_model('trusts', 'role')
-            RolePermission = apps.get_model('trusts', 'rolepermission')
-            app_config = options['apps']
-
-        update_roles_permissions(Role, Permission, RolePermission, app_config, **options)
+        registry = options['apps'] if 'apps' in options else None
+        update_roles_permissions(
+            registry.get_model('trusts', 'role') if registry else Role,
+            registry.get_model('auth', 'Permission') if registry else Permission,
+            registry.get_model('trusts', 'rolepermission') if registry else RolePermission,
+            registry or app_config, **options)
