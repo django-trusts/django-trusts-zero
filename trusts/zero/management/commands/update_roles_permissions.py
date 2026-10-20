@@ -1,6 +1,11 @@
+from django.apps import apps as app_config
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
 from django.db import DEFAULT_DB_ALIAS, router
 from django.db.models import Q
+
+from trusts.zero.models import Role, RolePermission
 
 
 def _process_roles(Permission, model_roles, content_klass, roles, using):
@@ -10,7 +15,6 @@ def _process_roles(Permission, model_roles, content_klass, roles, using):
 
         # Force looking up the content types in the current database
         # before creating foreign keys to them.
-        from django.contrib.contenttypes.models import ContentType
         ctype = ContentType.objects.db_manager(using).get_for_model(content_klass)
 
         model_roles[rolename].update([Permission.objects.get(content_type=ctype, codename=perm_name)
@@ -117,9 +121,5 @@ class Command(BaseCommand):
             Role = apps.get_model('trusts', 'role')
             RolePermission = apps.get_model('trusts', 'rolepermission')
             app_config = options['apps']
-        else:
-            from trusts.zero.models import Role, RolePermission
-            from django.contrib.auth.models import Permission
-            from django.apps import apps as app_config
 
         update_roles_permissions(Role, Permission, RolePermission, app_config, **options)

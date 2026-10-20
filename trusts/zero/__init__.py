@@ -11,6 +11,7 @@ shipping product snapshots.
 
 from django.conf import settings
 from django.apps import apps as django_apps
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
 
 
@@ -101,6 +102,7 @@ def get_group_model():
     ``TRUSTS_GROUP_MODEL`` is deprecated and does not select a model.
     Runtime still fail-closes when that setting names anything else.
     """
+    # AppRegistryNotReady: auth.models touches the app registry at import.
     from django.contrib.auth.models import Group
 
     return Group
@@ -112,6 +114,7 @@ def get_permission_model():
     ``TRUSTS_PERMISSION_MODEL`` is deprecated and does not select a model.
     Runtime still fail-closes when that setting names anything else.
     """
+    # AppRegistryNotReady: auth.models touches the app registry at import.
     from django.contrib.auth.models import Permission
 
     return Permission
@@ -149,8 +152,6 @@ def supported_entity_contract():
     Checks the import-time field target and the live setting. Either mismatch
     is fail-closed: silenced ``trusts.E003`` must not reach grants or queries.
     """
-    from django.contrib.auth import get_user_model
-
     user_label = getattr(settings, 'AUTH_USER_MODEL', 'auth.User')
     if ENTITY_MODEL_NAME != user_label:
         return False

@@ -1,9 +1,10 @@
 from django.apps import apps as django_apps
+from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
 from trusts.apps import TrustsImplementationConfig
 from trusts.errors import TrustsConfigurationError
-from trusts.zero.registration import register_zero_meta_option_names
+from trusts.zero.options import register_zero_meta_option_names
 
 
 CANONICAL_BACKEND_PATH = 'trusts.zero.backends.TrustModelBackend'
@@ -29,9 +30,13 @@ class ZeroConfig(TrustsImplementationConfig):
     default_auto_field = 'django.db.models.AutoField'
 
     def ready(self):
-        # Stay in ready(): settings, and admin imports models at import.
-        from django.apps import apps as django_apps
-        from django.conf import settings
+        # Stay in ready(): admin imports models at import.
+        # AppRegistryNotReady: backends imports Permission; helpers import models.
+        from trusts.zero.backends import TrustModelBackend
+        from trusts.zero.registration import (
+            donate_installed_permission_conditions,
+            register_zero_relations,
+        )
 
         if django_apps.is_installed('django.contrib.admin'):
             from trusts.zero.admin import register_auto_modeladmins
@@ -69,23 +74,23 @@ class ZeroConfig(TrustsImplementationConfig):
                 )
             )
 
-        self._donate_zero_relations()
+        self._donate_zero_relations(
+            TrustModelBackend,
+            register_zero_relations,
+            donate_installed_permission_conditions,
+        )
         super().ready()
 
-    def _donate_zero_relations(self):
+    def _donate_zero_relations(
+        self, TrustModelBackend, register_zero_relations,
+        donate_installed_permission_conditions,
+    ):
         """Record TUP/TGP and Meta conditions before the catalog is built.
 
         Named conditions go through ``Recorder.add_named_filter``. The
         superclass build freezes the recorder and stores
-        ``Catalog(factory.build())``.         Donation is once per recorder.
+        ``Catalog(factory.build())``. Donation is once per recorder.
         """
-        # AppRegistryNotReady: backends imports Permission; helpers import models.
-        from trusts.zero.backends import TrustModelBackend
-        from trusts.zero.registration import (
-            donate_installed_permission_conditions,
-            register_zero_relations,
-        )
-
         recorder = TrustModelBackend().get_registry()
         register_zero_relations(recorder)
         donate_installed_permission_conditions(
