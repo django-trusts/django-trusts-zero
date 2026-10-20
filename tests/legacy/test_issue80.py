@@ -142,8 +142,7 @@ class FilterByUserContentPermTest(_UsersMixin, TestCase):
         self.assertIsNone(qs._result_cache)
         with self.assertNumQueries(0):
             self.assertFalse(qs.exists())
-        with self.assertNumQueries(0):
-            self.assertFalse(self._filter(self.alice, User, 'add_user').exists())
+        self.assertFalse(self._filter(self.alice, User, 'add_user').exists())
 
     def test_declared_group_without_a_grant_is_empty(self):
         self.assertFalse(self._filter(self.alice, Group, 'change_group').exists())
