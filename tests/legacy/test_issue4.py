@@ -1,9 +1,8 @@
 """Queryable permission conditions (issue #4).
 
-Ad-hoc builders are recorded on an isolated recorder and compiled with
-``build_catalog``. Object checks use ``catalog.has_perm``. List checks
-use ``catalog.filter_authorized`` plus the compiled condition. ``:own``
-and ``Trust:own`` are already on the live catalog.
+Ad-hoc builders are registered on an isolated factory. Object checks
+use ``catalog.has_perm``. List checks use ``catalog.filter_authorized``
+plus the compiled condition. ``:own`` and ``Trust:own`` are on the live catalog.
 """
 
 from django.contrib.auth.models import Group, Permission
@@ -11,7 +10,10 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import TestCase
 
-from tests.apps import build_catalog, live_catalog
+from tests.apps import (
+    catalog_from, isolated_catalog, isolated_factory, isolated_recorder,
+    live_catalog, register_relations,
+)
 from tests.legacy.helpers import (
     create_test_users,
     get_or_create_root_user,
@@ -24,9 +26,6 @@ from trusts.conditions import (
     PermissionConditionUnsupported,
 )
 from trusts.zero.models import Trust, TrustUserPermission
-from trusts.zero.registration import register_zero_content
-
-
 class _BuilderLog(object):
     """Builder that records the one registration-time symbolic invoke."""
 
@@ -96,55 +95,55 @@ class QueryableConditionTest(TestCase):
 
         self.spy_log = _BuilderLog(lambda u, p, o: u == o.owner)
 
-        def contribute(recorder):
-            register_zero_content(recorder, Ticket)
-            recorder.add_named_filter(
+        def register(factory):
+            register_relations(factory, Ticket)
+            factory.register_permission_condition(
                 Ticket, 'editable',
                 lambda u, p, o: (
                     (u == o.owner)
                     | ((u == o.organization.manager) & (o.status != 'locked'))
                 ),
             )
-            recorder.add_named_filter(
+            factory.register_permission_condition(
                 Ticket, 'unlocked',
                 lambda u, p, o: (
                     ((u == o.owner) | (u == o.organization.manager))
                     & (o.status != 'locked')
                 ),
             )
-            recorder.add_named_filter(
+            factory.register_permission_condition(
                 Ticket, 'open', lambda u, p, o: o.status == 'open',
             )
-            recorder.add_named_filter(
+            factory.register_permission_condition(
                 Ticket, 'never', lambda u, p, o: o.title == '__never__',
             )
-            recorder.add_named_filter(
+            factory.register_permission_condition(
                 Ticket, 'unset_region', lambda u, p, o: o.region == None,
             )
-            recorder.add_named_filter(
+            factory.register_permission_condition(
                 Ticket, 'named', lambda u, p, o: u.username == o.region,
             )
-            recorder.add_named_filter(
+            factory.register_permission_condition(
                 Ticket, 'same_people',
                 lambda u, p, o: o.owner == o.organization.manager,
             )
-            recorder.add_named_filter(
+            factory.register_permission_condition(
                 Ticket, 'status_eq_str', lambda u, p, o: o.status == '1',
             )
-            recorder.add_named_filter(Ticket, 'spy', self.spy_log)
+            factory.register_permission_condition(Ticket, 'spy', self.spy_log)
 
-        self.catalog = build_catalog(contribute)
+        self.catalog = isolated_catalog(register)
         self.change = 'trusts_zero_tests.change_ticket'
         self.change_editable = 'trusts_zero_tests.change_ticket:editable'
         self.change_own = 'trusts_zero_tests.change_ticket:own'
         self.change_open = 'trusts_zero_tests.change_ticket:open'
 
     def _reject(self, code, builder, exc=PermissionConditionError):
-        def contribute(recorder):
-            recorder.add_named_filter(Ticket, code, builder)
+        def register(factory):
+            factory.register_permission_condition(Ticket, code, builder)
 
         with self.assertRaises(exc) as ctx:
-            build_catalog(contribute)
+            isolated_catalog(register)
         self.assertIsNone(
             live_catalog().get_permission_condition_record(Ticket, code)
         )
@@ -342,14 +341,12 @@ class QueryableConditionTest(TestCase):
 
     def test_add_named_filter_does_not_invoke_the_builder(self):
         log = _BuilderLog(lambda u, p, o: u == o.owner)
-        recorder_calls = []
-
-        def contribute(recorder):
-            recorder.add_named_filter(Ticket, 'late', log)
-            recorder_calls.append(len(log.calls))
-
-        catalog = build_catalog(contribute)
-        self.assertEqual(recorder_calls, [0])
+        recorder = isolated_recorder()
+        recorder.add_named_filter(Ticket, 'late', log)
+        self.assertEqual(len(log.calls), 0)
+        factory = isolated_factory()
+        factory.register_permission_condition(Ticket, 'late', log)
+        catalog = catalog_from(factory)
         self.assertEqual(len(log.calls), 1)
         self.assertIsNotNone(catalog.get_permission_condition_record(Ticket, 'late'))
 

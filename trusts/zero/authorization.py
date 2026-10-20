@@ -16,6 +16,7 @@ to each trust's local grants). Membership changes therefore require
 administrative ``change`` on every trust that uses the group.
 """
 
+from django.apps import apps as django_apps
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
@@ -23,7 +24,6 @@ from trusts.zero import get_entity_model, get_group_model
 
 
 def _trusts_model(name):
-    from django.apps import apps as django_apps
     return django_apps.get_model('trusts', name)
 
 

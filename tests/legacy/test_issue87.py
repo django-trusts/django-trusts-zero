@@ -8,20 +8,24 @@ covers Category, Ticket, Trust, and Group.
 from django.contrib.auth.models import AnonymousUser, Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
-from django.db import connection, models
-from django.test import SimpleTestCase, TestCase, TransactionTestCase
+from django.db import models
+from django.test import SimpleTestCase, TestCase
 
-from tests.apps import build_catalog, forget_models, live_catalog
+from tests.apps import (
+    catalog_from, forget_models, isolated_factory, isolated_recorder,
+    live_catalog,
+)
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
-from tests.models import Category, Organization, TestGroupJunction, Ticket
+from tests.models import (
+    Category, Organization, OrphanDoc, Receipt, ReceiptImage,
+    ReceiptImageMeta, TestGroupJunction, Ticket,
+)
 from trusts.inspect.checks import check_permission_conditions
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Content, Junction, Trust, TrustUserPermission
-from trusts.zero.query import ContentManager
 from trusts.zero.registration import (
     donate_content_permission_conditions,
     donate_junction_content_permission_conditions,
-    register_zero_content,
 )
 
 
@@ -59,11 +63,14 @@ class DonatedConditionCatalogTest(SimpleTestCase):
                 )
 
         try:
-            def contribute(recorder):
-                donate_content_permission_conditions(recorder, IsolatedSheet)
-                donate_content_permission_conditions(recorder, IsolatedSheet)
-
-            catalog = build_catalog(contribute)
+            recorder = isolated_recorder()
+            donate_content_permission_conditions(recorder, IsolatedSheet)
+            donate_content_permission_conditions(recorder, IsolatedSheet)
+            self.assertEqual(len(recorder.rows), 2)
+            factory = isolated_factory()
+            code, builder = IsolatedSheet._meta.permission_conditions[0]
+            factory.register_permission_condition(IsolatedSheet, code, builder)
+            catalog = catalog_from(factory)
             record = catalog.get_permission_condition_record(IsolatedSheet, 'sheet_own')
             self.assertIsNotNone(record)
             self.assertIs(record.model, IsolatedSheet)
@@ -93,12 +100,10 @@ class DonatedConditionCatalogTest(SimpleTestCase):
         try:
             before = live_catalog().plan_for(Group).records
 
-            def contribute(recorder):
-                donate_junction_content_permission_conditions(
-                    recorder, IsolatedJunction,
-                )
-
-            catalog = build_catalog(contribute)
+            factory = isolated_factory()
+            code, builder = IsolatedJunction._meta.content_permission_conditions[0]
+            factory.register_permission_condition(IsolatedJunction, code, builder)
+            catalog = catalog_from(factory)
             record = catalog.get_permission_condition_record(
                 IsolatedJunction, 'junc_own',
             )
@@ -110,15 +115,14 @@ class DonatedConditionCatalogTest(SimpleTestCase):
             forget_models(IsolatedJunction)
 
     def test_duplicate_named_filter_keeps_the_last_expression(self):
-        def contribute(recorder):
-            recorder.add_named_filter(
-                Ticket, 'meta_own', lambda u, p, o: o.title == 'first',
-            )
-            recorder.add_named_filter(
-                Ticket, 'meta_own', lambda u, p, o: u == o.owner,
-            )
-
-        catalog = build_catalog(contribute)
+        factory = isolated_factory()
+        factory.register_permission_condition(
+            Ticket, 'meta_own', lambda u, p, o: o.title == 'first',
+        )
+        factory.register_permission_condition(
+            Ticket, 'meta_own', lambda u, p, o: u == o.owner,
+        )
+        catalog = catalog_from(factory)
         record = catalog.get_permission_condition_record(Ticket, 'meta_own')
         self.assertIs(record.model, Ticket)
         self.assertEqual(
@@ -251,163 +255,79 @@ class UnknownTerminalTest(_UsersMixin, TestCase):
         self.assertFalse(live_catalog().plan_for(User).records)
 
 
-def dependent_content_path(prefix, content_model, *suffixes):
-    """Public ``__`` path: Trust reverse onto ``content_model``, then suffixes."""
-    rev = content_model._meta.get_field('trust').remote_field.get_accessor_name()
-    parts = (prefix, 'trust', rev) + suffixes
-    return '__'.join(part for part in parts if part)
-
-
-def _receipt_chain():
-    """Receipt → image → image, plus an unregistered orphan on the receipt."""
-
-    class Receipt(Content):
-        title = models.CharField(max_length=40)
-
-        class Meta:
-            app_label = 'trusts_zero_tests'
-
-    class Image(models.Model):
-        receipt = models.ForeignKey(
-            Receipt, related_name='image', on_delete=models.CASCADE,
-        )
-        title = models.CharField(max_length=40)
-        objects = ContentManager()
-
-        class Meta:
-            app_label = 'trusts_zero_tests'
-
-    class MetaRow(models.Model):
-        image = models.ForeignKey(
-            Image, related_name='image', on_delete=models.CASCADE,
-        )
-        title = models.CharField(max_length=40)
-        objects = ContentManager()
-
-        class Meta:
-            app_label = 'trusts_zero_tests'
-
-    class Orphan(models.Model):
-        receipt = models.ForeignKey(
-            Receipt, related_name='orphan', on_delete=models.CASCADE,
-        )
-        title = models.CharField(max_length=40)
-        objects = ContentManager()
-
-        class Meta:
-            app_label = 'trusts_zero_tests'
-
-    return Receipt, Image, MetaRow, Orphan
-
-
-class DependentContentAuthorizationTest(_UsersMixin, TransactionTestCase):
-    """Two-level content a host contributes on an isolated catalog."""
+class DependentContentAuthorizationTest(_UsersMixin, TestCase):
+    """Two-level content registered from the host ``AppConfig.ready()``."""
 
     def setUp(self):
         super().setUp()
-        self.Receipt, self.Image, self.Meta, self.Orphan = _receipt_chain()
-        self._models = (self.Receipt, self.Image, self.Meta, self.Orphan)
-        with connection.schema_editor() as editor:
-            for model in self._models:
-                editor.create_model(model)
-        try:
-            self._make_users('dep')
-            self.receipt_a1 = self.Receipt.objects.create(
-                trust=self.trust_a, title='A1',
+        self.Receipt = Receipt
+        self.Image = ReceiptImage
+        self.Meta = ReceiptImageMeta
+        self.Orphan = OrphanDoc
+        self.catalog = live_catalog()
+        self._make_users('dep')
+        self.receipt_a1 = self.Receipt.objects.create(
+            trust=self.trust_a, title='A1',
+        )
+        self.receipt_a2 = self.Receipt.objects.create(
+            trust=self.trust_a, title='A2',
+        )
+        self.receipt_b = self.Receipt.objects.create(
+            trust=self.trust_b, title='B',
+        )
+        self.img_a1 = self.Image.objects.create(
+            receipt=self.receipt_a1, title='A1',
+        )
+        self.img_a2 = self.Image.objects.create(
+            receipt=self.receipt_a2, title='A2',
+        )
+        self.img_b = self.Image.objects.create(
+            receipt=self.receipt_b, title='B',
+        )
+        self.meta_a1 = self.Meta.objects.create(image=self.img_a1, title='A1')
+        self.meta_a2 = self.Meta.objects.create(image=self.img_a2, title='A2')
+        self.meta_b = self.Meta.objects.create(image=self.img_b, title='B')
+        self.orphan = self.Orphan.objects.create(
+            receipt=self.receipt_a1, title='X',
+        )
+        extras = [
+            self.Image.objects.create(
+                receipt=self.Receipt.objects.create(
+                    trust=self.trust_a, title='X%s' % i,
+                ),
+                title='X%s' % i,
             )
-            self.receipt_a2 = self.Receipt.objects.create(
-                trust=self.trust_a, title='A2',
-            )
-            self.receipt_b = self.Receipt.objects.create(
-                trust=self.trust_b, title='B',
-            )
-            self.img_a1 = self.Image.objects.create(
-                receipt=self.receipt_a1, title='A1',
-            )
-            self.img_a2 = self.Image.objects.create(
-                receipt=self.receipt_a2, title='A2',
-            )
-            self.img_b = self.Image.objects.create(
-                receipt=self.receipt_b, title='B',
-            )
-            self.meta_a1 = self.Meta.objects.create(image=self.img_a1, title='A1')
-            self.meta_a2 = self.Meta.objects.create(image=self.img_a2, title='A2')
-            self.meta_b = self.Meta.objects.create(image=self.img_b, title='B')
-            self.orphan = self.Orphan.objects.create(
-                receipt=self.receipt_a1, title='X',
-            )
-            extras = [
-                self.Image.objects.create(
-                    receipt=self.Receipt.objects.create(
-                        trust=self.trust_a, title='X%s' % i,
-                    ),
-                    title='X%s' % i,
-                )
-                for i in range(6)
-            ]
-            self.extra_metas = [
-                self.Meta.objects.create(image=image, title=image.title)
-                for image in extras
-            ]
-
-            def contribute(recorder):
-                register_zero_content(
-                    recorder,
-                    self.Image,
-                    content_via=lambda prefix, model: dependent_content_path(
-                        prefix, self.Receipt, 'image',
-                    ),
-                )
-                register_zero_content(
-                    recorder,
-                    self.Meta,
-                    content_via=lambda prefix, model: dependent_content_path(
-                        prefix, self.Receipt, 'image', 'image',
-                    ),
-                )
-
-            self.catalog = build_catalog(contribute)
-            self.image_code = 'trusts_zero_tests.change_%s' % self.Image._meta.model_name
-            self.meta_code = 'trusts_zero_tests.change_%s' % self.Meta._meta.model_name
-            self.orphan_code = 'trusts_zero_tests.change_%s' % self.Orphan._meta.model_name
-            self.image_perm = _perm(self.Image, 'change_%s' % self.Image._meta.model_name)
-            self.meta_perm = _perm(self.Meta, 'change_%s' % self.Meta._meta.model_name)
-            self.orphan_perm = _perm(
-                self.Orphan, 'change_%s' % self.Orphan._meta.model_name,
-            )
-            TrustUserPermission(
-                trust=self.trust_a, entity=self.alice, permission=self.image_perm,
-            ).save()
-            TrustUserPermission(
-                trust=self.trust_a, entity=self.alice, permission=self.meta_perm,
-            ).save()
-            TrustUserPermission(
-                trust=self.trust_a, entity=self.alice, permission=self.orphan_perm,
-            ).save()
-            self.carol_group = Group.objects.create(name='carol-s7-dep')
-            self.carol.groups.add(self.carol_group)
-            self.image_perm.group_set.add(self.carol_group)
-            self.meta_perm.group_set.add(self.carol_group)
-            enable_local_group_grant(
-                self.trust_a, self.carol_group, self.image_perm, self.meta_perm,
-            )
-            self._reload()
-        except Exception:
-            self._drop_tables()
-            raise
-
-    def tearDown(self):
-        self._drop_tables()
-        super().tearDown()
-
-    def _drop_tables(self):
-        if getattr(self, '_dropped', False):
-            return
-        self._dropped = True
-        with connection.schema_editor() as editor:
-            for model in reversed(self._models):
-                editor.delete_model(model)
-        forget_models(*self._models)
+            for i in range(6)
+        ]
+        self.extra_metas = [
+            self.Meta.objects.create(image=image, title=image.title)
+            for image in extras
+        ]
+        self.image_code = 'trusts_zero_tests.change_%s' % self.Image._meta.model_name
+        self.meta_code = 'trusts_zero_tests.change_%s' % self.Meta._meta.model_name
+        self.orphan_code = 'trusts_zero_tests.change_%s' % self.Orphan._meta.model_name
+        self.image_perm = _perm(self.Image, 'change_%s' % self.Image._meta.model_name)
+        self.meta_perm = _perm(self.Meta, 'change_%s' % self.Meta._meta.model_name)
+        self.orphan_perm = _perm(
+            self.Orphan, 'change_%s' % self.Orphan._meta.model_name,
+        )
+        TrustUserPermission(
+            trust=self.trust_a, entity=self.alice, permission=self.image_perm,
+        ).save()
+        TrustUserPermission(
+            trust=self.trust_a, entity=self.alice, permission=self.meta_perm,
+        ).save()
+        TrustUserPermission(
+            trust=self.trust_a, entity=self.alice, permission=self.orphan_perm,
+        ).save()
+        self.carol_group = Group.objects.create(name='carol-s7-dep')
+        self.carol.groups.add(self.carol_group)
+        self.image_perm.group_set.add(self.carol_group)
+        self.meta_perm.group_set.add(self.carol_group)
+        enable_local_group_grant(
+            self.trust_a, self.carol_group, self.image_perm, self.meta_perm,
+        )
+        self._reload()
 
     def test_host_contributed_both_levels(self):
         rev = self.Receipt._meta.get_field('trust').remote_field.get_accessor_name()
@@ -535,6 +455,16 @@ class DependentContentAuthorizationTest(_UsersMixin, TransactionTestCase):
         self.assertEqual(
             list(catalog.permitted_users(self.orphan, self.orphan_code)), [],
         )
+
+    def test_inactive_anonymous_obj_none(self):
+        self.assertFalse(self.alice.has_perm(self.image_code))
+        self.assertEqual(self.alice.get_all_permissions(), set())
+        self.alice.is_active = False
+        self.alice.save()
+        self._reload()
+        self.assertFalse(self.alice.has_perm(self.image_code, self.img_a1))
+        self.assertFalse(AnonymousUser().has_perm(self.image_code, self.img_a1))
+        self.assertEqual(AnonymousUser().get_all_permissions(self.img_a1), set())
 
 
 def _user_pks(qs):

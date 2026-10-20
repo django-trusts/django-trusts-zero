@@ -12,12 +12,13 @@ from django.db import connection, models
 from django.db.models.query import QuerySet
 from django.test import TestCase, TransactionTestCase, override_settings
 
-from tests.apps import build_catalog, forget_models, live_catalog
+from tests.apps import (
+    category_spy, forget_models, isolated_catalog, live_catalog,
+)
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category, Organization, Ticket
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
-from trusts.zero.registration import register_zero_content
 
 
 CONCRETE = 'trusts.zero.backends.TrustModelBackend'
@@ -409,15 +410,15 @@ class RegisteredOrdinaryModelTest(TransactionTestCase):
             code = 'trusts_zero_tests.change_memo'
             MemoGrant.objects.create(memo=memo, user=alice, permission=change)
 
-            def contribute(recorder):
-                recorder.register(
+            def register(factory):
+                factory.register_public(
                     trust=MemoGrant,
                     user='user',
                     permission='permission',
                     content='memo',
                 )
 
-            catalog = build_catalog(contribute)
+            catalog = isolated_catalog(register)
             self.assertTrue(catalog.plan_for(Memo).records)
             self.assertTrue(catalog.has_perm(alice, code, memo))
             self.assertFalse(catalog.has_perm(alice, code, other))
@@ -470,29 +471,29 @@ class BuilderOnceParityTest(_UsersMixin, TestCase):
             trust=self.trust_a, entity=self.alice, permission=self.change,
         ).save()
         self._reload()
-        self.log = _BuilderLog(lambda u, p, o: o.name == 'keep')
-
-        def contribute(recorder):
-            register_zero_content(recorder, Category)
-            recorder.add_named_filter(Category, 'spy', self.log)
-
-        self.catalog = build_catalog(contribute)
         self.code = 'trusts_zero_tests.change_category:spy'
 
     def test_builder_once_object_and_queryset_parity(self):
-        self.assertEqual(len(self.log.calls), 1)
-        self.assertTrue(self.catalog.has_perm(self.alice, self.code, self.keep))
-        self.assertFalse(self.catalog.has_perm(self.alice, self.code, self.drop))
+        self.assertEqual(len(category_spy.calls), 1)
+        self.assertTrue(self.alice.has_perm(self.code, self.keep))
+        self.assertFalse(self.alice.has_perm(self.code, self.drop))
         only = Category.objects.filter(pk=self.keep.pk)
         both = Category.objects.filter(pk__in=[self.keep.pk, self.drop.pk])
-        self.assertTrue(self.catalog.has_perm(self.alice, self.code, only))
-        self.assertFalse(self.catalog.has_perm(self.alice, self.code, both))
+        self.assertTrue(self.alice.has_perm(self.code, only))
+        self.assertFalse(self.alice.has_perm(self.code, both))
+        permitted = set(
+            Category.objects.permitted(self.code, self.alice).values_list(
+                'pk', flat=True,
+            )
+        )
+        self.assertEqual(permitted, {self.keep.pk})
+        catalog = live_catalog()
         self.assertIn(
             self.alice.pk,
-            _pks(self.catalog.permitted_users(self.keep, self.code)),
+            _pks(catalog.permitted_users(self.keep, self.code)),
         )
         self.assertNotIn(
             self.alice.pk,
-            _pks(self.catalog.permitted_users(self.drop, self.code)),
+            _pks(catalog.permitted_users(self.drop, self.code)),
         )
-        self.assertEqual(len(self.log.calls), 1)
+        self.assertEqual(len(category_spy.calls), 1)

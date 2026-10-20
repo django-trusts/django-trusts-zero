@@ -14,11 +14,13 @@ from django.test import SimpleTestCase, TestCase
 from django.test.utils import isolate_apps
 
 import tests as tests_module
-from tests.apps import TestsConfig, build_catalog, live_catalog, live_config
+from tests.apps import (
+    TestsConfig, isolated_catalog, live_catalog, live_config, register_relations,
+)
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category
 from trusts.zero.models import Trust, TrustGroup, TrustGroupPermission, TrustUserPermission
-from trusts.zero.registration import register_zero_content
+from trusts.errors import TrustsConfigurationError
 
 
 def _pks(qs):
@@ -41,40 +43,29 @@ def _tup(catalog, model):
 
 
 class CategoryRegistrationShapeTest(SimpleTestCase):
-    def test_reenter_contributor_ready_leaves_the_live_catalog(self):
+    def test_reenter_contributor_ready_raises_on_the_frozen_recorder(self):
         catalog = live_catalog()
         before = catalog.records
-        apps.get_app_config('trusts_zero_tests').ready()
+        with self.assertRaises(TrustsConfigurationError):
+            apps.get_app_config('trusts_zero_tests').ready()
         self.assertIs(live_catalog(), catalog)
         self.assertEqual(live_catalog().records, before)
-
-    def test_isolated_recorder_compiles_category_tup_shape(self):
-        def contribute(recorder):
-            register_zero_content(recorder, Category)
-
-        catalog = build_catalog(contribute)
-        rev = Category._meta.get_field('trust').remote_field.get_accessor_name()
-        self.assertNotEqual(rev, 'tests_category_content')
-        record = _tup(catalog, Category)
-        self.assertIs(record.root, TrustUserPermission)
-        self.assertIs(record.content_model, Category._meta.concrete_model)
-        self.assertEqual(record.content_field, 'trust__%s' % rev)
-        self.assertEqual(record.user_field, 'entity')
-        self.assertEqual(record.permission_field, 'permission')
-        roots = {row.root for row in catalog.records}
-        self.assertEqual(
-            roots, {TrustUserPermission, TrustGroup, TrustGroupPermission},
-        )
-        self.assertEqual(len(catalog.plan_for(Category).records), 3)
 
     def test_live_declaration_uses_meta_reverse(self):
         catalog = live_catalog()
         rev = Category._meta.get_field('trust').remote_field.get_accessor_name()
         record = _tup(catalog, Category)
+        self.assertNotEqual(rev, 'tests_category_content')
         self.assertEqual(record.content_field, 'trust__%s' % rev)
         self.assertEqual(record.user_field, 'entity')
         self.assertEqual(record.permission_field, 'permission')
-        self.assertTrue(catalog.plan_for(Category).records)
+        self.assertIs(record.root, TrustUserPermission)
+        self.assertIs(record.content_model, Category._meta.concrete_model)
+        roots = {row.root for row in catalog.records}
+        self.assertEqual(
+            roots, {TrustUserPermission, TrustGroup, TrustGroupPermission},
+        )
+        self.assertEqual(len(catalog.plan_for(Category).records), 3)
         self.assertTrue(catalog.plan_for(Trust).records)
 
 
@@ -219,13 +210,13 @@ class CategoryPermittedTest(TestCase):
         )
 
     def test_named_condition_constrains_the_complete_grant(self):
-        def contribute(recorder):
-            register_zero_content(recorder, Category)
-            recorder.add_named_filter(
+        def register(factory):
+            register_relations(factory, Category)
+            factory.register_permission_condition(
                 Category, 'named', lambda u, p, o: o.name == 'keep',
             )
 
-        catalog = build_catalog(contribute)
+        catalog = isolated_catalog(register)
         conditioned = '%s:named' % self.change_code
         self.assertTrue(catalog.has_perm(self.alice, conditioned, self.cat_a1))
         self.assertFalse(catalog.has_perm(self.alice, conditioned, self.cat_a2))

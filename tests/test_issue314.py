@@ -12,14 +12,13 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import TestCase
 
-from tests.apps import build_catalog
+from tests.apps import isolated_catalog, register_relations
 from tests.legacy.helpers import get_or_create_root_user
 from tests.models import Category
 from tests.runtests import NORMAL_SUITE
 from trusts.query import PermittedUsersMixin
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
-from trusts.zero.registration import register_zero_content
 
 
 def _reload(user):
@@ -138,13 +137,13 @@ class DjangoUserPermissionBoundaryTest(TestCase):
         self.assertIn(self.trustee, permitted)
         self.assertNotIn(self.superuser, permitted)
 
-        def contribute(recorder):
-            recorder.set_user_override(
+        def register(factory):
+            factory.set_user_override(
                 'superuser', lambda user: user.is_superuser,
             )
-            register_zero_content(recorder, Category)
+            register_relations(factory, Category)
 
-        catalog = build_catalog(contribute)
+        catalog = isolated_catalog(register)
         permitted = set(catalog.permitted_users(self.category, self.read))
         django_holders = set(self.backend.with_perm(
             self.read_code, include_superusers=True,

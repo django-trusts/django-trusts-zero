@@ -5,13 +5,11 @@ authorization holes closed. ``read`` or mere membership cannot add members.
 Submitted user IDs are resolved through ``authorization`` (unknown IDs do
 not mutate). Creating a team requires ``change`` on a specified trust.
 
-The issue #8 screenshots are not in the current issue body. Templates
-match the historical group_detail / group_form evidence. A separate
-"Team's Team" chrome page and project-settings UI live in the example
-app and are not invented here.
+Templates match the historical group_detail / group_form evidence.
 """
 
 from django import forms
+from django.apps import apps as django_apps
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseForbidden
 from django.shortcuts import redirect
@@ -28,7 +26,6 @@ from trusts.zero.authorization import (
 
 
 def _trust_model():
-    from django.apps import apps as django_apps
     return django_apps.get_model('trusts', 'Trust')
 
 

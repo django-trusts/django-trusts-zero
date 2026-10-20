@@ -10,13 +10,10 @@ from django.core.management import call_command
 from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase
 
-from tests.apps import build_catalog, live_catalog
+from tests.apps import live_catalog
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Organization, Ticket
 from trusts.zero.models import Trust, TrustGroup, TrustGroupPermission, TrustUserPermission
-from trusts.zero.registration import register_zero_content
-
-
 def _pks(qs):
     return set(qs.values_list('pk', flat=True))
 
@@ -37,30 +34,21 @@ def _tup(catalog, model):
 
 
 class TicketRegistrationShapeTest(SimpleTestCase):
-    def test_isolated_recorder_compiles_ticket_tup_shape(self):
-        def contribute(recorder):
-            register_zero_content(recorder, Ticket)
-
-        catalog = build_catalog(contribute)
+    def test_live_declaration_uses_meta_reverse(self):
+        catalog = live_catalog()
         rev = Ticket._meta.get_field('trust').remote_field.get_accessor_name()
         self.assertNotEqual(rev, 'tests_ticket_content')
         record = _tup(catalog, Ticket)
         self.assertIs(record.root, TrustUserPermission)
         self.assertIs(record.content_model, Ticket._meta.concrete_model)
-        self.assertEqual(record.content_field, 'trust__%s' % rev)
         self.assertEqual(record.user_field, 'entity')
         self.assertEqual(record.permission_field, 'permission')
+        self.assertEqual(record.content_field, 'trust__%s' % rev)
         self.assertNotEqual(record.content_field, 'trust')
         roots = {row.root for row in catalog.records}
         self.assertEqual(
             roots, {TrustUserPermission, TrustGroup, TrustGroupPermission},
         )
-
-    def test_live_declaration_uses_meta_reverse(self):
-        rev = Ticket._meta.get_field('trust').remote_field.get_accessor_name()
-        record = _tup(live_catalog(), Ticket)
-        self.assertEqual(record.content_field, 'trust__%s' % rev)
-        self.assertIs(record.content_model, Ticket._meta.concrete_model)
 
 
 class TicketPermittedTest(TestCase):

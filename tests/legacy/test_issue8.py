@@ -35,7 +35,7 @@ from trusts.zero.models import (
     TrustUserPermission,
 )
 from trusts.conditions import PermissionConditionNotQueryable
-from tests.apps import build_catalog
+from tests.apps import isolated_catalog, register_relations
 from tests.legacy.helpers import (
     ContentModelMixin,
     create_test_users,
@@ -46,7 +46,6 @@ from tests.legacy.helpers import (
     revoke_content,
 )
 from tests.models import AutoAdminCategory, AutoAdminJunction, Category, ManualAdminCategory
-from trusts.zero.registration import register_zero_content
 
 
 class Issue8FixtureMixin(ContentModelMixin):
@@ -153,13 +152,13 @@ class PermittedQuerySetTest(Issue8FixtureMixin, TestCase):
         conditioned = '%s:never' % unconditioned
         self.assertTrue(self.user.has_perm(unconditioned, self.content))
 
-        def contribute(recorder):
-            register_zero_content(recorder, Category)
-            recorder.add_named_filter(
+        def register(factory):
+            register_relations(factory, Category)
+            factory.register_permission_condition(
                 Category, 'never', lambda u, p, o: o.name == '__never__',
             )
 
-        catalog = build_catalog(contribute)
+        catalog = isolated_catalog(register)
         self.assertTrue(catalog.has_perm(self.user, unconditioned, self.content))
         self.assertFalse(catalog.has_perm(self.user, conditioned, self.content))
         granted = catalog.filter_authorized(

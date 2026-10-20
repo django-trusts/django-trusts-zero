@@ -25,11 +25,13 @@ from trusts.zero.registration import (
     register_zero_relations,
 )
 from tests.apps import (
-    build_catalog,
+    catalog_from,
+    isolated_factory,
     isolated_recorder,
     live_catalog,
     live_recorder,
     records_for_root,
+    root_records,
 )
 from tests.models import Ticket
 
@@ -133,12 +135,10 @@ class ZMethodsSurfaceTests(SimpleTestCase):
 
 class ZMethodsPlanTests(SimpleTestCase):
     def test_tup_and_tgp_plans_or_complete_records(self):
-        recorder = isolated_recorder()
-        register_zero_relations(recorder)
-        catalog = build_catalog(recorder=recorder)
-        tup = records_for_root(catalog, TrustUserPermission)
-        tgp = records_for_root(catalog, TrustGroupPermission)
-        grouped = records_for_root(catalog, TrustGroup)
+        catalog = live_catalog()
+        tup = root_records(catalog, TrustUserPermission, Trust)
+        tgp = root_records(catalog, TrustGroupPermission, Trust)
+        grouped = root_records(catalog, TrustGroup, Trust)
         self.assertEqual(len(tup), 1)
         self.assertEqual(len(tgp), 1)
         self.assertEqual(len(grouped), 1)
@@ -159,11 +159,9 @@ class ZMethodsPlanTests(SimpleTestCase):
         )
 
     def test_register_zero_group_keeps_auth_group_and_role(self):
-        recorder = isolated_recorder()
-        register_zero_group(recorder, (Trust,))
-        catalog = build_catalog(recorder=recorder)
-        role = records_for_root(catalog, TrustGroupPermission)
-        grouped = records_for_root(catalog, TrustGroup)
+        catalog = live_catalog()
+        role = root_records(catalog, TrustGroupPermission, Trust)
+        grouped = root_records(catalog, TrustGroup, Trust)
         self.assertEqual(len(role), 1)
         self.assertEqual(len(grouped), 1)
         self.assertNotEqual(role[0].condition, grouped[0].condition)
@@ -202,8 +200,12 @@ class ZMethodsDonationOnceTests(TestCase):
             self.assertEqual(list(recorder.rows), first)
             donate_content_permission_conditions(recorder, Trust)
             donate_content_permission_conditions(recorder, Trust)
-            catalog = build_catalog(recorder=recorder)
-        self.assertEqual(len(records_for_root(catalog, TrustUserPermission)), 1)
+            factory = isolated_factory()
+            factory.register_permission_condition(
+                Trust, 'own', Trust._meta.permission_conditions[0][1],
+            )
+            catalog = catalog_from(factory)
+        self.assertEqual(len(root_records(live_catalog(), TrustUserPermission, Trust)), 1)
         own = catalog.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(own)
         self.assertIsNotNone(own.expr)
@@ -234,11 +236,10 @@ class ZMethodsDonationOnceTests(TestCase):
             calls.append((u, p, o))
             return u == o.settlor
 
-        def contribute(recorder):
-            recorder.add_named_filter(Trust, 'late32', boom)
-            self.assertEqual(len(calls), 0)
-
-        catalog = build_catalog(contribute)
+        factory = isolated_factory()
+        self.assertEqual(len(calls), 0)
+        factory.register_permission_condition(Trust, 'late32', boom)
+        catalog = catalog_from(factory)
         self.assertEqual(len(calls), 1)
         self.assertIsNotNone(
             catalog.get_permission_condition_record(Trust, 'late32')
@@ -268,10 +269,10 @@ class ZMethodsDonationOnceTests(TestCase):
                     ('via_memo', via_memo),
                 )
 
-        def contribute(recorder):
-            donate_junction_content_permission_conditions(recorder, MemoJunction)
-
-        catalog = build_catalog(contribute)
+        factory = isolated_factory()
+        code, builder = MemoJunction._meta.content_permission_conditions[0]
+        factory.register_permission_condition(MemoJunction, code, builder)
+        catalog = catalog_from(factory)
         self.assertIsNotNone(
             catalog.get_permission_condition_record(MemoJunction, 'via_memo')
         )
@@ -284,12 +285,11 @@ class ZMethodsDonationOnceTests(TestCase):
 
 class ZMethodsRecorderContractTests(SimpleTestCase):
     def test_donation_requires_a_recorder(self):
-        def contribute(recorder):
-            recorder.add_named_filter(
-                Ticket, 'own', lambda u, p, o: u == o.owner,
-            )
-
-        catalog = build_catalog(contribute)
+        factory = isolated_factory()
+        factory.register_permission_condition(
+            Ticket, 'own', lambda u, p, o: u == o.owner,
+        )
+        catalog = catalog_from(factory)
         self.assertIsNotNone(
             catalog.get_permission_condition_record(Ticket, 'own')
         )

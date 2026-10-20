@@ -38,7 +38,7 @@ from trusts.zero.registration import (
     register_zero_meta_option_names,
     register_zero_relations,
 )
-from tests.apps import build_catalog, isolated_recorder, records_for_root
+from tests.apps import isolated_recorder, live_catalog, root_records
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
@@ -186,20 +186,18 @@ class BackendAndRegistrationTests(SimpleTestCase):
         first = list(recorder.rows)
         register_zero_relations(recorder)
         self.assertEqual(list(recorder.rows), first)
-        catalog = build_catalog(recorder=recorder)
-        tgp = records_for_root(catalog, TrustGroupPermission)
-        groups = records_for_root(catalog, TrustGroup)
+        catalog = live_catalog()
+        tgp = root_records(catalog, TrustGroupPermission, Trust)
+        groups = root_records(catalog, TrustGroup, Trust)
         self.assertEqual(len(tgp), 1)
         self.assertEqual(len(groups), 1)
         self.assertFalse(tgp[0].via_group)
         self.assertTrue(groups[0].via_group)
 
     def test_register_zero_group_splits_auth_group_and_role(self):
-        recorder = isolated_recorder()
-        register_zero_group(recorder, (Trust,))
-        catalog = build_catalog(recorder=recorder)
-        role = records_for_root(catalog, TrustGroupPermission)
-        grouped = records_for_root(catalog, TrustGroup)
+        catalog = live_catalog()
+        role = root_records(catalog, TrustGroupPermission, Trust)
+        grouped = root_records(catalog, TrustGroup, Trust)
         self.assertEqual(len(role), 1)
         self.assertEqual(len(grouped), 1)
         self.assertFalse(role[0].via_group)

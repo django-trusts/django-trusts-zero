@@ -18,11 +18,13 @@ from trusts.zero.registration import (
     register_zero_relations,
 )
 from tests.apps import (
-    build_catalog,
+    catalog_from,
+    isolated_factory,
     isolated_recorder,
     live_catalog,
     live_recorder,
     records_for_root,
+    root_records,
 )
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category
@@ -137,16 +139,16 @@ class PublicRegisterDonationTests(TestCase):
 
         register_zero_direct(recorder, (Trust,))
         register_zero_group(recorder, (Trust,))
-        catalog = build_catalog(recorder=recorder)
-        tup = records_for_root(catalog, TrustUserPermission)
+        catalog = live_catalog()
+        tup = root_records(catalog, TrustUserPermission, Trust)
         self.assertEqual(len(tup), 1)
         self.assertIs(tup[0].content_model, Trust)
         self.assertEqual(tup[0].user_field, 'entity')
         self.assertIsNone(tup[0].condition)
         self.assertFalse(callable(tup[0].condition))
 
-        tgp = records_for_root(catalog, TrustGroupPermission)
-        grouped = records_for_root(catalog, TrustGroup)
+        tgp = root_records(catalog, TrustGroupPermission, Trust)
+        grouped = root_records(catalog, TrustGroup, Trust)
         self.assertEqual(len(tgp), 1)
         self.assertEqual(len(grouped), 1)
         self.assertNotEqual(tgp[0].condition, grouped[0].condition)
@@ -172,7 +174,10 @@ class PublicRegisterDonationTests(TestCase):
             register_zero_relations(recorder)
             first = list(recorder.rows)
             register_zero_relations(recorder)
-            catalog = build_catalog(recorder=recorder)
+            factory = isolated_factory()
+            from tests.apps import register_relations
+            register_relations(factory, Trust)
+            catalog = catalog_from(factory)
         self.assertEqual(list(recorder.rows), first)
         self.assertEqual(len(catalog.records), 3)
         for row in catalog.records:
