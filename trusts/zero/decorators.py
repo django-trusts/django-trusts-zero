@@ -16,8 +16,6 @@ from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
 from django.shortcuts import resolve_url
 from django.http import Http404
 
-from trusts.plan.conditions import parse_perm_code
-
 
 class P(object):
     def __init__(self, perm, **fieldlookups):
@@ -149,6 +147,9 @@ def _get_permissible_items(perm, request, fieldlookups):
         return None
 
     from django.contrib.contenttypes.models import ContentType
+    # trusts.plan.conditions imports auth models. This module is imported
+    # before django.setup() by the wheel overlay probe.
+    from trusts.plan.conditions import parse_perm_code
 
     applabel, modelname, action, cond = parse_perm_code(perm)
     try:

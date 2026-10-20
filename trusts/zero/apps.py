@@ -1,7 +1,6 @@
 from django.apps import AppConfig as DjangoAppConfig
 from django.core.exceptions import ImproperlyConfigured
 
-from trusts.errors import TrustsConfigurationError
 from trusts.zero.registration import register_zero_meta_option_names
 
 
@@ -132,6 +131,8 @@ def zero_config(apps_registry=None):
     Django's global registry. Zero or several owners fail loud.
     """
     from django.apps import apps as django_apps
+
+    from trusts.errors import TrustsConfigurationError
 
     registry = django_apps if apps_registry is None else apps_registry
     matches = [
