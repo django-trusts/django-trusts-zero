@@ -13,42 +13,6 @@ from trusts.zero.models import (
 )
 
 
-def _join_public_path(*parts):
-    """Compose a Django ``__`` path from non-empty segments."""
-    return '__'.join(part for part in parts if part)
-
-
-def _trust_reverse_name(model):
-    """Dynamic reverse accessor from ``Trust`` onto ``model``."""
-    return model._meta.get_field('trust').remote_field.get_accessor_name()
-
-
-def _content_via_trust(prefix, model):
-    """Public ``__`` path: grant prefix → Trust → reverse onto ``model``."""
-    return _join_public_path(prefix, 'trust', _trust_reverse_name(model))
-
-
-def _content_path(model, content_via, prefix=''):
-    """Resolve a customizable ``content_via`` to a public path string."""
-    via = content_via if content_via is not None else _content_via_trust
-    path = via(prefix, model)
-    if not isinstance(path, str):
-        raise TypeError(
-            'content_via must return a Django __ path string, not %r.'
-            % (type(path).__name__,)
-        )
-    return path
-
-
-def _require_recorder(recorder):
-    if not isinstance(recorder, Recorder):
-        raise TypeError(
-            'Zero relation helpers require a Recorder, not %r.'
-            % (type(recorder).__name__,)
-        )
-    return recorder
-
-
 # One donation per recorder. A new recorder donates again; the same
 # recorder does not.
 _donated_relation_recorders = set()
@@ -153,3 +117,39 @@ def donate_installed_permission_conditions(recorder, apps_registry=None):
         elif issubclass(model, Content):
             donate_content_permission_conditions(recorder, model)
     _donated_condition_recorders.add(recorder)
+
+
+def _join_public_path(*parts):
+    """Compose a Django ``__`` path from non-empty segments."""
+    return '__'.join(part for part in parts if part)
+
+
+def _trust_reverse_name(model):
+    """Dynamic reverse accessor from ``Trust`` onto ``model``."""
+    return model._meta.get_field('trust').remote_field.get_accessor_name()
+
+
+def _content_via_trust(prefix, model):
+    """Public ``__`` path: grant prefix → Trust → reverse onto ``model``."""
+    return _join_public_path(prefix, 'trust', _trust_reverse_name(model))
+
+
+def _content_path(model, content_via, prefix=''):
+    """Resolve a customizable ``content_via`` to a public path string."""
+    via = content_via if content_via is not None else _content_via_trust
+    path = via(prefix, model)
+    if not isinstance(path, str):
+        raise TypeError(
+            'content_via must return a Django __ path string, not %r.'
+            % (type(path).__name__,)
+        )
+    return path
+
+
+def _require_recorder(recorder):
+    if not isinstance(recorder, Recorder):
+        raise TypeError(
+            'Zero relation helpers require a Recorder, not %r.'
+            % (type(recorder).__name__,)
+        )
+    return recorder
