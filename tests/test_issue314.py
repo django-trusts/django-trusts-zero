@@ -12,14 +12,14 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import TestCase
 
-from tests.apps import live_registry
+from tests.apps import build_catalog
 from tests.legacy.helpers import get_or_create_root_user
 from tests.models import Category
 from tests.runtests import NORMAL_SUITE
 from trusts.query import PermittedUsersMixin
-from trusts.plan.standards import UserCondition, concrete_rule
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
+from trusts.zero.registration import register_zero_content
 
 
 def _reload(user):
@@ -138,26 +138,17 @@ class DjangoUserPermissionBoundaryTest(TestCase):
         self.assertIn(self.trustee, permitted)
         self.assertNotIn(self.superuser, permitted)
 
-        registry = live_registry()
-        saved_override = registry._user_override
-        saved_fragments = dict(registry._override_fragments)
-        registry._user_override = UserCondition(
-            'superuser',
-            concrete_rule(lambda user: user.is_superuser, 'superuser'),
-            'user',
-        )
-        registry._override_fragments.clear()
-        try:
-            permitted = set(PermittedUsersMixin.get_permitted_users(
-                self.category, self.read,
-            ))
-            django_holders = set(self.backend.with_perm(
-                self.read_code, include_superusers=True,
-            ))
-        finally:
-            registry._user_override = saved_override
-            registry._override_fragments.clear()
-            registry._override_fragments.update(saved_fragments)
+        def contribute(recorder):
+            recorder.set_user_override(
+                'superuser', lambda user: user.is_superuser,
+            )
+            register_zero_content(recorder, Category)
+
+        catalog = build_catalog(contribute)
+        permitted = set(catalog.permitted_users(self.category, self.read))
+        django_holders = set(self.backend.with_perm(
+            self.read_code, include_superusers=True,
+        ))
 
         self.assertIn(self.superuser, permitted)
         self.assertIn(self.trustee, permitted)

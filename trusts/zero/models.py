@@ -6,7 +6,6 @@ from trusts.zero import (
     ENTITY_MODEL_NAME, PERMISSION_MODEL_NAME, GROUP_MODEL_NAME,
     DEFAULT_SETTLOR, ALLOW_NULL_SETTLOR, ROOT_PK,
 )
-from trusts import utils
 from trusts.zero.policy import permission_in_global_ceiling
 from trusts.zero.query import ContentManager, TrustManager
 
@@ -218,4 +217,5 @@ class Junction(ReadonlyFieldsMixin, models.Model):
 
     @classmethod
     def get_fieldlookup(cls):
-        return '%s__content' % utils.get_short_model_name_lower(cls).replace('.', '_')
+        label = '%s.%s' % (cls._meta.app_label.lower(), cls._meta.model_name)
+        return '%s__content' % label.replace('.', '_')

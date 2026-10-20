@@ -35,24 +35,21 @@ from trusts.zero.models import (
     TrustUserPermission,
 )
 from trusts.conditions import PermissionConditionNotQueryable
+from tests.apps import build_catalog
 from tests.legacy.helpers import (
     ContentModelMixin,
     create_test_users,
     enable_local_group_grant,
-    forget_condition,
     get_or_create_root_user,
     grant_content,
     reload_test_users,
     revoke_content,
 )
-from tests.apps import publish_permission_condition
 from tests.models import AutoAdminCategory, AutoAdminJunction, Category, ManualAdminCategory
+from trusts.zero.registration import register_zero_content
 
 
 class Issue8FixtureMixin(ContentModelMixin):
-    def _forget_never_condition(self):
-        forget_condition(Category, 'never')
-
     def setUp(self):
         super(Issue8FixtureMixin, self).setUp()
         self.org = Trust(settlor=self.user, trust=Trust.objects.get_root(), title='Org A')
@@ -141,15 +138,13 @@ class PermittedQuerySetTest(Issue8FixtureMixin, TestCase):
         self.assertFalse(self.user.has_perm(self.get_perm_code(self.perm_change), self.content))
 
     def test_conditioned_perm_fails_closed(self):
-        """A :condition must not silently return every unconditioned grant.
+        """A registered :condition must not return every unconditioned grant.
 
-        Reproduces the #20 review: register an always-false builder,
-        grant the underlying read, then compare has_perm vs permitted.
+        The live catalog is frozen at ready, so Category:never is recorded
+        on an isolated catalog. has_perm and the filtered queryset both
+        exclude the granted row. An unknown code on the live queryset
+        raises AttributeError.
         """
-        publish_permission_condition(
-            Category, 'never', lambda u, p, o: o.name == '__never__',
-        )
-        self.addCleanup(self._forget_never_condition)
         TrustUserPermission(
             trust=self.org, entity=self.user, permission=self.perm_read
         ).save()
@@ -157,11 +152,25 @@ class PermittedQuerySetTest(Issue8FixtureMixin, TestCase):
         unconditioned = self.get_perm_code(self.perm_read)
         conditioned = '%s:never' % unconditioned
         self.assertTrue(self.user.has_perm(unconditioned, self.content))
-        self.assertFalse(self.user.has_perm(conditioned, self.content))
-        self.assertFalse(Category.objects.permitted(conditioned, self.user).exists())
+
+        def contribute(recorder):
+            register_zero_content(recorder, Category)
+            recorder.add_named_filter(
+                Category, 'never', lambda u, p, o: o.name == '__never__',
+            )
+
+        catalog = build_catalog(contribute)
+        self.assertTrue(catalog.has_perm(self.user, unconditioned, self.content))
+        self.assertFalse(catalog.has_perm(self.user, conditioned, self.content))
+        granted = catalog.filter_authorized(
+            Category.objects.all(), self.user, self.perm_read,
+        )
+        overlay = catalog.compile_registered_condition_q(
+            Category, conditioned, self.user,
+        )
+        self.assertFalse(granted.filter(overlay).exists())
         with self.assertRaises(AttributeError):
             Category.objects.permitted('read_category:own', self.user)
-        # Unconditioned path still lists the granted row only.
         self.assertEqual(
             set(Category.objects.permitted(unconditioned, self.user).values_list('pk', flat=True)),
             {self.content.pk},
@@ -235,10 +244,6 @@ class FilterByUserContentPermTest(Issue8FixtureMixin, TestCase):
         self.assertIn(self.org.pk, trusts.values_list('pk', flat=True))
 
     def test_conditioned_perm_fails_closed(self):
-        publish_permission_condition(
-            Category, 'never', lambda u, p, o: o.name == '__never__',
-        )
-        self.addCleanup(self._forget_never_condition)
         TrustUserPermission(
             trust=self.org, entity=self.user, permission=self.perm_add
         ).save()

@@ -1,7 +1,7 @@
 """Zero #32: migrate donation to the final configured-backend methods.
 
 Paired against the exact django-trusts candidate
-``cbe72e573911f34225c8322e1133288c1bcb3c43``.
+``b240eed7fd12f34891c6dd0957d944c9f2591473``.
 """
 
 import inspect
@@ -12,8 +12,8 @@ from django.db import models
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import isolate_apps
 
-from trusts.core import TrustsConfigurationError, TrustsRegistry
-from trusts.zero.apps import CANONICAL_BACKEND_PATH, ZeroConfig, zero_config
+from trusts.zero import registration as zero_registration
+from trusts.zero.apps import ZeroConfig, zero_config
 from trusts.zero.models import (
     Junction, Trust, TrustGroup, TrustGroupPermission, TrustUserPermission,
 )
@@ -24,12 +24,18 @@ from trusts.zero.registration import (
     register_zero_group,
     register_zero_relations,
 )
-from tests.apps import isolated_backend, live_backend
+from tests.apps import (
+    build_catalog,
+    isolated_recorder,
+    live_catalog,
+    live_recorder,
+    records_for_root,
+)
 from tests.models import Ticket
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = 'cbe72e573911f34225c8322e1133288c1bcb3c43'
+CORE_PIN = 'b240eed7fd12f34891c6dd0957d944c9f2591473'
 STALE_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
 STALE_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
@@ -58,12 +64,15 @@ class ZMethodsSurfaceTests(SimpleTestCase):
         rst = (ROOT / 'docs' / 'source' / 'index.rst').read_text()
         migrates = (ROOT / 'migrates.md').read_text()
 
-        self.assertIn('backend.register(', registration)
+        self.assertIn('recorder.register(', registration)
         self.assertIn('trust=TrustUserPermission', registration)
-        self.assertIn('backend.add_named_filter(', registration)
-        self.assertIn('predicate=', registration)
-        self.assertIn('backend.add_named_filter', apps)
-        self.assertIn('register_zero_relations(backend)', apps)
+        self.assertIn(
+            'recorder.add_named_filter(model, cond_code, condition)',
+            registration,
+        )
+        self.assertNotIn('predicate=', registration)
+        self.assertIn('add_named_filter', apps)
+        self.assertIn('register_zero_relations(recorder)', apps)
         self.assertIn('register_zero_content(backend, Receipt)', rst)
         self.assertIn('backend.add_named_filter', rst)
         self.assertIn('backend.add_named_filter', migrates)
@@ -110,26 +119,26 @@ class ZMethodsSurfaceTests(SimpleTestCase):
         self.assertNotIn('#211', ci)
         self.assertNotIn('C-methods', ci)
 
-    def test_live_backend_exposes_final_methods_not_as_required_api(self):
-        backend = live_backend()
-        self.assertTrue(callable(backend.register))
-        self.assertFalse(hasattr(backend, 'register_relationship'))
-        self.assertTrue(callable(backend.add_named_filter))
+    def test_live_recorder_exposes_final_methods_not_as_required_api(self):
+        recorder = live_recorder()
+        self.assertTrue(callable(recorder.register))
+        self.assertFalse(hasattr(recorder, 'register_relationship'))
+        self.assertTrue(callable(recorder.add_named_filter))
         source = inspect.getsource(ZeroConfig._donate_zero_relations)
-        self.assertIn('add_named_filter', inspect.getsource(
-            __import__('trusts.zero.registration', fromlist=['donate_installed_permission_conditions'])
-        ))
+        self.assertIn('add_named_filter', inspect.getsource(zero_registration))
         self.assertNotIn('register_permission_condition', source)
         self.assertNotIn('handle =', source)
+        self.assertIn('register_zero_relations(recorder)', source)
 
 
 class ZMethodsPlanTests(SimpleTestCase):
     def test_tup_and_tgp_plans_or_complete_records(self):
-        backend = isolated_backend()
-        register_zero_relations(backend)
-        tup = backend.registry.records_for_root(TrustUserPermission)
-        tgp = backend.registry.records_for_root(TrustGroupPermission)
-        grouped = backend.registry.records_for_root(TrustGroup)
+        recorder = isolated_recorder()
+        register_zero_relations(recorder)
+        catalog = build_catalog(recorder=recorder)
+        tup = records_for_root(catalog, TrustUserPermission)
+        tgp = records_for_root(catalog, TrustGroupPermission)
+        grouped = records_for_root(catalog, TrustGroup)
         self.assertEqual(len(tup), 1)
         self.assertEqual(len(tgp), 1)
         self.assertEqual(len(grouped), 1)
@@ -150,10 +159,11 @@ class ZMethodsPlanTests(SimpleTestCase):
         )
 
     def test_register_zero_group_keeps_auth_group_and_role(self):
-        backend = isolated_backend()
-        register_zero_group(backend, (Trust,))
-        role = backend.registry.records_for_root(TrustGroupPermission)
-        grouped = backend.registry.records_for_root(TrustGroup)
+        recorder = isolated_recorder()
+        register_zero_group(recorder, (Trust,))
+        catalog = build_catalog(recorder=recorder)
+        role = records_for_root(catalog, TrustGroupPermission)
+        grouped = records_for_root(catalog, TrustGroup)
         self.assertEqual(len(role), 1)
         self.assertEqual(len(grouped), 1)
         self.assertNotEqual(role[0].condition, grouped[0].condition)
@@ -161,80 +171,82 @@ class ZMethodsPlanTests(SimpleTestCase):
 
 class ZMethodsDonationOnceTests(TestCase):
     def test_trust_own_and_ticket_own_are_donated_once(self):
-        backend = live_backend()
-        registry = backend.registry
+        catalog = live_catalog()
         own = [
             (model, code)
-            for model, code, record in registry.iter_permission_conditions()
+            for model, code, record in catalog.iter_permission_conditions()
             if model is Trust and code == 'own'
         ]
         ticket = [
             (model, code)
-            for model, code, record in registry.iter_permission_conditions()
+            for model, code, record in catalog.iter_permission_conditions()
             if model is Ticket and code == 'own'
         ]
         self.assertEqual(len(own), 1)
         self.assertEqual(len(ticket), 1)
-        donate_installed_permission_conditions(backend)
+        donate_installed_permission_conditions(live_recorder())
         self.assertEqual(
             len([
-                row for row in registry.iter_permission_conditions()
+                row for row in catalog.iter_permission_conditions()
                 if row[0] is Trust and row[1] == 'own'
             ]),
             1,
         )
 
     def test_repeated_helper_donation_is_idempotent_and_zero_sql(self):
-        backend = isolated_backend()
+        recorder = isolated_recorder()
         with self.assertNumQueries(0):
-            register_zero_relations(backend)
-            first = list(backend.registry.records)
-            register_zero_relations(backend)
-            donate_content_permission_conditions(backend, Trust)
-            donate_content_permission_conditions(backend, Trust)
-        self.assertEqual(list(backend.registry.records), first)
-        own = backend.registry.get_permission_condition_record(Trust, 'own')
+            register_zero_relations(recorder)
+            first = list(recorder.rows)
+            register_zero_relations(recorder)
+            self.assertEqual(list(recorder.rows), first)
+            donate_content_permission_conditions(recorder, Trust)
+            donate_content_permission_conditions(recorder, Trust)
+            catalog = build_catalog(recorder=recorder)
+        self.assertEqual(len(records_for_root(catalog, TrustUserPermission)), 1)
+        own = catalog.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(own)
         self.assertIsNotNone(own.expr)
         self.assertFalse(hasattr(own, 'func'))
 
-    def test_repeated_ready_is_idempotent_without_reading_registry_flags(self):
+    def test_repeated_ready_is_idempotent_without_reading_recorder_flags(self):
         owner = zero_config()
-        backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
-        before = list(backend.registry.records)
-        own_before = backend.registry.get_permission_condition_record(Trust, 'own')
+        before = live_catalog()
+        records_before = list(before.records)
+        own_before = before.get_permission_condition_record(Trust, 'own')
         with self.assertNumQueries(0):
             owner.ready()
-        after = owner.configured_backend(CANONICAL_BACKEND_PATH)
-        self.assertEqual(list(after.registry.records), before)
+        after = live_catalog()
+        self.assertIs(after, before)
+        self.assertEqual(list(after.records), records_before)
         self.assertIs(
-            after.registry.get_permission_condition_record(Trust, 'own'),
+            after.get_permission_condition_record(Trust, 'own'),
             own_before,
         )
-        source = inspect.getsource(
-            __import__('trusts.zero.registration', fromlist=['x'])
-        )
+        source = inspect.getsource(zero_registration)
         self.assertNotIn('_zero_z1_relation_ids', source)
         self.assertNotIn('_zero_condition_donation_id', source)
 
-    def test_live_add_named_filter_invokes_builder_once(self):
+    def test_catalog_build_invokes_builder_once(self):
         calls = []
 
         def boom(u, p, o):
             calls.append((u, p, o))
             return u == o.settlor
 
-        backend = live_backend()
-        try:
-            backend.add_named_filter(Trust, 'late32', predicate=boom)
-            self.assertEqual(len(calls), 1)
-            self.assertIsNotNone(
-                backend.registry.get_permission_condition_record(Trust, 'late32')
-            )
-        finally:
-            backend.registry.conditions._records.pop(
-                (Trust._meta.label, 'late32'), None,
-            )
+        def contribute(recorder):
+            recorder.add_named_filter(Trust, 'late32', boom)
+            self.assertEqual(len(calls), 0)
+
+        catalog = build_catalog(contribute)
+        self.assertEqual(len(calls), 1)
+        self.assertIsNotNone(
+            catalog.get_permission_condition_record(Trust, 'late32')
+        )
+        catalog.compile_registered_condition_q(
+            Trust, 'trusts.change_trust:late32', None,
+        )
+        self.assertEqual(len(calls), 1)
 
     @isolate_apps('tests', 'django.contrib.auth', 'django.contrib.contenttypes')
     def test_missing_junction_filter_is_not_on_live_backend(self):
@@ -256,26 +268,30 @@ class ZMethodsDonationOnceTests(TestCase):
                     ('via_memo', via_memo),
                 )
 
-        isolated = isolated_backend()
-        donate_junction_content_permission_conditions(isolated, MemoJunction)
+        def contribute(recorder):
+            donate_junction_content_permission_conditions(recorder, MemoJunction)
+
+        catalog = build_catalog(contribute)
         self.assertIsNotNone(
-            isolated.registry.get_permission_condition_record(
-                MemoJunction, 'via_memo',
-            )
+            catalog.get_permission_condition_record(MemoJunction, 'via_memo')
         )
         self.assertIsNone(
-            live_backend().registry.get_permission_condition_record(
+            live_catalog().get_permission_condition_record(
                 MemoJunction, 'via_memo',
             )
         )
 
 
-class ZMethodsCoreInternalFixtureNote(SimpleTestCase):
-    def test_trusts_registry_condition_api_remains_core_internal(self):
-        isolated = TrustsRegistry()
-        isolated.register_permission_condition(
-            Ticket, 'own', lambda u, p, o: u == o.owner,
+class ZMethodsRecorderContractTests(SimpleTestCase):
+    def test_donation_requires_a_recorder(self):
+        def contribute(recorder):
+            recorder.add_named_filter(
+                Ticket, 'own', lambda u, p, o: u == o.owner,
+            )
+
+        catalog = build_catalog(contribute)
+        self.assertIsNotNone(
+            catalog.get_permission_condition_record(Ticket, 'own')
         )
-        self.assertIsNotNone(isolated.get_permission_condition_record(Ticket, 'own'))
         with self.assertRaises(TypeError):
-            donate_content_permission_conditions(isolated, Ticket)
+            donate_content_permission_conditions(catalog, Ticket)

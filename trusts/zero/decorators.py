@@ -2,8 +2,8 @@
 
 Public compatibility surface: ``P``, ``R``, ``K``, ``G``, ``O``,
 ``permission_required``. Behavior matches Core's current legacy block
-(above ``authorization_required``). ``parse_perm_code`` is imported from
-Core ``trusts.utils``; this module does not fork it.
+(above ``authorization_required``). ``parse_perm_code`` comes from
+``trusts.plan.conditions``; this module does not fork it.
 """
 
 from functools import wraps
@@ -16,7 +16,7 @@ from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
 from django.shortcuts import resolve_url
 from django.http import Http404
 
-from trusts import utils
+from trusts.plan.conditions import parse_perm_code
 
 
 class P(object):
@@ -150,7 +150,7 @@ def _get_permissible_items(perm, request, fieldlookups):
 
     from django.contrib.contenttypes.models import ContentType
 
-    applabel, modelname, action, cond = utils.parse_perm_code(perm)
+    applabel, modelname, action, cond = parse_perm_code(perm)
     try:
         ctype = ContentType.objects.get_by_natural_key(applabel, modelname)
 

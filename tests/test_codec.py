@@ -6,8 +6,6 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import TestCase
 
-from trusts.core import TrustsConfigurationError
-from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
 from trusts.query import AuthorizedQuerySet
 from trusts.zero.models import (
     Content,
@@ -22,10 +20,16 @@ from trusts.zero.query import (
 )
 from trusts.conditions import PermissionConditionNotQueryable
 from trusts.zero.registration import (
+    register_zero_content,
     register_zero_direct,
     register_zero_group,
 )
-from tests.apps import isolated_backend, publish_permission_condition
+from tests.apps import (
+    build_catalog,
+    isolated_recorder,
+    live_catalog,
+    records_for_root,
+)
 from tests.models import Category, Ticket
 
 
@@ -53,19 +57,21 @@ class RegistrationAndCodecTests(TestCase):
         src = inspect.getsource(ContentQuerySet.permitted)
         self.assertIn('return django_permission_filter(', src)
 
-    def test_tup_register_on_isolated_registry(self):
-        backend = isolated_backend()
-        register_zero_direct(backend, (Trust,))
-        records = backend.registry.records_for_root(TrustUserPermission)
+    def test_tup_register_on_isolated_catalog(self):
+        recorder = isolated_recorder()
+        register_zero_direct(recorder, (Trust,))
+        catalog = build_catalog(recorder=recorder)
+        records = records_for_root(catalog, TrustUserPermission)
         self.assertEqual(len(records), 1)
         self.assertIs(records[0].content_model, Trust)
         self.assertEqual(records[0].user_field, 'entity')
 
     def test_tgp_register_uses_group_and_role_ceilings(self):
-        backend = isolated_backend()
-        register_zero_group(backend, (Trust,))
-        role = backend.registry.records_for_root(TrustGroupPermission)
-        grouped = backend.registry.records_for_root(TrustGroup)
+        recorder = isolated_recorder()
+        register_zero_group(recorder, (Trust,))
+        catalog = build_catalog(recorder=recorder)
+        role = records_for_root(catalog, TrustGroupPermission)
+        grouped = records_for_root(catalog, TrustGroup)
         self.assertEqual(len(role), 1)
         self.assertEqual(len(grouped), 1)
         self.assertIs(role[0].content_model, Trust)
@@ -76,17 +82,14 @@ class RegistrationAndCodecTests(TestCase):
         self.assertEqual(role[0].permission_path, ('permission',))
         self.assertNotEqual(role[0].condition, grouped[0].condition)
 
-    def test_live_registry_has_tup_trust_and_bound_condition_lookup(self):
-        backend = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
-        records = backend.registry.records_for_root(TrustUserPermission)
+    def test_live_catalog_has_tup_trust_and_own_condition(self):
+        catalog = live_catalog()
+        records = records_for_root(catalog, TrustUserPermission)
         content_models = {row.content_model for row in records}
         self.assertIn(Trust, content_models)
         self.assertIn(Category, content_models)
         self.assertIn(Ticket, content_models)
-        lookup = backend.registry.condition_lookup
-        self.assertIsNotNone(lookup)
-        self.assertIs(lookup.conditions, backend.registry.conditions)
-        own = backend.registry.get_permission_condition_record(Trust, 'own')
+        own = catalog.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(own)
         self.assertIsNotNone(own.expr)
 
@@ -181,28 +184,26 @@ class RegistrationAndCodecTests(TestCase):
         with self.assertRaises(AttributeError):
             list(Ticket.objects.permitted('read:nope', self.user))
 
-    def test_live_register_invokes_builder_once_at_registration(self):
+    def test_catalog_build_invokes_builder_once(self):
         calls = []
 
         def boom(u, p, o):
             calls.append((u, p, o))
             return o.name == 'n'
 
-        backend = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
-        try:
-            backend.add_named_filter(Category, 'cb', predicate=boom)
-            # The builder runs once, at registration; a later build
-            # sees the new filter without re-invoking it.
-            self.assertEqual(len(calls), 1)
-            self.assertIsNotNone(
-                backend.registry.get_permission_condition_record(Category, 'cb')
-            )
-            backend.build_registry()
-            self.assertEqual(len(calls), 1)
-        finally:
-            backend.registry.conditions._records.pop(
-                (Category._meta.label, 'cb'), None,
-            )
+        def contribute(recorder):
+            recorder.add_named_filter(Category, 'cb', boom)
+            self.assertEqual(len(calls), 0)
+
+        catalog = build_catalog(contribute)
+        self.assertEqual(len(calls), 1)
+        self.assertIsNotNone(
+            catalog.get_permission_condition_record(Category, 'cb')
+        )
+        catalog.compile_registered_condition_q(
+            Category, 'trusts_zero_tests.read_category:cb', None,
+        )
+        self.assertEqual(len(calls), 1)
 
     def test_builder_condition_is_queryable_without_reinvoke(self):
         calls = []
@@ -211,27 +212,33 @@ class RegistrationAndCodecTests(TestCase):
             calls.append((u, p, o))
             return o.name == 'n'
 
-        publish_permission_condition(Category, 'cb', named_keep)
-        try:
-            cat = Category(name='n', trust=self.org)
-            cat.save()
-            other = Category(name='other', trust=self.org)
-            other.save()
-            read = Category.objects.get_permission('read')
-            TrustUserPermission(
-                trust=self.org, entity=self.user, permission=read,
-            ).save()
-            self.assertEqual(len(calls), 1)
-            permitted = list(Category.objects.permitted('read:cb', self.user))
-            self.assertIn(cat, permitted)
-            self.assertNotIn(other, permitted)
-            self.assertEqual(len(calls), 1)
-        finally:
-            zero_config().configured_backend(
-                CANONICAL_BACKEND_PATH,
-            ).registry.conditions._records.pop(
-                (Category._meta.label, 'cb'), None,
-            )
+        def contribute(recorder):
+            register_zero_content(recorder, Category)
+            recorder.add_named_filter(Category, 'cb', named_keep)
+
+        catalog = build_catalog(contribute)
+        cat = Category(name='n', trust=self.org)
+        cat.save()
+        other = Category(name='other', trust=self.org)
+        other.save()
+        read = Category.objects.get_permission('read')
+        TrustUserPermission(
+            trust=self.org, entity=self.user, permission=read,
+        ).save()
+        self.assertEqual(len(calls), 1)
+        code = 'trusts_zero_tests.read_category:cb'
+        self.assertTrue(catalog.has_perm(self.user, code, cat))
+        self.assertFalse(catalog.has_perm(self.user, code, other))
+        granted = catalog.filter_authorized(
+            Category.objects.all(), self.user, read,
+        )
+        overlay = catalog.compile_registered_condition_q(
+            Category, code, self.user,
+        )
+        permitted = list(granted.filter(overlay))
+        self.assertIn(cat, permitted)
+        self.assertNotIn(other, permitted)
+        self.assertEqual(len(calls), 1)
 
     def test_group_local_grant_still_authorizes_via_zero_compiler(self):
         group = Group.objects.create(name='writers')

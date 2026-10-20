@@ -1,6 +1,7 @@
 from django.apps import AppConfig as DjangoAppConfig
 from django.core.exceptions import ImproperlyConfigured
 
+from trusts.errors import TrustsConfigurationError
 from trusts.zero.registration import register_zero_meta_option_names
 
 
@@ -14,8 +15,7 @@ DEPRECATED_CORE_BACKEND_PATH = 'trusts.backends.TrustModelBackend'
 CORE_REQUIREMENT = 'django-trusts>=1.0.0rc1,<2'
 FLOOR_MESSAGE = (
     'django-trusts-zero 0.12.0.dev0 requires %s '
-    '(TrustsImplementationConfig and implementation_for_path / '
-    'implementation_for_class). The installed django-trusts is below '
+    '(TrustsImplementationConfig). The installed django-trusts is below '
     'the supported django-trusts floor. Upgrade django-trusts to '
     '1.0.0rc1 or later.'
     % CORE_REQUIREMENT
@@ -25,7 +25,7 @@ FLOOR_MESSAGE = (
 try:
     from trusts.apps import TrustsImplementationConfig
 except ImportError:
-    # Raw ImportError is not an accepted IIa fail path. ready() speaks.
+    # Raw ImportError is not an accepted fail path. ready() speaks.
     TrustsImplementationConfig = None
 
 
@@ -33,13 +33,16 @@ _ZeroBase = TrustsImplementationConfig or DjangoAppConfig
 
 
 class ZeroConfig(_ZeroBase):
-    """Historical concrete Trusts implementation owner (Step IIa).
+    """Historical concrete Trusts implementation owner.
 
     ``name`` is the Python package. ``label`` stays ``trusts`` so migration
     identity, table names, and content-type/permission natural keys remain
     ``('trusts', '0001_initial')`` / ``('trusts', '0002_trustgroup')``.
 
-    Install with the explicit class path ``trusts.zero.apps.ZeroConfig``.
+    Install with the explicit class path ``trusts.zero.apps.ZeroConfig``,
+    and list it after any app that registers relations in ``ready()``.
+    ``TrustsImplementationConfig.ready`` builds the catalog from the
+    recorder, so later ``ready()`` methods cannot add relations.
     Do not list ``'trusts'`` (core is a library) and do not list the
     temporary core historical backend path. Bare ``'trusts.zero'`` is
     forbidden by the 2.0 ``migrates.md`` checklist even when ``default``
@@ -52,7 +55,6 @@ class ZeroConfig(_ZeroBase):
     default = True
     # Preserve the historical AutoField primary keys from 0001_initial.
     default_auto_field = 'django.db.models.AutoField'
-    trusts_backend_paths = (CANONICAL_BACKEND_PATH,)
 
     def ready(self):
         from django.apps import apps as django_apps
@@ -65,12 +67,12 @@ class ZeroConfig(_ZeroBase):
         if TrustsImplementationConfig is None:
             raise ImproperlyConfigured(FLOOR_MESSAGE)
 
-        listed = tuple(getattr(settings, 'AUTHENTICATION_BACKENDS', ()) or ())
+        listed = tuple(settings.AUTHENTICATION_BACKENDS or ())
         if CANONICAL_BACKEND_PATH not in listed:
             extra = ''
             if DEPRECATED_CORE_BACKEND_PATH in listed:
                 extra = (
-                    ' Found deprecated %s, which is not Zero IIa '
+                    ' Found deprecated %s, which is not Zero '
                     'registry identity.' % DEPRECATED_CORE_BACKEND_PATH
                 )
             raise ImproperlyConfigured(
@@ -88,7 +90,7 @@ class ZeroConfig(_ZeroBase):
             raise ImproperlyConfigured(
                 'AUTHENTICATION_BACKENDS lists both %s and the temporary '
                 'core historical path %s. Those are different class objects. '
-                'Remove %s; Zero IIa owns only %s.'
+                'Remove %s; Zero owns only %s.'
                 % (
                     CANONICAL_BACKEND_PATH,
                     DEPRECATED_CORE_BACKEND_PATH,
@@ -97,33 +99,29 @@ class ZeroConfig(_ZeroBase):
                 )
             )
 
-        super(ZeroConfig, self).ready()
         self._donate_zero_relations()
+        super().ready()
 
     def _donate_zero_relations(self):
-        """Register TUP/TGP and donate Meta conditions.
+        """Record TUP/TGP and Meta conditions before the catalog is built.
 
-        Uses the public owner/resolver API. Never calls
-        ``kernel_config()``. Named conditions are donated through
-        ``backend.add_named_filter`` while ``apps.ready`` is still
-        false. Core binds the registry-backed lookup at
-        ``TrustsRegistry`` construction; Zero does not install or
-        rebind it. There is no Zero-owned ``Content._conditions``
-        store.
+        Named conditions go through ``Recorder.add_named_filter``. The
+        superclass build freezes the recorder and stores
+        ``Catalog(factory.build())``. A second ``ready()`` finds the
+        recorder frozen and leaves that catalog in place.
         """
-        from trusts.apps import implementation_for_path
+        from trusts.zero.backends import TrustModelBackend
         from trusts.zero.registration import (
             donate_installed_permission_conditions,
             register_zero_relations,
         )
 
-        owner = implementation_for_path(
-            CANONICAL_BACKEND_PATH, apps_registry=self.apps,
-        )
-        backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
-        register_zero_relations(backend)
+        recorder = TrustModelBackend().get_registry()
+        if recorder.frozen:
+            return
+        register_zero_relations(recorder)
         donate_installed_permission_conditions(
-            backend, apps_registry=self.apps,
+            recorder, apps_registry=self.apps,
         )
 
 
@@ -131,11 +129,9 @@ def zero_config(apps_registry=None):
     """Return the unique installed ``ZeroConfig`` by class identity.
 
     Optional ``apps_registry`` is an ``Apps`` instance; the default is
-    Django's global registry. Zero or several owners fail loud. Does
-    not call ``kernel_config()``.
+    Django's global registry. Zero or several owners fail loud.
     """
     from django.apps import apps as django_apps
-    from trusts.core import TrustsConfigurationError
 
     registry = django_apps if apps_registry is None else apps_registry
     matches = [

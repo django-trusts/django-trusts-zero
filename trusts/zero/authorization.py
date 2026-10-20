@@ -83,7 +83,7 @@ def has_trust_row_perm(user, trust, perm):
     and trust-row administration use this check.
 
     Authorization goes through the registered Zero scope adapter
-    (``filter_by_user_content_perm`` / ``filter_authorized_scopes``),
+    (``filter_by_user_content_perm`` / ``filter_by_permitted_content``),
     not a deleted ``trust_grant_q`` fallback.
     """
     if not (user is not None and user.is_authenticated and not user.is_anonymous and user.is_active) or trust is None:
