@@ -43,12 +43,40 @@ def _ensure_wheel() -> Path:
     return wheels[-1]
 
 
+# Views and URLconfs import decorators after django.setup(). The probe
+# does the same: configure an installed Zero app, set Django up, then
+# import the decorator surface. It also checks that the wheel sat on
+# top of the kernel (kernel trusts/__init__.py, Zero trusts/zero/).
 OVERLAY_PROBE = r'''
-from django.conf import settings
 from pathlib import Path
 
+from django.conf import settings
+
 if not settings.configured:
-    settings.configure(SECRET_KEY="zero-wheel-overlay")
+    settings.configure(
+        SECRET_KEY="zero-wheel-overlay",
+        USE_TZ=True,
+        DEFAULT_AUTO_FIELD="django.db.models.AutoField",
+        INSTALLED_APPS=[
+            "django.contrib.contenttypes",
+            "django.contrib.auth",
+            "trusts.zero.apps.ZeroConfig",
+        ],
+        AUTHENTICATION_BACKENDS=[
+            "django.contrib.auth.backends.ModelBackend",
+            "trusts.zero.backends.TrustModelBackend",
+        ],
+        DATABASES={
+            "default": {
+                "ENGINE": "django.db.backends.sqlite3",
+                "NAME": ":memory:",
+            },
+        },
+    )
+
+import django
+django.setup()
+
 import trusts
 from trusts.zero.apps import ZeroConfig
 from trusts.zero.decorators import P, R, K, G, O, permission_required
