@@ -30,7 +30,6 @@ class ZeroConfig(TrustsImplementationConfig):
     default_auto_field = 'django.db.models.AutoField'
 
     def ready(self):
-        # Stay in ready(): admin imports models at import.
         # AppRegistryNotReady: backends imports Permission; helpers import models.
         from trusts.zero.backends import TrustModelBackend
         from trusts.zero.registration import (
@@ -39,6 +38,7 @@ class ZeroConfig(TrustsImplementationConfig):
         )
 
         if django_apps.is_installed('django.contrib.admin'):
+            # AppRegistryNotReady: admin imports models at import.
             from trusts.zero.admin import register_auto_modeladmins
             register_auto_modeladmins()
 
@@ -74,28 +74,12 @@ class ZeroConfig(TrustsImplementationConfig):
                 )
             )
 
-        self._donate_zero_relations(
-            TrustModelBackend,
-            register_zero_relations,
-            donate_installed_permission_conditions,
-        )
-        super().ready()
-
-    def _donate_zero_relations(
-        self, TrustModelBackend, register_zero_relations,
-        donate_installed_permission_conditions,
-    ):
-        """Record TUP/TGP and Meta conditions before the catalog is built.
-
-        Named conditions go through ``Recorder.add_named_filter``. The
-        superclass build freezes the recorder and stores
-        ``Catalog(factory.build())``. Donation is once per recorder.
-        """
         recorder = TrustModelBackend().get_registry()
         register_zero_relations(recorder)
         donate_installed_permission_conditions(
             recorder, apps_registry=self.apps,
         )
+        super().ready()
 
 
 def zero_config(apps_registry=None):

@@ -235,7 +235,7 @@ class BackendAndRegistrationTests(SimpleTestCase):
             't.trustgroup.group.roles.permissions.contains(', source,
         )
         self.assertIn('t.permission', source)
-        donate = inspect.getsource(ZeroConfig._donate_zero_relations)
+        donate = inspect.getsource(ZeroConfig.ready)
         self.assertIn('register_zero_relations(recorder)', donate)
         self.assertNotIn('register_zero_relations(backend', donate)
         with self.assertRaises(TypeError):
