@@ -1,4 +1,4 @@
-from django.apps import apps as app_config
+from django.apps import apps
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
@@ -8,33 +8,19 @@ from django.db.models import Q
 from trusts.zero.models import Role, RolePermission
 
 
-def _process_roles(Permission, model_roles, content_klass, roles, using):
-    for rolename, perm_names in roles:
-        if rolename not in model_roles:
-            model_roles[rolename] = set()
-
-        # Force looking up the content types in the current database
-        # before creating foreign keys to them.
-        ctype = ContentType.objects.db_manager(using).get_for_model(content_klass)
-
-        model_roles[rolename].update([Permission.objects.get(content_type=ctype, codename=perm_name)
-                for perm_name in perm_names
-        ])
-
-
-def update_roles_permissions(Role, Permission, RolePermission, app_config, verbosity=2, interactive=True, using=DEFAULT_DB_ALIAS, **kwargs):
+def update_roles_permissions(Role, Permission, RolePermission, apps, verbosity=2, interactive=True, using=DEFAULT_DB_ALIAS, **kwargs):
     if not router.allow_migrate_model(using, Role):
         return
 
     try:
-        Role = app_config.get_model('trusts', 'Role')
+        Role = apps.get_model('trusts', 'Role')
     except LookupError:
         return
 
     # This will hold the roles we're looking for as
     # (rolename (permissions))
     model_roles = {}
-    for klass in app_config.get_models():
+    for klass in apps.get_models():
         if hasattr(klass._meta, 'roles'):
             _process_roles(Permission, model_roles, klass, klass._meta.roles, using)
         elif hasattr(klass._meta, 'content_roles'):
@@ -114,10 +100,19 @@ class Command(BaseCommand):
 
     def handle(self, **options):
         self.verbosity = int(options.get('verbosity', 1))
-
-        registry = options['apps'] if 'apps' in options else None
         update_roles_permissions(
-            registry.get_model('trusts', 'role') if registry else Role,
-            registry.get_model('auth', 'Permission') if registry else Permission,
-            registry.get_model('trusts', 'rolepermission') if registry else RolePermission,
-            registry or app_config, **options)
+            Role, Permission, RolePermission, apps, **options)
+
+
+def _process_roles(Permission, model_roles, content_klass, roles, using):
+    for rolename, perm_names in roles:
+        if rolename not in model_roles:
+            model_roles[rolename] = set()
+
+        # Force looking up the content types in the current database
+        # before creating foreign keys to them.
+        ctype = ContentType.objects.db_manager(using).get_for_model(content_klass)
+
+        model_roles[rolename].update([Permission.objects.get(content_type=ctype, codename=perm_name)
+                for perm_name in perm_names
+        ])
