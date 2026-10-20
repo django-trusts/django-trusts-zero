@@ -17,6 +17,7 @@ from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_us
 from tests.models import Category, Organization, Ticket
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
+from trusts.zero.registration import register_zero_content
 
 
 CONCRETE = 'trusts.zero.backends.TrustModelBackend'
@@ -218,6 +219,38 @@ class OnePathAuthorizationTest(_UsersMixin, TestCase):
         with self.assertNumQueries(1):
             self.assertEqual(list(page), [self.cat_a1])
 
+    def test_planted_cache_is_not_an_authorization_source(self):
+        backend = TrustModelBackend()
+        self.alice._trust_perm_cache = {}
+        self.alice._perm_cache = set()
+        self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a1))
+        self.assertIn(
+            self.alice.pk,
+            _pks(backend.get_permitted_users(self.cat_a1, self.change_code)),
+        )
+        self.alice._trust_perm_cache = {(self.change_code, self.cat_a1.pk): False}
+        self.alice._perm_cache = set()
+        self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a1))
+        self.assertEqual(
+            _pks(Category.objects.permitted(self.change_code, self.alice)),
+            {self.cat_a1.pk, self.cat_a2.pk},
+        )
+
+        TrustUserPermission.objects.filter(
+            trust=self.trust_a, entity=self.alice, permission=self.change,
+        ).delete()
+        self.alice = User.objects.get(pk=self.alice.pk)
+        self.alice._trust_perm_cache = {(self.change_code, self.cat_a1.pk): True}
+        self.alice._perm_cache = {self.change_code}
+        self.assertFalse(self.alice.has_perm(self.change_code, self.cat_a1))
+        self.assertFalse(
+            Category.objects.permitted(self.change_code, self.alice).exists()
+        )
+        self.assertNotIn(
+            self.alice.pk,
+            _pks(backend.get_permitted_users(self.cat_a1, self.change_code)),
+        )
+
 
 class TrusteeAndGroupCoverageTest(_UsersMixin, TestCase):
     def setUp(self):
@@ -414,3 +447,52 @@ class RegisteredOrdinaryModelTest(TransactionTestCase):
                 editor.delete_model(Memo)
             forget_models(Memo, MemoGrant)
             apps.clear_cache()
+
+
+class _BuilderLog(object):
+    def __init__(self, impl):
+        self.impl = impl
+        self.calls = []
+
+    def __call__(self, u, p, o):
+        self.calls.append((u, p, o))
+        return self.impl(u, p, o)
+
+
+class BuilderOnceParityTest(_UsersMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        self._make_users('spy')
+        self.keep = Category.objects.create(trust=self.trust_a, name='keep')
+        self.drop = Category.objects.create(trust=self.trust_a, name='drop')
+        self.change = _perm(Category, 'change_category')
+        TrustUserPermission(
+            trust=self.trust_a, entity=self.alice, permission=self.change,
+        ).save()
+        self._reload()
+        self.log = _BuilderLog(lambda u, p, o: o.name == 'keep')
+
+        def contribute(recorder):
+            register_zero_content(recorder, Category)
+            recorder.add_named_filter(Category, 'spy', self.log)
+
+        self.catalog = build_catalog(contribute)
+        self.code = 'trusts_zero_tests.change_category:spy'
+
+    def test_builder_once_object_and_queryset_parity(self):
+        self.assertEqual(len(self.log.calls), 1)
+        self.assertTrue(self.catalog.has_perm(self.alice, self.code, self.keep))
+        self.assertFalse(self.catalog.has_perm(self.alice, self.code, self.drop))
+        only = Category.objects.filter(pk=self.keep.pk)
+        both = Category.objects.filter(pk__in=[self.keep.pk, self.drop.pk])
+        self.assertTrue(self.catalog.has_perm(self.alice, self.code, only))
+        self.assertFalse(self.catalog.has_perm(self.alice, self.code, both))
+        self.assertIn(
+            self.alice.pk,
+            _pks(self.catalog.permitted_users(self.keep, self.code)),
+        )
+        self.assertNotIn(
+            self.alice.pk,
+            _pks(self.catalog.permitted_users(self.drop, self.code)),
+        )
+        self.assertEqual(len(self.log.calls), 1)

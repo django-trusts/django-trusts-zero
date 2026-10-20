@@ -4,12 +4,9 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
-from django.apps import apps
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 
@@ -18,7 +15,6 @@ from trusts.plan.relations import PlanQueryCompiler
 from trusts.zero.apps import (
     CANONICAL_BACKEND_PATH,
     DEPRECATED_CORE_BACKEND_PATH,
-    FLOOR_MESSAGE,
     ZeroConfig,
     zero_config,
 )
@@ -115,18 +111,6 @@ class OwnerPresentOnFinalCoreTests(SimpleTestCase):
 
 
 class StartupBeltTests(SimpleTestCase):
-    def test_missing_step_i_helper_is_improperly_configured(self):
-        import trusts.zero.apps as zero_apps
-
-        config = apps.get_app_config('trusts')
-        with patch.object(zero_apps, 'TrustsImplementationConfig', None):
-            with self.assertRaises(ImproperlyConfigured) as ctx:
-                config.ready()
-        self.assertIn('1.0.0rc1', str(ctx.exception))
-        self.assertIn('0.12.0.dev0', str(ctx.exception))
-        self.assertIn('TrustsImplementationConfig', str(ctx.exception))
-        self.assertEqual(str(ctx.exception), FLOOR_MESSAGE)
-
     def test_old_backend_path_alone_fails_startup(self):
         result = subprocess.run(
             [

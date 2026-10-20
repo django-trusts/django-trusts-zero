@@ -1,7 +1,7 @@
 """Zero #16: donate Meta conditions onto a recorder, then read the catalog.
 
 Paired against the exact django-trusts candidate
-``b240eed7fd12f34891c6dd0957d944c9f2591473``.
+``3aad8c25f34469f4ecb03e9cd441d9e6315d4f0f``.
 """
 
 import inspect

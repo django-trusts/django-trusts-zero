@@ -82,7 +82,7 @@ class ZeroSourceLayoutTests(SimpleTestCase):
         self.assertEqual(offenders, [])
         backends = (ROOT / 'trusts' / 'zero' / 'backends.py').read_text()
         self.assertNotIn('class HistoricalGroupQueryCompiler', backends)
-        self.assertIn('PlanQueryCompiler', backends)
+        self.assertNotIn('PlanQueryCompiler', backends)
         self.assertIn('class TrustModelBackend', backends)
         self.assertNotIn('from trusts.backends import TrustModelBackend\n', backends)
         self.assertNotIn('TrustModelBackend = ', backends)
@@ -183,7 +183,7 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         self.assertIn('readme = "README.md"', text)
         self.assertNotIn('readme = "DEV.md"', text)
         self.assertIn('license = "BSD-2-Clause"', text)
-        companion = 'b240eed7fd12f34891c6dd0957d944c9f2591473'
+        companion = '3aad8c25f34469f4ecb03e9cd441d9e6315d4f0f'
         stale_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
         stale_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
         stale_r5b = '91e1fb690e14a88626ff3c1c05b137da96c6b254'

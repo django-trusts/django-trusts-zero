@@ -18,7 +18,7 @@ INSTALLED_APPS = (
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'tests.apps.TestsConfig',
+    'tests.host.TestsConfig',
     'trusts.zero.apps.ZeroConfig',
 )
 

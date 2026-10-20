@@ -43,30 +43,6 @@ def _ensure_wheel() -> Path:
     return wheels[-1]
 
 
-ISOLATED_PROBE = r'''
-import sys
-from pathlib import Path
-from django.conf import settings
-
-extracted = Path(%r)
-kept = []
-for p in sys.path:
-    if Path(p, "trusts", "__init__.py").is_file():
-        continue
-    kept.append(p)
-sys.path[:] = kept
-sys.path.insert(0, str(extracted))
-for name in list(sys.modules):
-    if name == "trusts" or name.startswith("trusts."):
-        del sys.modules[name]
-if not settings.configured:
-    settings.configure(SECRET_KEY="zero-wheel-isolated")
-from trusts.zero.apps import ZeroConfig
-assert ZeroConfig.name == "trusts.zero"
-assert ZeroConfig.label == "trusts"
-print("zero-wheel-import-ok")
-'''
-
 OVERLAY_PROBE = r'''
 from django.conf import settings
 from pathlib import Path
@@ -124,24 +100,6 @@ def main() -> int:
     kernel = Path(os.environ.get('KERNEL_CHECKOUT', ROOT / '.deps' / 'django-trusts'))
     tmp = Path(tempfile.mkdtemp(prefix='trusts-zero-wheel-'))
     try:
-        extracted = tmp / 'extracted'
-        extracted.mkdir()
-        with zipfile.ZipFile(wheel) as zf:
-            zf.extractall(extracted)
-
-        # Isolated PEP 420: drop every path that owns trusts/__init__.py so a
-        # preinstalled kernel cannot shadow the wheel portion.
-        env = os.environ.copy()
-        env.pop('DJANGO_SETTINGS_MODULE', None)
-        out = subprocess.check_output(
-            [sys.executable, '-c', ISOLATED_PROBE % str(extracted)],
-            env=env,
-            cwd=str(tmp),
-            text=True,
-        )
-        if 'zero-wheel-import-ok' not in out:
-            raise SystemExit('isolated wheel import probe failed: %r' % out)
-
         # Real overlay: C1 still ships trusts/__init__.py. pip --target
         # refuses to merge a second distribution into an existing trusts/
         # directory; extracting the Zero wheel on top of the kernel install

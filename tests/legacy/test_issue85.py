@@ -254,6 +254,38 @@ class GroupAuthorizationTest(_UsersMixin, TestCase):
         with self.assertNumQueries(1):
             self.assertIn(self.change_code, self.carol.get_group_permissions(qs))
 
+    def test_concrete_trustee_keeps_historical_group(self):
+        self.alice.groups.add(self.carol_group)
+        self._reload()
+        backend = TrustModelBackend()
+        self.assertTrue(backend.has_perm(self.alice, self.change_code, self.group_a1))
+        self.assertIn(
+            self.change_code,
+            backend.get_group_permissions(self.alice, self.group_a1),
+        )
+        self.assertIn(
+            self.alice.pk,
+            _pks(backend.get_permitted_users(self.group_a1, self.change_code)),
+        )
+        TrustUserPermission.objects.filter(
+            trust=self.trust_a, entity=self.alice, permission=self.change,
+        ).delete()
+        self._reload()
+        self.assertFalse(
+            TrustUserPermission.objects.filter(
+                entity=self.alice, permission=self.change,
+            ).exists()
+        )
+        self.assertTrue(self.alice.has_perm(self.change_code, self.group_a1))
+        self.assertIn(
+            self.change_code,
+            self.alice.get_group_permissions(self.group_a1),
+        )
+        self.assertIn(
+            self.alice.pk,
+            _pks(backend.get_permitted_users(self.group_a1, self.change)),
+        )
+
     def test_create_under_trust_gate_opens_for_declared_group(self):
         pks = _pks(Trust.objects.filter_by_user_content_perm(
             self.alice, Group, 'change_group',

@@ -8,19 +8,15 @@ class is a different identity and is not Zero's backend.
 from django.contrib.auth.backends import ModelBackend
 
 from trusts.backends import TrustModelBackendMixin
-from trusts.plan.relations import PlanQueryCompiler
 
 
 class TrustModelBackend(TrustModelBackendMixin, ModelBackend):
     """Durable Zero backend. One catalog is built for this class.
 
-    Uses Core ``PlanQueryCompiler``. Explicit ``group=`` ceilings share
-    one ``Group.permissions`` join in Core. This backend does not keep a
-    second compiler and does not infer a group from a membership-shaped
-    path.
+    Explicit ``group=`` ceilings share one ``Group.permissions`` join
+    in Core. This backend does not keep a second compiler and does not
+    infer a group from a membership-shaped path.
     """
-
-    query_compiler = PlanQueryCompiler()
 
     def get_user_permissions(self, user_obj, obj=None):
         """Direct ``user_permissions``, without the active-superuser shortcut.
