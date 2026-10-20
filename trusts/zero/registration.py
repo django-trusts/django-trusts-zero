@@ -1,37 +1,16 @@
-"""Zero relation registration, Meta option names, and condition donation.
-
-Phase-1 safe: do not import Zero models here. ``apps.py`` imports this
-module so Zero-only ``Meta`` names exist before host models are built.
-"""
+"""Zero relation registration and condition donation."""
 
 from django.apps import apps as django_apps
-from django.db.models import options
 
-
-ZERO_META_OPTION_NAMES = (
-    'roles',
-    'content_roles',
-    'content_permission_conditions',
-    'auto_modeladmin',
+from trusts.backends import Recorder
+from trusts.zero.models import (
+    Content,
+    Junction,
+    Trust,
+    TrustGroup,
+    TrustGroupPermission,
+    TrustUserPermission,
 )
-
-
-def register_zero_meta_option_names():
-    """Idempotently add Zero-only names to ``options.DEFAULT_NAMES``.
-
-    Generic ``permission_conditions`` is registered by importing
-    ``trusts.apps``. Calling this more than once must not duplicate names.
-    """
-    extra = tuple(
-        name for name in ZERO_META_OPTION_NAMES
-        if name not in options.DEFAULT_NAMES
-    )
-    if extra:
-        options.DEFAULT_NAMES += extra
-    return extra
-
-
-register_zero_meta_option_names()
 
 
 def _join_public_path(*parts):
@@ -62,9 +41,6 @@ def _content_path(model, content_via, prefix=''):
 
 
 def _require_recorder(recorder):
-    # AppRegistryNotReady: trusts.backends imports Permission at module top.
-    from trusts.backends import Recorder
-
     if not isinstance(recorder, Recorder):
         raise TypeError(
             'Zero relation helpers require a Recorder, not %r.'
@@ -81,9 +57,6 @@ _donated_condition_recorders = set()
 
 def register_zero_direct(recorder, content_models, content_via=None):
     """TUP records for each content terminal."""
-    # AppRegistryNotReady: Zero models are not ready during phase-1 import.
-    from trusts.zero.models import TrustUserPermission
-
     recorder = _require_recorder(recorder)
     for model in content_models:
         recorder.register(
@@ -96,9 +69,6 @@ def register_zero_direct(recorder, content_models, content_via=None):
 
 def register_zero_group(recorder, content_models, content_via=None):
     """``auth.Group`` record plus the role ceiling. Two roots; the plan ORs them."""
-    # AppRegistryNotReady: Zero models are not ready during phase-1 import.
-    from trusts.zero.models import TrustGroup, TrustGroupPermission
-
     recorder = _require_recorder(recorder)
     for model in content_models:
         # auth.Group reverse membership is related_query_name="user"
@@ -132,9 +102,6 @@ def register_zero_content(recorder, model, content_via=None):
 
 def register_zero_relations(recorder):
     """Idempotent package donation: Trust-as-content TUP, group, and role."""
-    # AppRegistryNotReady: Zero models are not ready during phase-1 import.
-    from trusts.zero.models import Trust
-
     recorder = _require_recorder(recorder)
     if recorder in _donated_relation_recorders:
         return
@@ -151,8 +118,7 @@ def donate_content_permission_conditions(recorder, model):
     recorder = _require_recorder(recorder)
     if model._meta.proxy or model._meta.abstract:
         return
-    # Django sets the option only when this model's Meta declares it.
-    conditions = getattr(model._meta, 'permission_conditions', ()) or ()
+    conditions = model._meta.original_attrs.get('permission_conditions', ())
     for cond_code, condition in conditions:
         recorder.add_named_filter(model, cond_code, condition)
 
@@ -162,7 +128,9 @@ def donate_junction_content_permission_conditions(recorder, model):
     recorder = _require_recorder(recorder)
     if model._meta.proxy or model._meta.abstract:
         return
-    conditions = getattr(model._meta, 'content_permission_conditions', ()) or ()
+    conditions = model._meta.original_attrs.get(
+        'content_permission_conditions', (),
+    )
     for cond_code, condition in conditions:
         recorder.add_named_filter(model, cond_code, condition)
 
@@ -175,9 +143,6 @@ def donate_installed_permission_conditions(recorder, apps_registry=None):
     each become one condition on this recorder. The catalog build invokes
     each builder once.
     """
-    # AppRegistryNotReady: Content and Junction are Zero models.
-    from trusts.zero.models import Content, Junction
-
     recorder = _require_recorder(recorder)
     if recorder in _donated_condition_recorders:
         return

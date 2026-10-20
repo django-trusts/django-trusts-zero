@@ -31,11 +31,13 @@ from trusts.zero.policy import (
 )
 from trusts.zero.query import filter_scope_rows
 from trusts.zero import registration as zero_registration
-from trusts.zero.registration import (
+from trusts.zero.options import (
     ZERO_META_OPTION_NAMES,
+    register_zero_meta_option_names,
+)
+from trusts.zero.registration import (
     register_zero_direct,
     register_zero_group,
-    register_zero_meta_option_names,
     register_zero_relations,
 )
 from tests.apps import isolated_recorder, live_catalog, root_records
@@ -137,7 +139,7 @@ class MetaOptionRegistrationTests(SimpleTestCase):
         env = os.environ.copy()
         env['DJANGO_SETTINGS_MODULE'] = 'tests.settings'
         script = (
-            'from trusts.zero.apps import register_zero_meta_option_names\n'
+            'from trusts.zero.options import register_zero_meta_option_names\n'
             'from django.db.models import options\n'
             'register_zero_meta_option_names()\n'
             'assert options.DEFAULT_NAMES.count("auto_modeladmin") == 1\n'
