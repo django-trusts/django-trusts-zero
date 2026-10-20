@@ -1,9 +1,9 @@
-"""Test-only Trusts-derived backends for multi-path S3a/S3b cases."""
+"""Test-only Trusts-derived backends."""
 
 from django.contrib.auth.backends import ModelBackend
 
 from trusts.backends import TrustModelBackendMixin
-from trusts.core import PlanQueryCompiler
+from trusts.plan.relations import PlanQueryCompiler, QueryCompiler
 from trusts.zero.backends import TrustModelBackend
 
 
@@ -12,7 +12,7 @@ class MixinOnlyBackend(TrustModelBackendMixin, ModelBackend):
 
 
 class HostTrustModelBackend(TrustModelBackendMixin, ModelBackend):
-    """Kernel-only host backend. Pair historical SQL lives on Zero."""
+    """Host backend. Pair historical SQL lives on Zero."""
 
 
 class GroupOnlyBackend(TrustModelBackendMixin, ModelBackend):
@@ -38,7 +38,10 @@ class MalformedCompilerBackend(TrustModelBackendMixin, ModelBackend):
     query_compiler = object()
 
 
-class _RaisingQueryCompiler(object):
+class _RaisingQueryCompiler(QueryCompiler):
+    def applies(self, plan):
+        return bool(plan.records or plan.delegations)
+
     def complete_exists(self, plan, candidates, user, permission, *,
                         skipped=()):
         raise RuntimeError('compiler exploded')

@@ -13,11 +13,8 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 
-from trusts.apps import (
-    implementation_for_class,
-    implementation_for_path,
-)
 from trusts.backends import TrustModelBackendMixin
+from trusts.plan.relations import PlanQueryCompiler
 from trusts.zero.apps import (
     CANONICAL_BACKEND_PATH,
     DEPRECATED_CORE_BACKEND_PATH,
@@ -25,7 +22,6 @@ from trusts.zero.apps import (
     ZeroConfig,
     zero_config,
 )
-from trusts.core import PlanQueryCompiler
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
 
@@ -85,19 +81,14 @@ class CanonicalBackendIdentityTests(SimpleTestCase):
             import trusts.core_backends  # noqa: F401
 
     def test_canonical_path_resolves_only_through_zeroconfig(self):
-        owner = implementation_for_path(CANONICAL_BACKEND_PATH)
+        owner = zero_config()
         self.assertIs(type(owner), ZeroConfig)
-        self.assertIs(owner, zero_config())
-        self.assertIs(implementation_for_class(TrustModelBackend), owner)
-        backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
-        self.assertEqual(backend.path, CANONICAL_BACKEND_PATH)
-        self.assertIs(backend.registry, owner.registries[CANONICAL_BACKEND_PATH])
+        catalog = TrustModelBackend().get_catalog()
+        self.assertEqual(catalog.path, CANONICAL_BACKEND_PATH)
+        self.assertIs(catalog, TrustModelBackend().get_catalog())
 
     def test_unconfigured_mixin_class_is_not_zero_identity(self):
-        from trusts.core import TrustsConfigurationError
-
-        with self.assertRaises(TrustsConfigurationError):
-            implementation_for_class(TrustModelBackendMixin)
+        self.assertIsNone(TrustModelBackendMixin().get_catalog())
 
 
 class OwnerPresentOnFinalCoreTests(SimpleTestCase):
@@ -115,11 +106,9 @@ class OwnerPresentOnFinalCoreTests(SimpleTestCase):
 
     def test_mixin_owner_present_resolves_through_zeroconfig(self):
         backend = TrustModelBackend()
-        config = backend._trusts_config()
-        self.assertIs(type(config), ZeroConfig)
-        self.assertIs(config, zero_config())
-        own_backend = backend._own_handle()
-        self.assertEqual(own_backend.path, CANONICAL_BACKEND_PATH)
+        self.assertIs(type(zero_config()), ZeroConfig)
+        catalog = backend.get_catalog()
+        self.assertEqual(catalog.path, CANONICAL_BACKEND_PATH)
 
     def test_zero_config_helper_returns_installed_owner(self):
         self.assertIs(type(zero_config()), ZeroConfig)

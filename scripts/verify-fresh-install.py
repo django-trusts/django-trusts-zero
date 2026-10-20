@@ -131,7 +131,6 @@ def main() -> int:
         from django.contrib.contenttypes.models import ContentType
         from django.apps import apps as django_apps
         import trusts.apps as trusts_apps
-        from trusts.apps import implementation_configs
         from trusts.zero.apps import ZeroConfig, zero_config
 
         if hasattr(trusts_apps, 'kernel_config') or hasattr(trusts_apps, 'AppConfig'):
@@ -148,9 +147,9 @@ def main() -> int:
             raise SystemExit('get_app_config("trusts") is not ZeroConfig')
         if config.name != 'trusts.zero' or config.label != 'trusts':
             raise SystemExit('ZeroConfig identity drifted')
-        owners = implementation_configs()
-        if owners != (zero_config(),) or len(owners) != 1:
-            raise SystemExit('expected exactly one implementation owner, got %r' % (owners,))
+        owner = zero_config()
+        if owner is not config:
+            raise SystemExit('expected exactly one ZeroConfig, got %r' % (owner,))
         trusts_labeled = [
             row for row in django_apps.get_app_configs()
             if row.label == 'trusts'

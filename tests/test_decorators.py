@@ -107,9 +107,19 @@ class LegacyDecoratorPublicSurfaceTests(SimpleTestCase):
                 stripped = line.strip()
                 if stripped.startswith('#'):
                     continue
-                if stripped.startswith('from trusts.decorators import') or (
-                    stripped == 'import trusts.decorators'
-                ):
+                if stripped == 'import trusts.decorators':
+                    offenders.append(
+                        '%s: %s' % (path.relative_to(ROOT), stripped)
+                    )
+                    continue
+                if not stripped.startswith('from trusts.decorators import'):
+                    continue
+                imported = stripped.split('import', 1)[1]
+                names = [part.strip() for part in imported.split(',')]
+                legacy = {'P', 'R', 'K', 'G', 'O', 'permission_required'}
+                if names and set(names) <= {'filter_by_permitted_content'}:
+                    continue
+                if legacy.intersection(names):
                     offenders.append(
                         '%s: %s' % (path.relative_to(ROOT), stripped)
                     )

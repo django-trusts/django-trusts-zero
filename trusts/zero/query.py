@@ -1,4 +1,4 @@
-"""Zero list/object adapters over core ``granted`` / ``filter_authorized_scopes``.
+"""Zero list/object adapters over catalog grants.
 
 ``ContentQuerySet``, ``ContentManager``, and ``TrustManager`` live here
 so ``models.py`` stays declarative. Manager *attachment* remains on the
@@ -6,21 +6,18 @@ model classes.
 """
 
 from django.db import models
-from django.db.models import Model, Q
+from django.db.models import Q
 
-from trusts.core import (
-    TrustsConfigurationError,
-    any_plan_records,
-    filter_authorized_scopes,
-    granted,
-)
 from trusts.conditions import permission_has_condition
+from trusts.decorators import filter_by_permitted_content
+from trusts.errors import TrustsConfigurationError
 from trusts.query import AuthorizedQuerySet
 from trusts.zero import (
     ROOT_PK,
     supported_entity_contract,
     supported_permission_contract,
 )
+from trusts.zero.backends import TrustModelBackend
 from trusts.zero.policy import (
     reject_queryable_condition,
     resolve_content_permission,
@@ -28,25 +25,27 @@ from trusts.zero.policy import (
 
 
 def compile_registered_condition_q(model, perm, user):
-    """Compile a ``:condition`` suffix via the configured Zero backend.
+    """Compile a ``:condition`` suffix from Zero's built catalog.
 
-    Records live on that backend's core registry. Unregistered codes
-    raise ``AttributeError``. Runtime ``has_perm`` treats a missing
-    local name as a fail-closed non-match. Callables raise
-    ``PermissionConditionNotQueryable`` without being invoked.
+    Unregistered codes raise ``AttributeError``. Runtime ``has_perm``
+    treats a missing local name as a fail-closed non-match. Callables
+    raise ``PermissionConditionNotQueryable`` without being invoked.
     """
-    from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
-
-    registry = zero_config().configured_backend(CANONICAL_BACKEND_PATH).registry
-    return registry.compile_registered_condition_q(model, perm, user)
+    catalog = TrustModelBackend().get_catalog()
+    if catalog is None:
+        raise TrustsConfigurationError(
+            'Zero backend has no catalog. ZeroConfig must be ready before '
+            'a condition is compiled.'
+        )
+    return catalog.compile_registered_condition_q(model, perm, user)
 
 
 def django_permission_filter(qs, perm, user):
     """Zero Django-permission codec over ``AuthorizedQuerySet.authorized``.
 
-    Does not OR backends, does not call ``granted`` / ``Exists`` /
-    ``.distinct()`` itself. ``ContentQuerySet.authorized`` sequences
-    Zero-owned backends.
+    ``ContentQuerySet.authorized`` is Core's relationship-catalog
+    projection. This helper resolves the permission string and an
+    optional ``:condition`` before that projection.
     """
     condition_q = None
     if permission_has_condition(perm):
@@ -60,17 +59,13 @@ def django_permission_filter(qs, perm, user):
 
 
 def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kwargs):
-    """Zero codec wrapper around public core ``filter_authorized_scopes``.
+    """Zero codec wrapper around ``filter_by_permitted_content``.
 
     Permission is resolved on ``content`` (``add_category``), not on the
     Trust manager model (``add_trust``). The explicit ``auth.Group``
     path and the role ceiling are both registered. Create-under-Trust
-    is always the public core prefix projection (including same-model
-    proper prefixes). Handles come from ``ZeroConfig``, never
-    ``kernel_config()``.
+    is the public prefix projection (including same-model proper prefixes).
     """
-    from trusts.zero.apps import zero_config
-
     reject_queryable_condition(
         perm_name, 'Trust.objects.filter_by_user_content_perm'
     )
@@ -80,14 +75,10 @@ def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kw
         return manager.none()
     if not isinstance(content, type):
         content = content.__class__
-    handles = zero_config().configured_handles()
-    if not any_plan_records(handles, content):
-        return manager.none()
-    content = getattr(content._meta, 'concrete_model', content)
+    content = content._meta.concrete_model
     permission = resolve_content_permission(content, perm_name)
-    qs = filter_authorized_scopes(
-        manager.filter(**kwargs), user, permission,
-        content=content, handles=handles,
+    qs = filter_by_permitted_content(
+        manager.filter(**kwargs), user, permission, content=content,
     )
     if exclude_root and ROOT_PK is not None:
         qs = qs.exclude(pk=ROOT_PK)
@@ -111,34 +102,11 @@ class ContentQuerySet(AuthorizedQuerySet):
         raise ``PermissionConditionNotQueryable`` so they cannot
         over-grant.
 
-        The entire Zero list algorithm is the Django-permission codec
-        ``django_permission_filter``; ``.authorized`` sequences the
-        plan through Zero-owned backends.
+        The list algorithm is the Django-permission codec
+        ``django_permission_filter``. ``.authorized`` is Core's
+        relationship-catalog projection.
         """
         return django_permission_filter(self, perm, user)
-
-    def authorized(self, user, permission, extra_q=None):
-        """Sequence grants on Zero's owner backends, not ``kernel_config()``.
-
-        Core ``AuthorizedQuerySet.authorized`` still consults the
-        transitional kernel store. IIa list execution must resolve
-        through ``ZeroConfig``.
-        """
-        from trusts.zero.apps import zero_config
-
-        if not isinstance(permission, Model):
-            raise TrustsConfigurationError(
-                'permission must be a model instance, not %r.' % (permission,)
-            )
-        granted_q = granted(
-            zero_config().configured_handles(),
-            self, user, permission, kind='complete',
-        )
-        if granted_q is None:
-            return self.none()
-        if extra_q is not None:
-            granted_q = granted_q & extra_q
-        return self.filter(granted_q).distinct()
 
 
 class ContentManager(models.Manager.from_queryset(ContentQuerySet)):

@@ -4,23 +4,32 @@ import ast
 import inspect
 from pathlib import Path
 
+from django.contrib.auth.models import Group, Permission, User
+from django.contrib.contenttypes.models import ContentType
+from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 
 from trusts.zero.models import (
-    Trust, TrustGroup, TrustGroupPermission, TrustUserPermission,
+    Role, Trust, TrustGroup, TrustGroupPermission, TrustUserPermission,
 )
 from trusts.zero.registration import (
     register_zero_direct,
     register_zero_group,
     register_zero_relations,
 )
-from tests.apps import isolated_backend, live_backend
+from tests.apps import (
+    build_catalog,
+    isolated_recorder,
+    live_catalog,
+    live_recorder,
+    records_for_root,
+)
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = 'cbe72e573911f34225c8322e1133288c1bcb3c43'
+CORE_PIN = 'b240eed7fd12f34891c6dd0957d944c9f2591473'
 STALE_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
 STALE_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
@@ -32,7 +41,7 @@ MIGRATES = ROOT / 'migrates.md'
 class RegisterMigrationSurfaceTests(SimpleTestCase):
     def test_registration_uses_public_register_and_contains_grammar(self):
         source = REGISTRATION.read_text()
-        self.assertIn('backend.register(', source)
+        self.assertIn('recorder.register(', source)
         self.assertIn('trust=TrustUserPermission', source)
         self.assertIn('trust=TrustGroup,', source)
         self.assertIn('trust=TrustGroupPermission', source)
@@ -121,22 +130,23 @@ class RegisterMigrationSurfaceTests(SimpleTestCase):
 
 
 class PublicRegisterDonationTests(TestCase):
-    def test_direct_group_and_role_ceilings_register_on_public_backend(self):
-        backend = isolated_backend()
-        self.assertTrue(callable(backend.register))
-        self.assertFalse(hasattr(backend, 'register_relationship'))
+    def test_direct_group_and_role_ceilings_register_on_a_recorder(self):
+        recorder = isolated_recorder()
+        self.assertTrue(callable(recorder.register))
+        self.assertFalse(hasattr(recorder, 'register_relationship'))
 
-        register_zero_direct(backend, (Trust,))
-        tup = backend.registry.records_for_root(TrustUserPermission)
+        register_zero_direct(recorder, (Trust,))
+        register_zero_group(recorder, (Trust,))
+        catalog = build_catalog(recorder=recorder)
+        tup = records_for_root(catalog, TrustUserPermission)
         self.assertEqual(len(tup), 1)
         self.assertIs(tup[0].content_model, Trust)
         self.assertEqual(tup[0].user_field, 'entity')
         self.assertIsNone(tup[0].condition)
         self.assertFalse(callable(tup[0].condition))
 
-        register_zero_group(backend, (Trust,))
-        tgp = backend.registry.records_for_root(TrustGroupPermission)
-        grouped = backend.registry.records_for_root(TrustGroup)
+        tgp = records_for_root(catalog, TrustGroupPermission)
+        grouped = records_for_root(catalog, TrustGroup)
         self.assertEqual(len(tgp), 1)
         self.assertEqual(len(grouped), 1)
         self.assertNotEqual(tgp[0].condition, grouped[0].condition)
@@ -157,14 +167,15 @@ class PublicRegisterDonationTests(TestCase):
             self.assertNotIsInstance(row.condition, type(lambda: None))
 
     def test_donation_is_idempotent_zero_sql_and_stores_no_callable(self):
-        backend = isolated_backend()
+        recorder = isolated_recorder()
         with self.assertNumQueries(0):
-            register_zero_relations(backend)
-            first = list(backend.registry.records)
-            register_zero_relations(backend)
-        self.assertEqual(list(backend.registry.records), first)
-        self.assertEqual(len(first), 3)
-        for row in first:
+            register_zero_relations(recorder)
+            first = list(recorder.rows)
+            register_zero_relations(recorder)
+            catalog = build_catalog(recorder=recorder)
+        self.assertEqual(list(recorder.rows), first)
+        self.assertEqual(len(catalog.records), 3)
+        for row in catalog.records:
             self.assertFalse(callable(row.condition))
             for value in (
                 row.condition, row.user_path, row.permission_path, row.group_path,
@@ -175,11 +186,6 @@ class PublicRegisterDonationTests(TestCase):
 
 class PublicRegisterAuthorizationTests(TestCase):
     def setUp(self):
-        from django.contrib.auth.models import Group, Permission, User
-        from django.contrib.contenttypes.models import ContentType
-        from django.core.management import call_command
-        from trusts.zero.models import Role
-
         get_or_create_root_user(self)
         call_command('create_trust_root')
         self.User = User
@@ -231,13 +237,14 @@ class PublicRegisterAuthorizationTests(TestCase):
             ).exists()
         )
 
-    def test_live_backend_exposes_public_register_only(self):
-        backend = live_backend()
-        self.assertTrue(callable(backend.register))
-        self.assertFalse(hasattr(backend, 'register_relationship'))
-        tup = backend.registry.records_for_root(TrustUserPermission)
-        tgp = backend.registry.records_for_root(TrustGroupPermission)
-        grouped = backend.registry.records_for_root(TrustGroup)
+    def test_live_catalog_exposes_public_register_only(self):
+        recorder = live_recorder()
+        self.assertTrue(callable(recorder.register))
+        self.assertFalse(hasattr(recorder, 'register_relationship'))
+        catalog = live_catalog()
+        tup = records_for_root(catalog, TrustUserPermission)
+        tgp = records_for_root(catalog, TrustGroupPermission)
+        grouped = records_for_root(catalog, TrustGroup)
         self.assertTrue(any(row.content_model is Category for row in tup))
         self.assertEqual(
             len([row for row in tgp if row.content_model is Category]), 1,

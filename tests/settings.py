@@ -18,8 +18,8 @@ INSTALLED_APPS = (
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'trusts.zero.apps.ZeroConfig',
     'tests.apps.TestsConfig',
+    'trusts.zero.apps.ZeroConfig',
 )
 
 AUTHENTICATION_BACKENDS = (

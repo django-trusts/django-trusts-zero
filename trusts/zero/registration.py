@@ -19,9 +19,8 @@ ZERO_META_OPTION_NAMES = (
 def register_zero_meta_option_names():
     """Idempotently add Zero-only names to ``options.DEFAULT_NAMES``.
 
-    Generic ``permission_conditions`` is registered by core
-    ``trusts.conditions``. Calling this more than once must not
-    duplicate names.
+    Generic ``permission_conditions`` is registered by importing
+    ``trusts.apps``. Calling this more than once must not duplicate names.
     """
     extra = tuple(
         name for name in ZERO_META_OPTION_NAMES
@@ -62,31 +61,30 @@ def _content_path(model, content_via, prefix=''):
     return path
 
 
-def _require_backend(backend):
-    from trusts.core import BackendHandle
+def _require_recorder(recorder):
+    from trusts.backends import Recorder
 
-    if not isinstance(backend, BackendHandle):
+    if not isinstance(recorder, Recorder):
         raise TypeError(
-            'Zero relation helpers require a BackendHandle, not %r.'
-            % (type(backend).__name__,)
+            'Zero relation helpers require a Recorder, not %r.'
+            % (type(recorder).__name__,)
         )
-    return backend
+    return recorder
 
 
-# Public configured-backend identity for repeated startup donation.
-# BackendHandle equality is (path, registry, compiler), so a swapped
-# store re-donates and the same configured backend does not.
-_donated_relation_backends = set()
-_donated_condition_backends = set()
+# One donation per recorder. A new recorder donates again; the same
+# recorder does not.
+_donated_relation_recorders = set()
+_donated_condition_recorders = set()
 
 
-def register_zero_direct(backend, content_models, content_via=None):
+def register_zero_direct(recorder, content_models, content_via=None):
     """TUP records for each content terminal."""
     from trusts.zero.models import TrustUserPermission
 
-    backend = _require_backend(backend)
+    recorder = _require_recorder(recorder)
     for model in content_models:
-        backend.register(
+        recorder.register(
             trust=TrustUserPermission,
             user='entity',
             permission='permission',
@@ -94,7 +92,7 @@ def register_zero_direct(backend, content_models, content_via=None):
         )
 
 
-def register_zero_group(backend, content_models, content_via=None):
+def register_zero_group(recorder, content_models, content_via=None):
     """Explicit ``auth.Group`` registration plus the role ceiling.
 
     ``TrustGroup`` uses ``group=`` ending at Django ``auth.Group``.
@@ -107,21 +105,21 @@ def register_zero_group(backend, content_models, content_via=None):
     """
     from trusts.zero.models import TrustGroup, TrustGroupPermission
 
-    backend = _require_backend(backend)
+    recorder = _require_recorder(recorder)
     for model in content_models:
         # auth.Group reverse membership is related_query_name="user"
         # (Python accessor remains group.user_set). Core path validation
         # uses _meta.get_field, so the hop must be the query name.
         # Do not append permissions; the compiler owns that hop.
         # .contains member is that compiler-owned permission path.
-        backend.register(
+        recorder.register(
             trust=TrustGroup,
             user='group__user',
             content=_content_path(model, content_via),
             group='group',
             condition=lambda t: t.permissions.contains(t.group.permissions),
         )
-        backend.register(
+        recorder.register(
             trust=TrustGroupPermission,
             user='trustgroup__group__user',
             permission='permission',
@@ -132,66 +130,66 @@ def register_zero_group(backend, content_models, content_via=None):
         )
 
 
-def register_zero_content(backend, model, content_via=None):
+def register_zero_content(recorder, model, content_via=None):
     """TUP, explicit ``auth.Group``, and the role ceiling for one terminal."""
-    register_zero_direct(backend, (model,), content_via=content_via)
-    register_zero_group(backend, (model,), content_via=content_via)
+    register_zero_direct(recorder, (model,), content_via=content_via)
+    register_zero_group(recorder, (model,), content_via=content_via)
 
 
-def register_zero_relations(backend):
+def register_zero_relations(recorder):
     """Idempotent package donation: Trust-as-content TUP, group, and role."""
     from trusts.zero.models import Trust
 
-    backend = _require_backend(backend)
-    if backend in _donated_relation_backends:
+    recorder = _require_recorder(recorder)
+    if recorder in _donated_relation_recorders:
         return
-    register_zero_content(backend, Trust)
-    _donated_relation_backends.add(backend)
+    register_zero_content(recorder, Trust)
+    _donated_relation_recorders.add(recorder)
 
 
-def donate_content_permission_conditions(backend, model):
-    """Walk ``Meta.permission_conditions`` onto a configured backend.
+def donate_content_permission_conditions(recorder, model):
+    """Walk ``Meta.permission_conditions`` onto a recorder.
 
-    Application donation uses ``BackendHandle.add_named_filter``
-    in the pre-finalization ``ready()`` window. Isolated tests wrap an
-    unfrozen ``TrustsRegistry()`` in a ``BackendHandle``. Abstract and
-    proxy models are skipped.
+    Application donation uses ``Recorder.add_named_filter`` before the
+    catalog is built. Abstract and proxy models are skipped.
     """
-    backend = _require_backend(backend)
+    recorder = _require_recorder(recorder)
     if model._meta.proxy or model._meta.abstract:
         return
+    # Django sets the option only when this model's Meta declares it.
     conditions = getattr(model._meta, 'permission_conditions', ()) or ()
     for cond_code, condition in conditions:
-        backend.add_named_filter(model, cond_code, predicate=condition)
+        recorder.add_named_filter(model, cond_code, condition)
 
 
-def donate_junction_content_permission_conditions(backend, model):
-    """Walk Junction ``Meta.content_permission_conditions`` onto a backend."""
-    backend = _require_backend(backend)
+def donate_junction_content_permission_conditions(recorder, model):
+    """Walk Junction ``Meta.content_permission_conditions`` onto a recorder."""
+    recorder = _require_recorder(recorder)
     if model._meta.proxy or model._meta.abstract:
         return
     conditions = getattr(model._meta, 'content_permission_conditions', ()) or ()
     for cond_code, condition in conditions:
-        backend.add_named_filter(model, cond_code, predicate=condition)
+        recorder.add_named_filter(model, cond_code, condition)
 
 
-def donate_installed_permission_conditions(backend, apps_registry=None):
+def donate_installed_permission_conditions(recorder, apps_registry=None):
     """Donate every installed Content/Junction Meta declaration.
 
-    Idempotent per configured backend so repeated ``ZeroConfig.ready()``
-    does not invoke builders again. ``Trust:own``, Content Meta, and
-    Junction Meta each become one IR record on this backend.
+    Idempotent per recorder so repeated ``ZeroConfig.ready()`` does not
+    record builders again. ``Trust:own``, Content Meta, and Junction Meta
+    each become one condition on this recorder. The catalog build invokes
+    each builder once.
     """
     from django.apps import apps as django_apps
     from trusts.zero.models import Content, Junction
 
-    backend = _require_backend(backend)
-    if backend in _donated_condition_backends:
+    recorder = _require_recorder(recorder)
+    if recorder in _donated_condition_recorders:
         return
     apps = django_apps if apps_registry is None else apps_registry
     for model in apps.get_models():
         if issubclass(model, Junction):
-            donate_junction_content_permission_conditions(backend, model)
+            donate_junction_content_permission_conditions(recorder, model)
         elif issubclass(model, Content):
-            donate_content_permission_conditions(backend, model)
-    _donated_condition_backends.add(backend)
+            donate_content_permission_conditions(recorder, model)
+    _donated_condition_recorders.add(recorder)
