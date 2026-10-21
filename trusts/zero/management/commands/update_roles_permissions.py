@@ -1,20 +1,18 @@
 from django.apps import apps
-from django.contrib.auth.models import Permission
-from django.contrib.contenttypes.models import ContentType
 from django.core.management.base import BaseCommand
 from django.db import DEFAULT_DB_ALIAS, router
 from django.db.models import Q
 
-from trusts.zero.models import Role, RolePermission
 
-
-def update_roles_permissions(Role, Permission, RolePermission, apps, verbosity=2, interactive=True, using=DEFAULT_DB_ALIAS, **kwargs):
-    if not router.allow_migrate_model(using, Role):
-        return
-
+def update_roles_permissions(verbosity=2, interactive=True, using=DEFAULT_DB_ALIAS, **kwargs):
     try:
         Role = apps.get_model('trusts', 'Role')
+        RolePermission = apps.get_model('trusts', 'RolePermission')
+        Permission = apps.get_model('auth', 'Permission')
+        ContentType = apps.get_model('contenttypes', 'ContentType')
     except LookupError:
+        return
+    if not router.allow_migrate_model(using, Role):
         return
 
     # This will hold the roles we're looking for as
@@ -22,11 +20,16 @@ def update_roles_permissions(Role, Permission, RolePermission, apps, verbosity=2
     model_roles = {}
     for klass in apps.get_models():
         if hasattr(klass._meta, 'roles'):
-            _process_roles(Permission, model_roles, klass, klass._meta.roles, using)
+            _process_roles(
+                Permission, ContentType, model_roles, klass, klass._meta.roles, using,
+            )
         elif hasattr(klass._meta, 'content_roles'):
             if hasattr(klass, 'get_content_model'):
                 content_klass = klass.get_content_model()
-                _process_roles(Permission, model_roles, content_klass, klass._meta.content_roles, using)
+                _process_roles(
+                    Permission, ContentType, model_roles, content_klass,
+                    klass._meta.content_roles, using,
+                )
 
     # Find all the Roles and its Permission
     db_roles = {}
@@ -100,11 +103,10 @@ class Command(BaseCommand):
 
     def handle(self, **options):
         self.verbosity = int(options.get('verbosity', 1))
-        update_roles_permissions(
-            Role, Permission, RolePermission, apps, **options)
+        update_roles_permissions(**options)
 
 
-def _process_roles(Permission, model_roles, content_klass, roles, using):
+def _process_roles(Permission, ContentType, model_roles, content_klass, roles, using):
     for rolename, perm_names in roles:
         if rolename not in model_roles:
             model_roles[rolename] = set()
