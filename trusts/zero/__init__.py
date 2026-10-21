@@ -101,6 +101,8 @@ def get_group_model():
     ``TRUSTS_GROUP_MODEL`` is deprecated and does not select a model.
     Runtime still fail-closes when that setting names anything else.
     """
+    # Deferred import: Group. This package init is imported before
+    # auth models are ready.
     from django.contrib.auth.models import Group
 
     return Group
@@ -112,6 +114,7 @@ def get_permission_model():
     ``TRUSTS_PERMISSION_MODEL`` is deprecated and does not select a model.
     Runtime still fail-closes when that setting names anything else.
     """
+    # Deferred import: Permission. See get_group_model.
     from django.contrib.auth.models import Permission
 
     return Permission
@@ -149,6 +152,8 @@ def supported_entity_contract():
     Checks the import-time field target and the live setting. Either mismatch
     is fail-closed: silenced ``trusts.E003`` must not reach grants or queries.
     """
+    # Deferred import: get_user_model. AUTH_USER_MODEL is not resolvable
+    # at package import time.
     from django.contrib.auth import get_user_model
 
     user_label = getattr(settings, 'AUTH_USER_MODEL', 'auth.User')

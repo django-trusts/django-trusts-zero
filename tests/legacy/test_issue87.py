@@ -23,19 +23,23 @@ from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_
 from django.test.utils import isolate_apps
 
 import tests as tests_module
-from tests.apps import live_registry, clone_writable_registry, forget_models, isolated_backend, override_apps_ready, live_config, publish_donated_conditions, publish_permission_condition
+from tests.apps import (
+    TESTS_BACKEND,
+    clear_backend_cache,
+    forget_models,
+    isolated_backend,
+    live_config,
+    live_registry,
+    override_apps_ready,
+    publish_donated_conditions,
+    publish_permission_condition,
+    tests_registry,
+)
 from tests.backends import MixinOnlyBackend
 from tests.models import Category, TestGroupJunction, Ticket
 from trusts.backends import TrustModelBackendMixin
-from trusts.core import PlanQueryCompiler
 from trusts.zero.backends import TrustModelBackend
-from trusts.checks import check_permission_conditions
-from trusts.core import (
-    PlanQueryCompiler,
-    Ref,
-    TrustsRegistry,
-    common_permissions,
-)
+from trusts.inspect.checks import check_permission_conditions
 from trusts.zero.models import (
     Content,
     Junction,
@@ -54,6 +58,10 @@ from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
 )
+from trusts.plan.relations import PlanQueryCompiler, RelationPlan
+from trusts.plan.contents import granted
+from tests.apps import IsolatedTarget, configured_backend
+from tests.legacy.helpers import scope_rows, catalog_permissions, listed_plan_records
 
 
 CONCRETE = 'trusts.zero.backends.TrustModelBackend'
@@ -211,31 +219,34 @@ class DependentHostConfig(AppConfig):
             return
         if self.holder_model is None:
             return
-        handle = live_config(self.apps).configured_backend(CONCRETE)
-        registry = handle.registry
+        # Test host. The live recorder is frozen after ready, so the
+        # caller supplies an unfrozen IsolatedTarget.
+        target = getattr(self, '_registration_target', None)
+        if target is None:
+            return
         from trusts.zero.registration import register_zero_content
 
         donated_image = getattr(self, '_trusts_tup_image_registry_id', None)
-        if donated_image is not registry:
+        if donated_image is not target:
             register_zero_content(
-                handle,
+                target,
                 _related_by_accessor(self.holder_model, 'image'),
                 content_via=lambda prefix, model: dependent_content_path(
                     prefix, self.holder_model, 'image',
                 ),
             )
-            self._trusts_tup_image_registry_id = registry
+            self._trusts_tup_image_registry_id = target
         donated_meta = getattr(self, '_trusts_tup_meta_registry_id', None)
-        if donated_meta is not registry:
+        if donated_meta is not target:
             image_model = _related_by_accessor(self.holder_model, 'image')
             register_zero_content(
-                handle,
+                target,
                 _related_by_accessor(image_model, 'image'),
                 content_via=lambda prefix, model: dependent_content_path(
                     prefix, self.holder_model, 'image', 'image',
                 ),
             )
-            self._trusts_tup_meta_registry_id = registry
+            self._trusts_tup_meta_registry_id = target
 
 
 def _new_dependent_host(apps_registry, holder_model):
@@ -335,6 +346,16 @@ class LegacyContentRegistryDeletedTest(SimpleTestCase):
             forget_models(BareNote)
 
     def test_class_prepared_does_not_write_a_content_map(self):
+        with self.assertRaises(TypeError) as ctx:
+            class RejectedSheet(Content):
+                class Meta:
+                    app_label = 'trusts_zero_tests'
+                    managed = False
+                    permission_conditions = (
+                        ('sheet_own', _sheet_own),
+                    )
+        self.assertIn('permission_conditions', str(ctx.exception))
+
         before = dict(live_registry().conditions._records)
         live = live_config().registry
         try:
@@ -342,12 +363,9 @@ class LegacyContentRegistryDeletedTest(SimpleTestCase):
                 class Meta:
                     app_label = 'trusts_zero_tests'
                     managed = False
-                    permission_conditions = (
-                        ('sheet_own', _sheet_own),
-                    )
 
             isolated = isolated_backend()
-            donate_content_permission_conditions(isolated, IsolatedSheet)
+            isolated.add_named_filter(IsolatedSheet, 'sheet_own', _sheet_own)
             publish_donated_conditions(isolated.registry)
             self.assertFalse(hasattr(Content, '_contents'))
             self.assertFalse(live.plan_for(IsolatedSheet).records)
@@ -357,7 +375,7 @@ class LegacyContentRegistryDeletedTest(SimpleTestCase):
             self.assertIsNotNone(record)
             self.assertIs(record.model, IsolatedSheet)
             self.assertIsNotNone(record.expr)
-            donate_content_permission_conditions(isolated, IsolatedSheet)
+            isolated.add_named_filter(IsolatedSheet, 'sheet_own', _sheet_own)
             self.assertFalse(hasattr(Content, '_contents'))
             self.assertFalse(live.plan_for(IsolatedSheet).records)
         finally:
@@ -404,7 +422,7 @@ class ConditionRegistryPreservedTest(_ConditionIsolationMixin, TestCase):
         self.assertIsNotNone(own)
         self.assertIs(own.model, Trust)
         self.assertIsNotNone(own.expr)
-        meta_own = live_registry().get_permission_condition_record(Ticket, 'meta_own')
+        meta_own = tests_registry().get_permission_condition_record(Ticket, 'meta_own')
         self.assertIsNotNone(meta_own)
         self.assertIs(meta_own.model, Ticket)
         self.assertIsNotNone(meta_own.expr)
@@ -412,32 +430,31 @@ class ConditionRegistryPreservedTest(_ConditionIsolationMixin, TestCase):
         self.assertEqual([m for m in messages if m.id == 'trusts.E001'], [])
 
     def test_duplicate_condition_overwrites_same_identity(self):
-        before = dict(live_registry().conditions._records)
+        before = dict(tests_registry().conditions._records)
         try:
             publish_permission_condition(
                 Ticket, 'meta_own', lambda u, p, o: u == o.owner,
             )
-            record = live_registry().get_permission_condition_record(Ticket, 'meta_own')
+            record = tests_registry().get_permission_condition_record(Ticket, 'meta_own')
             self.assertIsNotNone(record)
             self.assertIs(record.model, Ticket)
             self.assertIsNotNone(record.expr)
         finally:
-            live_registry().conditions._records.clear()
-            live_registry().conditions._records.update(before)
+            tests_registry().conditions._records.clear()
+            tests_registry().conditions._records.update(before)
 
 
 class HistoricalCompilerPreservedTest(SimpleTestCase):
     def test_concrete_compiler_identity_and_mixin_isolation(self):
-        self.assertFalse(PlanQueryCompiler.historical_fallback)
-        self.assertIsInstance(
-            TrustModelBackend.query_compiler, PlanQueryCompiler,
-        )
-        self.assertIsInstance(
-            MixinOnlyBackend.query_compiler, PlanQueryCompiler,
-        )
-        handle = live_config().configured_backend()
+        self.assertFalse(getattr(PlanQueryCompiler, 'historical_fallback', False))
+        self.assertFalse(hasattr(TrustModelBackend, 'query_compiler'))
+        self.assertFalse(hasattr(MixinOnlyBackend, 'query_compiler'))
+        handle = configured_backend()
         self.assertFalse(handle.historical_fallback)
         self.assertIsInstance(handle.compiler, PlanQueryCompiler)
+        self.assertIsInstance(
+            MixinOnlyBackend().catalog.compiler, PlanQueryCompiler,
+        )
 
 
 class LiveTerminalParityTest(_UsersMixin, TestCase):
@@ -508,9 +525,9 @@ class LiveTerminalParityTest(_UsersMixin, TestCase):
 class DependentHostContributionTest(_RegistryRestoreMixin, SimpleTestCase):
     def test_reenter_and_per_contribution_sentinels(self):
         Receipt, Image, Meta, _orphan = _receipt_chain()
-        isolated = TrustsRegistry()
-        self.live.registries[CONCRETE] = isolated
+        isolated = IsolatedTarget()
         contributor = _new_dependent_host(apps, Receipt)
+        contributor._registration_target = isolated
         with override_apps_ready(False):
             contributor.ready()
         self.assertIs(contributor._trusts_tup_image_registry_id, isolated)
@@ -524,9 +541,9 @@ class DependentHostContributionTest(_RegistryRestoreMixin, SimpleTestCase):
         self.assertEqual(len(isolated.plan_for(Image).records), 3)
         self.assertEqual(len(isolated.plan_for(Meta).records), 3)
 
-        isolated_meta = TrustsRegistry()
-        self.live.registries[CONCRETE] = isolated_meta
+        isolated_meta = IsolatedTarget()
         partial = _new_dependent_host(apps, Receipt)
+        partial._registration_target = isolated_meta
         partial._trusts_tup_image_registry_id = isolated_meta
         with override_apps_ready(False):
             partial.ready()
@@ -598,10 +615,14 @@ class DependentAuthorizationTest(_RegistryRestoreMixin, _UsersMixin, Transaction
             for image in extras
         ]
         contributor = _new_dependent_host(apps, self.Receipt)
-        writable = clone_writable_registry(self.live.registries[CONCRETE])
-        self.live.registries[CONCRETE] = writable
+        target = IsolatedTarget()
+        contributor._registration_target = target
         with override_apps_ready(False):
             contributor.ready()
+        tests_config = apps.get_app_config('trusts_zero_tests')
+        self._saved_tests_catalog = tests_config.catalog
+        tests_config.catalog = target.compile()
+        clear_backend_cache()
         self.image_code = 'trusts_zero_tests.change_%s' % self.Image._meta.model_name
         self.meta_code = 'trusts_zero_tests.change_%s' % self.Meta._meta.model_name
         self.orphan_code = 'trusts_zero_tests.change_%s' % self.Orphan._meta.model_name
@@ -627,11 +648,15 @@ class DependentAuthorizationTest(_RegistryRestoreMixin, _UsersMixin, Transaction
         self._reload()
 
     def tearDown(self):
+        saved = getattr(self, '_saved_tests_catalog', None)
+        if saved is not None:
+            apps.get_app_config('trusts_zero_tests').catalog = saved
+            clear_backend_cache()
         self._table_cm.__exit__(None, None, None)
         super().tearDown()
 
     def test_host_contributed_both_documented_levels(self):
-        handle = self.live.configured_backend()
+        handle = configured_backend(TESTS_BACKEND)
         image_plan = handle.registry.plan_for(self.Image)
         meta_plan = handle.registry.plan_for(self.Meta)
         self.assertTrue(image_plan.records)
@@ -685,12 +710,12 @@ class DependentAuthorizationTest(_RegistryRestoreMixin, _UsersMixin, Transaction
         self.assertEqual(self.alice.get_group_permissions(granted_qs), set())
         self.assertIn(code, self.carol.get_group_permissions(granted_qs))
         self.assertEqual(self.bob.get_all_permissions(granted), set())
-        handle = self.live.configured_backend()
-        common = common_permissions((handle,), granted_qs, self.alice)
+        handle = configured_backend(TESTS_BACKEND)
+        common = catalog_permissions((handle,), granted_qs, self.alice)
         self.assertIsInstance(common, QuerySet)
         self.assertIn(code.split('.', 1)[1], set(common.values_list('codename', flat=True)))
         self.assertEqual(
-            list(common_permissions((handle,), mixed_qs, self.alice)),
+            list(catalog_permissions((handle,), mixed_qs, self.alice)),
             [],
         )
 
@@ -728,7 +753,7 @@ class DependentAuthorizationTest(_RegistryRestoreMixin, _UsersMixin, Transaction
         self.assertFalse(hasattr(Content, '_contents'))
         self.assertFalse(hasattr(TrustModelBackend, '_get_trusts'))
         self.assertFalse(hasattr(Trust.objects, 'filter_by_content'))
-        handle = self.live.configured_backend()
+        handle = configured_backend()
         self.assertFalse(handle.registry.plan_for(self.Orphan).records)
         self.assertFalse(self.alice.has_perm(self.orphan_code, self.orphan))
         self.assertFalse(self.carol.has_perm(self.orphan_code, self.orphan))
@@ -766,7 +791,7 @@ class UnknownTerminalFailsClosedTest(_UsersMixin, TestCase):
         self.assertEqual(backend.get_all_permissions(self.alice, {}), set())
         self.assertFalse(backend.has_perm(self.alice, 'auth.change_user', self.alice))
         self.assertFalse(
-            live_config().configured_backend().registry.plan_for(
+            configured_backend().registry.plan_for(
                 User,
             ).records
         )

@@ -241,10 +241,62 @@ class TrustAsContentMixin(ContentModel):
         return content
 
 
-def forget_condition(model, cond_code):
-    """Drop one live handle-registry condition record (test isolation)."""
-    from tests.apps import live_registry
+def scope_rows(queryset, user, permission, *, content, handles=None, **skip_flags):
+    """Prefix filter.
 
-    live_registry().conditions._records.pop((model._meta.label, cond_code), None)
+    One explicit catalog answers when ``handles`` carries a compiler or
+    catalog. Otherwise listed backends are OR'd by the public filter.
+    ``import trusts.decorators as`` keeps the legacy-decorator scan from
+    treating this as a ``from trusts.decorators import`` of P/R/K/G/O.
+    """
+    import trusts.decorators as core_decorators
+
+    if handles is None or len(handles) != 1:
+        if handles is not None and len(handles) == 0:
+            return queryset.none()
+        return core_decorators.filter_by_permitted_content(
+            queryset, user, permission, content=content, **skip_flags,
+        )
+    registry = handles[0].registry
+    catalog = getattr(registry, '_catalog', registry)
+    if hasattr(catalog, 'compile') and not hasattr(catalog, 'filter_by_permitted_content'):
+        catalog = catalog.compile()
+    return catalog.filter_by_permitted_content(
+        queryset, user, permission, content=content, **skip_flags,
+    )
+
+
+def catalog_permissions(handles, candidates, user, **kwargs):
+    """Public ``Catalog.permissions_for`` for the first handle's catalog."""
+    handle = handles[0]
+    catalog = getattr(handle, 'catalog', None)
+    if catalog is None:
+        catalog = getattr(handle, 'registry', handle)
+    catalog = getattr(catalog, '_catalog', catalog)
+    if hasattr(catalog, 'compile') and not hasattr(catalog, 'permissions_for'):
+        catalog = catalog.compile()
+    return catalog.permissions_for(user, candidates, **kwargs)
+
+
+def listed_plan_records(handles, content):
+    """True when any handle's catalog has ordinary records for ``content``."""
+    for handle in handles:
+        registry = getattr(handle, 'registry', handle)
+        catalog = getattr(registry, '_catalog', registry)
+        if hasattr(catalog, 'compile') and not hasattr(catalog, 'plan_for'):
+            catalog = catalog.compile()
+        plan = catalog.plan_for(content)
+        if plan.records:
+            return True
+    return False
+
+
+def forget_condition(model, cond_code):
+    """Drop one condition row from the catalog that stored it."""
+    from tests.apps import live_registry, tests_registry
+
+    key = (model._meta.label, cond_code)
+    for view in (live_registry(), tests_registry()):
+        view.conditions._records.pop(key, None)
 
 

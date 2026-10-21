@@ -26,5 +26,7 @@ class Command(BaseCommand):
         settlor = getattr(settings, 'TRUSTS_ROOT_SETTLOR', None)
         title = getattr(settings, 'TRUSTS_ROOT_TITLE', 'In Trust We Trust')
 
+        # Deferred import: Trust. The command module can be imported
+        # before the app registry has finished loading models.
         from trusts.zero.models import Trust
         create_root_trust(Trust, pk, settlor, title)

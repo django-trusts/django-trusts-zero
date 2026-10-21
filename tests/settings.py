@@ -25,6 +25,7 @@ INSTALLED_APPS = (
 AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend',
     'trusts.zero.backends.TrustModelBackend',
+    'tests.backends.TestsCatalogBackend',
 )
 
 MIDDLEWARE = (

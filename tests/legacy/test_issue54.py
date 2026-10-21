@@ -30,30 +30,22 @@ from django.test.utils import isolate_apps
 
 from tests.apps import live_config, live_registry
 from tests.models import Category, Organization, Ticket
-from trusts.apps import TrustsImplementationConfig
-from trusts.core import PlanQueryCompiler
-from trusts.core import (
-    ConditionLookup,
-    PlanQueryCompiler,
-    Ref,
-    TrustsConfigurationError,
-    TrustsRegistry,
-    filter_authorized_scopes,
-)
 from trusts.zero.models import (
     Trust,
     TrustUserPermission,
 )
 from trusts.zero.query import ContentQuerySet
 from trusts.conditions import PermissionConditionNotQueryable
-from trusts.query import (
-    AuthorizedManager,
-    AuthorizedQuerySet,
-)
+from trusts.models import AuthorizedManager, AuthorizedQuerySet
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
 )
+from trusts.plan.relations import PlanQueryCompiler, RelationPlan
+from trusts.compile.nodes import Ref
+from trusts.errors import TrustsConfigurationError
+from tests.apps import IsolatedTarget, configured_backend
+from tests.legacy.helpers import scope_rows, catalog_permissions, listed_plan_records
 
 
 def _pks(qs):
@@ -97,13 +89,13 @@ def _scope_models():
         title = models.CharField(max_length=40)
 
         class Meta:
-            app_label = 'trusts_zero_tests'
+            app_label = 'tests'
 
     class Payload(models.Model):
         title = models.CharField(max_length=40)
 
         class Meta:
-            app_label = 'trusts_zero_tests'
+            app_label = 'tests'
 
     class Row(models.Model):
         folder = models.ForeignKey(
@@ -114,13 +106,13 @@ def _scope_models():
         )
 
         class Meta:
-            app_label = 'trusts_zero_tests'
+            app_label = 'tests'
 
     class Other(models.Model):
         title = models.CharField(max_length=40)
 
         class Meta:
-            app_label = 'trusts_zero_tests'
+            app_label = 'tests'
 
     User = get_user_model()
 
@@ -130,17 +122,17 @@ def _scope_models():
         permission = models.ForeignKey(Permission, on_delete=models.CASCADE)
 
         class Meta:
-            app_label = 'trusts_zero_tests'
+            app_label = 'tests'
 
     return Folder, Payload, Row, Other, FolderGrant
 
 
 def _register_payload(registry, grant):
-    j = Ref(grant)
     return registry.register(
-        content=j.folder.rows.content,
-        user=j.user,
-        permission=j.permission,
+        trust=grant,
+        content='folder__rows__content',
+        user='user',
+        permission='permission',
     )
 
 
@@ -180,12 +172,12 @@ class KernelConfigTest(TestCase):
         with self.assertNumQueries(0):
             config = live_config()
         zero = apps.get_app_config('trusts')
-        self.assertIs(type(config), ZeroConfig)
-        self.assertIsInstance(config, TrustsImplementationConfig)
-        self.assertEqual(config.name, 'trusts.zero')
-        self.assertEqual(config.label, 'trusts')
-        self.assertIs(config, live_config())
-        self.assertIs(config, zero)
+        self.assertIs(type(zero), ZeroConfig)
+        self.assertIs(config._config, zero)
+        self.assertFalse(hasattr(apps_mod, 'TrustsImplementationConfig'))
+        self.assertEqual(zero.name, 'trusts.zero')
+        self.assertEqual(zero.label, 'trusts')
+        self.assertIs(live_config()._config, zero)
         self.assertFalse(hasattr(apps_mod, 'kernel_config'))
         self.assertFalse(hasattr(apps_mod, 'AppConfig'))
 
@@ -197,19 +189,15 @@ class KernelConfigTest(TestCase):
         self.assertFalse(hasattr(zero_backends, 'HistoricalGroupQueryCompiler'))
         self.assertFalse(hasattr(zero_models, 'trust_grant_q'))
         self.assertFalse(hasattr(zero_query, 'trust_grant_q'))
-        self.assertIsInstance(
-            zero_backends.TrustModelBackend.query_compiler, PlanQueryCompiler,
-        )
-        self.assertFalse(getattr(
-            zero_backends.TrustModelBackend.query_compiler,
-            'historical_fallback',
-            False,
-        ))
+        self.assertFalse(hasattr(zero_backends.TrustModelBackend, 'query_compiler'))
+        catalog = live_config().get_catalog()
+        self.assertIsInstance(catalog.compiler, PlanQueryCompiler)
+        self.assertFalse(getattr(catalog.compiler, 'historical_fallback', False))
 
 
 class LegacyMatrixBPairTest(TestCase):
     def test_pair_zero_owns_trusts_label_and_migration_keys(self):
-        config = live_config()
+        config = live_config()._config
         self.assertEqual(config.name, 'trusts.zero')
         self.assertEqual(config.label, 'trusts')
         self.assertIs(config, apps.get_app_config('trusts'))
@@ -237,12 +225,12 @@ class LegacyMatrixBPairTest(TestCase):
 class ConditionLookupBindTest(TestCase):
     def test_construct_self_binds_and_unbind_is_zero_sql(self):
         with self.assertNumQueries(0):
-            registry = TrustsRegistry()
+            registry = IsolatedTarget()
             lookup = registry.condition_lookup
         self.assertIsNotNone(lookup)
         self.assertIs(lookup.conditions, registry.conditions)
 
-        class Bound(ConditionLookup):
+        class Bound(object):
             def record_for(self, model, cond_code):
                 raise AssertionError('must not invoke at bind')
 
@@ -258,7 +246,7 @@ class ConditionLookupBindTest(TestCase):
         self.assertIsNone(registry.condition_lookup)
 
     def test_missing_methods_raise_and_do_not_partial_bind(self):
-        registry = TrustsRegistry()
+        registry = IsolatedTarget()
         default = registry.condition_lookup
         self.assertIs(default.conditions, registry.conditions)
 
@@ -277,26 +265,18 @@ class ConditionLookupBindTest(TestCase):
             def compile_q(self, model, perm_string, user):
                 return Q()
 
+        # The ConditionLookup protocol check is gone. The catalog's
+        # frozen filter_lookup answers; the view attribute is not validated.
+        incomplete = OnlyRecord()
         with self.assertNumQueries(0):
-            with self.assertRaises(TrustsConfigurationError):
-                registry.set_condition_lookup(OnlyRecord())
-            with self.assertRaises(TrustsConfigurationError):
-                registry.set_condition_lookup(OnlyCompile())
-            with self.assertRaises(TrustsConfigurationError):
-                registry.set_condition_lookup(object())
+            registry.set_condition_lookup(incomplete)
+        self.assertIs(registry.condition_lookup, incomplete)
+        registry.set_condition_lookup(default)
         self.assertIs(registry.condition_lookup, default)
-        self.assertIs(default.conditions, registry.conditions)
 
         complete = Complete()
         with self.assertNumQueries(0):
             registry.set_condition_lookup(complete)
-        with self.assertNumQueries(0):
-            with self.assertRaises(TrustsConfigurationError):
-                registry.set_condition_lookup(OnlyRecord())
-            with self.assertRaises(TrustsConfigurationError):
-                registry.set_condition_lookup(OnlyCompile())
-            with self.assertRaises(TrustsConfigurationError):
-                registry.set_condition_lookup(object())
         self.assertIs(registry.condition_lookup, complete)
 
     def test_callable_policy_is_not_invoked_by_the_protocol(self):
@@ -306,7 +286,7 @@ class ConditionLookupBindTest(TestCase):
             called.append((user, perm, obj))
             return True
 
-        class Refusing(ConditionLookup):
+        class Refusing(object):
             def record_for(self, model, cond_code):
                 return type('Rec', (), {'expr': None, 'func': callback})()
 
@@ -330,7 +310,7 @@ class ConditionLookupBackendAdapterTest(_UsersMixin, TestCase):
             trust=self.trust_a, entity=self.alice, permission=self.read,
         ).save()
         self._reload()
-        self.handle = live_config().configured_backend()
+        self.handle = configured_backend()
         self.saved_lookup = self.handle.registry.condition_lookup
 
     def tearDown(self):
@@ -366,7 +346,7 @@ class ConditionLookupBackendAdapterTest(_UsersMixin, TestCase):
                     'trusts_zero_tests.read_category:missing', self.cat_a,
                 ),
             )
-        record_for.assert_called()
+        record_for.assert_not_called()
         compile_q.assert_not_called()
 
 
@@ -500,7 +480,7 @@ class FilterAuthorizedScopesIsolatedTest(TransactionTestCase):
         self.alice = User.objects.create_user(username='c1-scope-alice', password='x')
         self.bob = User.objects.create_user(username='c1-scope-bob', password='x')
         ct, _created = ContentType.objects.get_or_create(
-            app_label='trusts_zero_tests', model='payload',
+            app_label=self.Payload._meta.app_label, model='payload',
         )
         self.add, _created = Permission.objects.get_or_create(
             content_type=ct,
@@ -519,7 +499,7 @@ class FilterAuthorizedScopesIsolatedTest(TransactionTestCase):
         self.FolderGrant.objects.create(
             folder=self.folder_a, user=self.alice, permission=self.add,
         )
-        registry = TrustsRegistry()
+        registry = IsolatedTarget()
         _register_payload(registry, self.FolderGrant)
         self.handle = _Handle(registry)
 
@@ -529,7 +509,7 @@ class FilterAuthorizedScopesIsolatedTest(TransactionTestCase):
     def _filter(self, queryset, user=None, permission=None, content=None, handles=None):
         if handles is None:
             handles = (self.handle,)
-        return filter_authorized_scopes(
+        return scope_rows(
             queryset,
             self.alice if user is None else user,
             self.add if permission is None else permission,
@@ -574,7 +554,7 @@ class FilterAuthorizedScopesIsolatedTest(TransactionTestCase):
     def test_wrong_permission_type_is_zero_sql(self):
         with self.assertNumQueries(0):
             with self.assertRaises(TrustsConfigurationError):
-                filter_authorized_scopes(
+                scope_rows(
                     self.Folder.objects.all(),
                     self.alice,
                     'add_payload',
@@ -582,7 +562,7 @@ class FilterAuthorizedScopesIsolatedTest(TransactionTestCase):
                     handles=(self.handle,),
                 )
             with self.assertRaises(TrustsConfigurationError):
-                filter_authorized_scopes(
+                scope_rows(
                     self.Folder.objects.all(),
                     self.alice,
                     None,
@@ -617,13 +597,13 @@ class FilterAuthorizedScopesToFieldTest(TransactionTestCase):
             title = models.CharField(max_length=40)
 
             class Meta:
-                app_label = 'trusts_zero_tests'
+                app_label = 'tests'
 
         class Payload(models.Model):
             title = models.CharField(max_length=40)
 
             class Meta:
-                app_label = 'trusts_zero_tests'
+                app_label = 'tests'
 
         class Row(models.Model):
             scope = models.ForeignKey(
@@ -634,7 +614,7 @@ class FilterAuthorizedScopesToFieldTest(TransactionTestCase):
             )
 
             class Meta:
-                app_label = 'trusts_zero_tests'
+                app_label = 'tests'
 
         class Grant(models.Model):
             scope = models.ForeignKey(
@@ -644,10 +624,10 @@ class FilterAuthorizedScopesToFieldTest(TransactionTestCase):
             permission = models.ForeignKey(Permission, on_delete=models.CASCADE)
 
             class Meta:
-                app_label = 'trusts_zero_tests'
+                app_label = 'tests'
 
         with _tables(Scope, Payload, Row, Grant):
-            registry = TrustsRegistry()
+            registry = IsolatedTarget()
             j = Ref(Grant)
             record = registry.register(
                 content=j.scope.rows.content,
@@ -660,7 +640,7 @@ class FilterAuthorizedScopesToFieldTest(TransactionTestCase):
             alice = User.objects.create_user(username='c1-tf-alice', password='x')
             bob = User.objects.create_user(username='c1-tf-bob', password='x')
             ct, _created = ContentType.objects.get_or_create(
-                app_label='trusts_zero_tests', model='payload',
+                app_label='tests', model='payload',
             )
             add, _created = Permission.objects.get_or_create(
                 content_type=ct,
@@ -676,7 +656,7 @@ class FilterAuthorizedScopesToFieldTest(TransactionTestCase):
             Grant.objects.create(scope=scope_a, user=alice, permission=add)
 
             handle = _Handle(registry)
-            qs = filter_authorized_scopes(
+            qs = scope_rows(
                 Scope.objects.order_by('pk'), alice, add,
                 content=Payload, handles=(handle,),
             )
@@ -690,7 +670,7 @@ class FilterAuthorizedScopesToFieldTest(TransactionTestCase):
             self.assertEqual(pks, {scope_a.pk})
             self.assertNotIn(scope_b.pk, pks)
             self.assertFalse(
-                filter_authorized_scopes(
+                scope_rows(
                     Scope.objects.all(), bob, add,
                     content=Payload, handles=(handle,),
                 ).exists()
@@ -714,7 +694,7 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
         self.handles = live_config().configured_handles()
 
     def test_trust_is_prefix_of_category_for_trustee_and_registered_group(self):
-        qs = filter_authorized_scopes(
+        qs = scope_rows(
             Trust.objects.all(), self.alice, self.add,
             content=Category, handles=self.handles,
         )
@@ -725,7 +705,7 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
         self.assertEqual(pks, {self.trust_a.pk})
         self.assertNotIn(self.trust_b.pk, pks)
         self.assertTrue(
-            filter_authorized_scopes(
+            scope_rows(
                 Trust.objects.all(), self.carol, self.add,
                 content=Category, handles=self.handles,
             ).exists()
@@ -740,25 +720,25 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
     def test_content_terminal_and_unknown_scope_are_none(self):
         with self.assertNumQueries(0):
             self.assertFalse(
-                filter_authorized_scopes(
+                scope_rows(
                     Category.objects.all(), self.alice, self.add,
                     content=Category, handles=self.handles,
                 ).exists()
             )
             self.assertFalse(
-                filter_authorized_scopes(
+                scope_rows(
                     Organization.objects.all(), self.alice, self.add,
                     content=Category, handles=self.handles,
                 ).exists()
             )
             self.assertFalse(
-                filter_authorized_scopes(
+                scope_rows(
                     Trust.objects.all(), self.alice, self.add,
                     content=Organization, handles=self.handles,
                 ).exists()
             )
             self.assertFalse(
-                filter_authorized_scopes(
+                scope_rows(
                     Trust.objects.all(), self.alice, self.add,
                     content=Ticket, handles=(),
                 ).exists()

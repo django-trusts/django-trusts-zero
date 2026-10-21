@@ -9,7 +9,7 @@ Registers ``TrustUserPermission → parent Trust ← child Trust`` on the
 AppConfig-owned ``TrustsRegistry`` so ``Trust.objects.permitted(...)``
 uses the common relation plan. Backend ``has_perm`` and
 ``filter_by_user_content_perm`` stay on the old path. Isolated core
-tests keep constructing their own ``TrustsRegistry()``.
+tests keep constructing their own ``IsolatedTarget()``.
 """
 
 from unittest.mock import patch
@@ -23,15 +23,18 @@ from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import isolate_apps
 
-from tests.apps import TestsConfig, apply_zero_trust_donation, isolate_live_registry, isolated_owner, live_config, live_registry
+from tests.apps import (
+    TestsConfig,
+    apply_zero_trust_donation,
+    isolate_live_registry,
+    isolated_owner,
+    live_config,
+    live_registry,
+    tests_catalog,
+    tests_registry,
+)
 import tests as tests_module
 from tests.models import Category, Ticket
-from trusts.core import (
-    Ref,
-    RelationPlan,
-    TrustsConfigurationError,
-    TrustsRegistry,
-)
 from trusts.zero.models import (
     Content,
     Trust,
@@ -39,11 +42,15 @@ from trusts.zero.models import (
     TrustGroupPermission,
     TrustUserPermission,
 )
-from trusts.zero.query import filter_authorized_scopes
+from trusts.zero.query import filter_by_permitted_content
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
 )
+from trusts.plan.relations import RelationPlan
+from trusts.errors import TrustsConfigurationError
+from trusts.zero.registration import register_zero_relations
+from tests.apps import IsolatedTarget
 
 
 def _pks(qs):
@@ -83,39 +90,30 @@ class TrustContributionIdempotenceTest(SimpleTestCase):
     def setUp(self):
         self.live = live_config()
         self.live_registry = self.live.registry
-        self.live_sentinel = getattr(
-            self.live, '_trusts_tup_trust_registry_id', None
-        )
 
     def tearDown(self):
         self.live.registry = self.live_registry
-        self.live._trusts_tup_trust_registry_id = self.live_sentinel
 
     def test_reenter_same_contributor_ready_is_noop(self):
-        apply_zero_trust_donation(self.live)
-        self.assertIs(self.live._trusts_tup_trust_registry_id, self.live_registry)
+        self.assertTrue(self.live.recorder.frozen)
         before = self.live_registry.records
-        with patch.object(
-            self.live_registry, 'register', wraps=self.live_registry.register,
-        ) as register:
-            self.live.ready()
-        register.assert_not_called()
-        self.assertIs(self.live.registry, self.live_registry)
+        self.live.ready()
+        self.assertIs(self.live.get_catalog(), self.live_registry._catalog)
         self.assertEqual(self.live.registry.records, before)
+        self.assertTrue(self.live.registry.plan_for(Trust).records)
 
     def test_ready_does_not_replace_registry(self):
-        import trusts
-
         config = isolated_owner()
-        first = config.registry
-        config.ready()
         apply_zero_trust_donation(config)
-        self.assertIs(config.registry, first)
-        self.assertIs(config._trusts_tup_trust_registry_id, first)
+        config.ready()
+        first = config.get_catalog()
+        config.ready()
+        self.assertIs(config.get_catalog(), first)
+        self.assertEqual(len(first.records), 3)
 
-        before = self.live.registry
+        before = self.live.get_catalog()
         self.live.ready()
-        self.assertIs(self.live.registry, before)
+        self.assertIs(self.live.get_catalog(), before)
 
     def test_different_root_trust_registration_does_not_suppress_tup(self):
         class OtherTrustGrant(models.Model):
@@ -126,58 +124,50 @@ class TrustContributionIdempotenceTest(SimpleTestCase):
             class Meta:
                 app_label = 'trusts'
 
-        import trusts
-
-        isolated = isolated_owner()
-        other = Ref(OtherTrustGrant)
-        isolated.registry.register(
-            content=other.trust, user=other.user, permission=other.permission,
+        isolated = IsolatedTarget()
+        isolated.register(
+            trust=OtherTrustGrant,
+            content='trust',
+            user='user',
+            permission='permission',
         )
-        isolated.ready()
-        apply_zero_trust_donation(isolated)
-        self.assertIs(isolated._trusts_tup_trust_registry_id, isolated.registry)
-        self.assertEqual(len(isolated.registry.records), 4)
-        roots = {record.root for record in isolated.registry.records}
+        register_zero_relations(isolated)
+        catalog = isolated.compile()
+        self.assertEqual(len(catalog.records), 4)
+        roots = {record.root for record in catalog.records}
         self.assertEqual(
             roots,
             {OtherTrustGrant, TrustUserPermission, TrustGroup, TrustGroupPermission},
         )
-        plan = isolated.registry.plan_for(Trust)
+        plan = catalog.plan_for(Trust)
         self.assertEqual(len(plan.records), 4)
 
     def test_conflicting_contribution_reaches_register_and_fails_closed(self):
-        import trusts
-
-        isolated = isolated_owner()
-        j = Ref(TrustUserPermission)
+        isolated = IsolatedTarget()
         rev = Trust._meta.get_field('trust').remote_field.get_accessor_name()
-        isolated.registry.register(
-            content=getattr(j.trust, rev),
-            user=j.permission,
-            permission=j.entity,
+        isolated.register(
+            trust=TrustUserPermission,
+            content='trust__%s' % rev,
+            user='permission',
+            permission='entity',
         )
         with self.assertRaises(TrustsConfigurationError):
-            apply_zero_trust_donation(isolated)
-        self.assertIsNone(
-            getattr(isolated, '_trusts_tup_trust_registry_id', None)
-        )
-        self.assertEqual(len(isolated.registry.records), 1)
+            register_zero_relations(isolated)
+        self.assertIsNone(getattr(isolated, '_trusts_tup_trust_registry_id', None))
+        self.assertEqual(len(isolated.records), 1)
         with self.assertRaises(TrustsConfigurationError):
-            apply_zero_trust_donation(isolated)
-        self.assertIsNone(
-            getattr(isolated, '_trusts_tup_trust_registry_id', None)
-        )
+            register_zero_relations(isolated)
+        self.assertEqual(len(isolated.records), 1)
 
     def test_new_appconfig_registry_receives_declaration_again(self):
-        import trusts
-
         live_before = self.live_registry.records
         isolated = isolated_owner()
-        self.assertEqual(isolated.registry.records, ())
-        isolated.ready()
+        with self.assertRaises(TrustsConfigurationError):
+            isolated.registry
         apply_zero_trust_donation(isolated)
-        self.assertIs(isolated._trusts_tup_trust_registry_id, isolated.registry)
-        self.assertIsNot(isolated.registry, self.live_registry)
+        isolated.ready()
+        self.assertIsNone(getattr(isolated, '_trusts_tup_trust_registry_id', None))
+        self.assertIsNot(isolated.get_catalog(), self.live.get_catalog())
         self.assertEqual(len(isolated.registry.records), 3)
         tup = [
             record for record in isolated.registry.records
@@ -192,20 +182,18 @@ class TrustContributionIdempotenceTest(SimpleTestCase):
         self.assertEqual(self.live_registry.records, live_before)
 
     def test_declaration_uses_meta_reverse_not_contents(self):
-        import trusts
-
-        isolated = isolated_owner()
+        isolated = IsolatedTarget()
         remote = Trust._meta.get_field('trust').remote_field
         with patch.object(
             remote, 'get_accessor_name', wraps=remote.get_accessor_name,
         ) as accessor:
             self.assertFalse(hasattr(Content, '_contents'))
-            apply_zero_trust_donation(isolated)
+            register_zero_relations(isolated)
         accessor.assert_called()
         rev = remote.get_accessor_name()
-        self.assertEqual(len(isolated.registry.records), 3)
+        self.assertEqual(len(isolated.records), 3)
         record = [
-            row for row in isolated.registry.records
+            row for row in isolated.records
             if row.root is TrustUserPermission
         ][0]
         self.assertIs(record.content_model, Trust._meta.concrete_model)
@@ -214,18 +202,13 @@ class TrustContributionIdempotenceTest(SimpleTestCase):
         self.assertEqual(record.permission_field, 'permission')
         self.assertNotEqual(record.content_field, 'trust')
 
-    def test_swapped_live_registry_receives_declaration_again(self):
-        isolated = TrustsRegistry()
-        isolate_live_registry(self.live, isolated)
-        apply_zero_trust_donation(self.live)
-        self.assertIs(self.live._trusts_tup_trust_registry_id, isolated)
-        self.assertIs(self.live.registry, isolated)
-        tup_trust = [
-            record for record in isolated.records
-            if record.root is TrustUserPermission
-            and record.content_model is Trust._meta.concrete_model
-        ]
-        self.assertEqual(len(tup_trust), 1)
+    def test_frozen_recorder_does_not_rewrite_a_swapped_catalog(self):
+        isolated = IsolatedTarget()
+        empty = isolated.compile()
+        isolate_live_registry(self.live, empty)
+        self.live.ready()
+        self.assertEqual(self.live.get_catalog().records, ())
+        self.assertFalse(self.live.registry.plan_for(Trust).records)
 
 
 @isolate_apps(
@@ -236,37 +219,27 @@ class TrustContributionIdempotenceTest(SimpleTestCase):
 )
 class IsolatedAppsDoesNotDonateTrustContributionTest(SimpleTestCase):
     def test_isolate_apps_ready_does_not_touch_live_registry(self):
-        live = live_config().registry
+        live = live_registry()
+        host = tests_registry()
+        before_live = live.records
+        before_host = host.records
         tup_trust = [
             record for record in live.records
             if record.root is TrustUserPermission
             and record.content_model is Trust._meta.concrete_model
         ]
-        tup_ticket = [
-            record for record in live.records
-            if record.root is TrustUserPermission
-            and record.content_model is Ticket._meta.concrete_model
-        ]
         self.assertEqual(len(tup_trust), 1)
-        self.assertEqual(len(tup_ticket), 1)
+        self.assertFalse(live.plan_for(Ticket).records)
+        self.assertTrue(host.plan_for(Ticket).records)
         self.assertFalse(self.isolated_apps.is_installed('trusts'))
-
-        import trusts
 
         isolated = isolated_owner()
         isolated.apps = self.isolated_apps
-        isolated.ready()
         apply_zero_trust_donation(isolated)
-        self.assertIs(isolated._trusts_tup_trust_registry_id, isolated.registry)
-        self.assertIsNot(isolated.registry, live)
-        self.assertEqual(
-            [
-                record for record in live.records
-                if record.root is TrustUserPermission
-                and record.content_model is Trust._meta.concrete_model
-            ],
-            tup_trust,
-        )
+        isolated.ready()
+        self.assertIsNone(getattr(isolated, '_trusts_tup_trust_registry_id', None))
+        self.assertIsNot(isolated.get_catalog(), live._catalog)
+        self.assertEqual(live.records, before_live)
 
         contributor = TestsConfig('tests', tests_module)
         contributor.apps = self.isolated_apps
@@ -274,22 +247,9 @@ class IsolatedAppsDoesNotDonateTrustContributionTest(SimpleTestCase):
         self.assertIsNone(getattr(contributor, '_trusts_tup_category_registry_id', None))
         self.assertIsNone(getattr(contributor, '_trusts_tup_ticket_registry_id', None))
         self.assertIsNone(getattr(contributor, '_trusts_tup_group_registry_id', None))
-        self.assertEqual(
-            [
-                record for record in live.records
-                if record.root is TrustUserPermission
-                and record.content_model is Ticket._meta.concrete_model
-            ],
-            tup_ticket,
-        )
-        self.assertEqual(
-            [
-                record for record in live.records
-                if record.root is TrustUserPermission
-                and record.content_model is Trust._meta.concrete_model
-            ],
-            tup_trust,
-        )
+        self.assertEqual(live.records, before_live)
+        self.assertEqual(host.records, before_host)
+        self.assertTrue(contributor.get_catalog().plan_for(Ticket).records)
 
 
 class TrustPermittedRegistryTest(TestCase):
@@ -500,8 +460,8 @@ class TrustPermittedRegistryTest(TestCase):
         filtered.assert_not_called()
         self.assertEqual(exists.call_count, 1)
 
-    def test_create_under_trust_uses_filter_authorized_scopes(self):
-        with patch('trusts.zero.query.filter_authorized_scopes', wraps=filter_authorized_scopes) as grant_q:
+    def test_create_under_trust_uses_scope_rows(self):
+        with patch('trusts.zero.query.filter_by_permitted_content', wraps=filter_by_permitted_content) as grant_q:
             pks = _pks(Trust.objects.filter_by_user_content_perm(
                 self.alice, Trust, 'change_trust',
             ))
@@ -513,11 +473,13 @@ class TrustPermittedRegistryTest(TestCase):
         self.assertNotIn(self.child_b.pk, pks)
 
     def test_junction_stays_on_old_path(self):
-        registry = live_config().registry
-        self.assertTrue(registry.plan_for(Category).records)
-        self.assertTrue(registry.plan_for(Trust).records)
-        self.assertTrue(registry.plan_for(Ticket).records)
-        self.assertTrue(registry.plan_for(Group).records)
+        host = tests_registry()
+        zero = live_registry()
+        self.assertTrue(host.plan_for(Category).records)
+        self.assertTrue(zero.plan_for(Trust).records)
+        self.assertTrue(host.plan_for(Ticket).records)
+        self.assertTrue(host.plan_for(Group).records)
+        self.assertFalse(zero.plan_for(Category).records)
 
     def test_inactive_and_anonymous_remain_empty(self):
         self.alice.is_active = False

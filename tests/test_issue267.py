@@ -17,7 +17,7 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from trusts.zero.models import Trust, TrustUserPermission
-from tests.apps import live_backend
+from tests.apps import tests_registry
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category, Organization, TestGroupJunction
 from tests.runtests import NORMAL_SUITE
@@ -81,7 +81,7 @@ class ContentTypeMismatchZeroTest(TestCase):
         self.assertIn('tests.test_issue267', NORMAL_SUITE)
 
     def test_group_grant_keeps_same_model_and_denies_the_cross(self):
-        registry = live_backend().registry
+        registry = tests_registry()
         self.assertTrue(self.member.has_perm(self.read_code, self.category))
         self.assertTrue(self.member.has_perm(self.topic_code, self.category))
         self.assertTrue(
@@ -138,7 +138,7 @@ class ContentTypeMismatchZeroTest(TestCase):
         self.assertFalse(self.direct.has_perm(self.group_code, self.category))
         self.assertFalse(self.direct.has_perm(self.read_code, self.protected))
         self.assertIs(
-            live_backend().registry.has_permission(
+            tests_registry().has_permission(
                 self.direct, self.category, self.change_group,
             ),
             False,
@@ -205,7 +205,7 @@ class ContentTypeMismatchZeroTest(TestCase):
 
     def test_unregistered_model_is_zero_sql(self):
         unrelated = Organization.objects.create(name='z267-org', manager=self.member)
-        registry = live_backend().registry
+        registry = tests_registry()
         self.assertFalse(registry.plan_for(Organization).records)
         with self.assertNumQueries(0):
             self.assertFalse(self.member.has_perm(self.read_code, unrelated))

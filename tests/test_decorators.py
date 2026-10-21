@@ -107,12 +107,21 @@ class LegacyDecoratorPublicSurfaceTests(SimpleTestCase):
                 stripped = line.strip()
                 if stripped.startswith('#'):
                     continue
-                if stripped.startswith('from trusts.decorators import') or (
-                    stripped == 'import trusts.decorators'
-                ):
+                if stripped == 'import trusts.decorators':
                     offenders.append(
                         '%s: %s' % (path.relative_to(ROOT), stripped)
                     )
+                    continue
+                if not stripped.startswith('from trusts.decorators import'):
+                    continue
+                # The public prefix filter lives on trusts.decorators.
+                # Legacy P/R/K/G/O stay on trusts.zero.decorators.
+                imported = stripped.split('import', 1)[1].strip()
+                if imported == 'filter_by_permitted_content':
+                    continue
+                offenders.append(
+                    '%s: %s' % (path.relative_to(ROOT), stripped)
+                )
         self.assertEqual(offenders, [])
 
 

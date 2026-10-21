@@ -1,7 +1,7 @@
 """Zero #32: migrate donation to the final configured-backend methods.
 
 Paired against the exact django-trusts candidate
-``cbe72e573911f34225c8322e1133288c1bcb3c43``.
+``f898123987569817bc93e31e34505211e1c61b82``.
 """
 
 import inspect
@@ -12,7 +12,7 @@ from django.db import models
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import isolate_apps
 
-from trusts.core import TrustsConfigurationError, TrustsRegistry
+from trusts.errors import TrustsConfigurationError
 from trusts.zero.apps import CANONICAL_BACKEND_PATH, ZeroConfig, zero_config
 from trusts.zero.models import (
     Junction, Trust, TrustGroup, TrustGroupPermission, TrustUserPermission,
@@ -24,12 +24,19 @@ from trusts.zero.registration import (
     register_zero_group,
     register_zero_relations,
 )
-from tests.apps import isolated_backend, live_backend
+from tests.apps import (
+    IsolatedTarget,
+    configured_backend,
+    isolated_backend,
+    live_backend,
+    live_registry,
+    tests_registry,
+)
 from tests.models import Ticket
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = 'cbe72e573911f34225c8322e1133288c1bcb3c43'
+CORE_PIN = 'f898123987569817bc93e31e34505211e1c61b82'
 STALE_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
 STALE_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
@@ -161,25 +168,30 @@ class ZMethodsPlanTests(SimpleTestCase):
 
 class ZMethodsDonationOnceTests(TestCase):
     def test_trust_own_and_ticket_own_are_donated_once(self):
-        backend = live_backend()
-        registry = backend.registry
-        own = [
+        trust_rows = [
             (model, code)
-            for model, code, record in registry.iter_permission_conditions()
+            for model, code, record in live_registry().iter_permission_conditions()
             if model is Trust and code == 'own'
         ]
-        ticket = [
+        ticket_rows = [
             (model, code)
-            for model, code, record in registry.iter_permission_conditions()
+            for model, code, record in tests_registry().iter_permission_conditions()
             if model is Ticket and code == 'own'
         ]
-        self.assertEqual(len(own), 1)
-        self.assertEqual(len(ticket), 1)
-        donate_installed_permission_conditions(backend)
+        self.assertEqual(len(trust_rows), 1)
+        self.assertEqual(len(ticket_rows), 1)
+        donate_installed_permission_conditions(live_backend())
         self.assertEqual(
             len([
-                row for row in registry.iter_permission_conditions()
+                row for row in live_registry().iter_permission_conditions()
                 if row[0] is Trust and row[1] == 'own'
+            ]),
+            1,
+        )
+        self.assertEqual(
+            len([
+                row for row in tests_registry().iter_permission_conditions()
+                if row[0] is Ticket and row[1] == 'own'
             ]),
             1,
         )
@@ -193,6 +205,12 @@ class ZMethodsDonationOnceTests(TestCase):
             donate_content_permission_conditions(backend, Trust)
             donate_content_permission_conditions(backend, Trust)
         self.assertEqual(list(backend.registry.records), first)
+        # Named filters are recorder.add_named_filter, not Meta.
+        self.assertIsNone(backend.registry.get_permission_condition_record(Trust, 'own'))
+        with self.assertNumQueries(0):
+            backend.add_named_filter(
+                Trust, 'own', predicate=lambda u, p, o: u == o.settlor,
+            )
         own = backend.registry.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(own)
         self.assertIsNotNone(own.expr)
@@ -200,12 +218,12 @@ class ZMethodsDonationOnceTests(TestCase):
 
     def test_repeated_ready_is_idempotent_without_reading_registry_flags(self):
         owner = zero_config()
-        backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
+        backend = configured_backend(CANONICAL_BACKEND_PATH)
         before = list(backend.registry.records)
         own_before = backend.registry.get_permission_condition_record(Trust, 'own')
         with self.assertNumQueries(0):
             owner.ready()
-        after = owner.configured_backend(CANONICAL_BACKEND_PATH)
+        after = configured_backend(CANONICAL_BACKEND_PATH)
         self.assertEqual(list(after.registry.records), before)
         self.assertIs(
             after.registry.get_permission_condition_record(Trust, 'own'),
@@ -263,11 +281,11 @@ class ZMethodsDonationOnceTests(TestCase):
 
 
 class ZMethodsCoreInternalFixtureNote(SimpleTestCase):
-    def test_trusts_registry_condition_api_remains_core_internal(self):
-        isolated = TrustsRegistry()
+    def test_compiler_accepts_named_filters_and_plain_objects_do_not(self):
+        isolated = IsolatedTarget()
         isolated.register_permission_condition(
             Ticket, 'own', lambda u, p, o: u == o.owner,
         )
         self.assertIsNotNone(isolated.get_permission_condition_record(Ticket, 'own'))
         with self.assertRaises(TypeError):
-            donate_content_permission_conditions(isolated, Ticket)
+            donate_content_permission_conditions(object(), Ticket)

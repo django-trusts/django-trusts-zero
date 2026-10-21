@@ -25,7 +25,7 @@ from trusts.zero.models import (
     Trust,
     TrustUserPermission,
 )
-from trusts.core import TrustsRegistry
+from tests.apps import IsolatedTarget, tests_registry
 from tests.legacy.helpers import (
     create_test_users,
     get_or_create_root_user,
@@ -50,7 +50,7 @@ class _BuilderLog(object):
 class QueryableConditionTest(TestCase):
     def setUp(self):
         super(QueryableConditionTest, self).setUp()
-        self._saved_conditions = dict(live_registry().conditions._records)
+        self._saved_conditions = dict(tests_registry().conditions._records)
         call_command('create_trust_root')
         get_or_create_root_user(self)
         create_test_users(self)
@@ -129,8 +129,8 @@ class QueryableConditionTest(TestCase):
         self.change_open = 'trusts_zero_tests.change_ticket:open'
 
     def tearDown(self):
-        live_registry().conditions._records.clear()
-        live_registry().conditions._records.update(self._saved_conditions)
+        tests_registry().conditions._records.clear()
+        tests_registry().conditions._records.update(self._saved_conditions)
         super(QueryableConditionTest, self).tearDown()
 
     def _direct_pks(self, perm, user):
@@ -230,7 +230,7 @@ class QueryableConditionTest(TestCase):
         )
 
     def test_python_or_builder_fails_at_register(self):
-        isolated = TrustsRegistry()
+        isolated = IsolatedTarget()
         with self.assertRaises(PermissionConditionBooleanError):
             isolated.register_permission_condition(
                 Ticket, 'python_or',
@@ -239,7 +239,7 @@ class QueryableConditionTest(TestCase):
         self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'python_or'))
 
     def test_method_call_builder_fails_at_register(self):
-        isolated = TrustsRegistry()
+        isolated = IsolatedTarget()
         with self.assertRaises(PermissionConditionUnsupported):
             isolated.register_permission_condition(
                 Ticket, 'called',
@@ -248,7 +248,7 @@ class QueryableConditionTest(TestCase):
         self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'called'))
 
     def test_non_callable_and_boolean_builder_fail_at_register(self):
-        isolated = TrustsRegistry()
+        isolated = IsolatedTarget()
         with self.assertRaises(TypeError):
             isolated.register_permission_condition(Ticket, 'bad', 'not-a-condition')
         with self.assertRaises(PermissionConditionError):
@@ -276,7 +276,7 @@ class QueryableConditionTest(TestCase):
         self.assertEqual(len(log.calls), 1)
 
     def test_invalid_field_path_fails_closed(self):
-        isolated = TrustsRegistry()
+        isolated = IsolatedTarget()
         with self.assertRaises(PermissionConditionError) as missing:
             isolated.register_permission_condition(
                 Ticket, 'missing', lambda u, p, o: u == o.not_a_field,
@@ -290,7 +290,7 @@ class QueryableConditionTest(TestCase):
         ``owned_open.region`` is NULL and the user has a base grant. Binding
         a missing principal attribute as ``None`` would allow that row.
         """
-        isolated = TrustsRegistry()
+        isolated = IsolatedTarget()
         with self.assertRaises(PermissionConditionError) as typo:
             isolated.register_permission_condition(
                 Ticket, 'typo', lambda u, p, o: u.regoin == o.region,
@@ -327,7 +327,7 @@ class QueryableConditionTest(TestCase):
 
     def test_nonempty_permission_path_fails_closed(self):
         """``p.codenmae`` must not become an always-true ``None == None``."""
-        isolated = TrustsRegistry()
+        isolated = IsolatedTarget()
         with self.assertRaises(PermissionConditionError) as ptypo:
             isolated.register_permission_condition(
                 Ticket, 'ptypo', lambda u, p, o: p.codenmae == None,
@@ -342,7 +342,7 @@ class QueryableConditionTest(TestCase):
     def test_terminal_m2m_and_reverse_o2m_fail_closed_on_both_paths(self):
         group = Group.objects.create(name='cond-group')
         self.user.groups.add(group)
-        isolated = TrustsRegistry()
+        isolated = IsolatedTarget()
         with self.assertRaises(PermissionConditionError) as ingroup:
             isolated.register_permission_condition(
                 Ticket, 'ingroup', lambda u, p, o: o.owner.groups == group,
@@ -367,7 +367,7 @@ class QueryableConditionTest(TestCase):
         """Django would coerce Q(status=1) to '1'; Python '"1" == 1' is False."""
         self.owned_open.status = '1'
         self.owned_open.save()
-        isolated = TrustsRegistry()
+        isolated = IsolatedTarget()
         with self.assertRaises(PermissionConditionError) as eq_int:
             isolated.register_permission_condition(
                 Ticket, 'status_eq_int', lambda u, p, o: o.status == 1,
@@ -389,7 +389,7 @@ class QueryableConditionTest(TestCase):
 
     def test_relation_raw_pk_rejected_on_eq_and_ne(self):
         """Django would coerce Q(owner='1') through the FK; Python compares the User."""
-        isolated = TrustsRegistry()
+        isolated = IsolatedTarget()
         for code, builder in (
             ('owner_eq_str', lambda u, p, o: o.owner == '1'),
             ('owner_ne_str', lambda u, p, o: o.owner != '1'),

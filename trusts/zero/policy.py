@@ -11,12 +11,26 @@ instances.
 
 from django.db.models import Q
 
-from trusts import utils
 from trusts.conditions import (
     PermissionConditionNotQueryable,
     permission_has_condition,
 )
 from trusts.zero import get_permission_model
+
+
+def parse_perm_code(perm):
+    """Split ``app.action_model`` plus an optional ``:condition`` suffix.
+
+    Zero's permission codec. ``trusts.utils`` is gone, and Core keeps
+    the same split on a private module that is not an application
+    import. Condition codes may contain underscores
+    (``app.change_ticket:own_item``), so the condition is partitioned
+    before the action/model split.
+    """
+    applabel, rest = perm.split('.', 1)
+    rest, _sep, cond = rest.partition(':')
+    action, modelname = rest.rsplit('_', 1)
+    return applabel, modelname, action, cond
 
 
 def reject_queryable_condition(perm, api_name):
@@ -51,7 +65,7 @@ def resolve_content_permission(model, perm):
     perm = str(perm)
     if '.' in perm:
         try:
-            applabel, modelname, action, _cond = utils.parse_perm_code(perm)
+            applabel, modelname, action, _cond = parse_perm_code(perm)
             perm = '%s_%s' % (action, modelname)
             app_label = applabel
             model_name = modelname

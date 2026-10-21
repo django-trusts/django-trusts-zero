@@ -6,9 +6,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import TestCase
 
-from trusts.core import TrustsConfigurationError
-from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
-from trusts.query import AuthorizedQuerySet
+from trusts.errors import TrustsConfigurationError
+from trusts.models import AuthorizedQuerySet
 from trusts.zero.models import (
     Content,
     Trust,
@@ -25,7 +24,13 @@ from trusts.zero.registration import (
     register_zero_direct,
     register_zero_group,
 )
-from tests.apps import isolated_backend, publish_permission_condition
+from tests.apps import (
+    isolated_backend,
+    live_registry,
+    publish_permission_condition,
+    tests_config,
+    tests_registry,
+)
 from tests.models import Category, Ticket
 
 
@@ -77,16 +82,20 @@ class RegistrationAndCodecTests(TestCase):
         self.assertNotEqual(role[0].condition, grouped[0].condition)
 
     def test_live_registry_has_tup_trust_and_bound_condition_lookup(self):
-        backend = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
-        records = backend.registry.records_for_root(TrustUserPermission)
-        content_models = {row.content_model for row in records}
+        trust_rows = live_registry().records_for_root(TrustUserPermission)
+        content_models = {row.content_model for row in trust_rows}
         self.assertIn(Trust, content_models)
-        self.assertIn(Category, content_models)
-        self.assertIn(Ticket, content_models)
-        lookup = backend.registry.condition_lookup
+        self.assertNotIn(Category, content_models)
+        self.assertNotIn(Ticket, content_models)
+        hosted = tests_registry().records_for_root(TrustUserPermission)
+        hosted_models = {row.content_model for row in hosted}
+        self.assertIn(Category, hosted_models)
+        self.assertIn(Ticket, hosted_models)
+        registry = live_registry()
+        lookup = registry.condition_lookup
         self.assertIsNotNone(lookup)
-        self.assertIs(lookup.conditions, backend.registry.conditions)
-        own = backend.registry.get_permission_condition_record(Trust, 'own')
+        self.assertIs(lookup.conditions, registry.conditions)
+        own = registry.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(own)
         self.assertIsNotNone(own.expr)
 
@@ -188,9 +197,8 @@ class RegistrationAndCodecTests(TestCase):
             calls.append((u, p, o))
             return o.name == 'n'
 
-        backend = zero_config().configured_backend(CANONICAL_BACKEND_PATH)
         with self.assertRaises(TrustsConfigurationError) as ctx:
-            backend.add_named_filter(Category, 'cb', predicate=boom)
+            tests_config().recorder.add_named_filter(Category, 'cb', boom)
         self.assertIn('frozen', str(ctx.exception).lower())
         self.assertEqual(calls, [])
 
@@ -217,9 +225,7 @@ class RegistrationAndCodecTests(TestCase):
             self.assertNotIn(other, permitted)
             self.assertEqual(len(calls), 1)
         finally:
-            zero_config().configured_backend(
-                CANONICAL_BACKEND_PATH,
-            ).registry.conditions._records.pop(
+            tests_registry().conditions._records.pop(
                 (Category._meta.label, 'cb'), None,
             )
 

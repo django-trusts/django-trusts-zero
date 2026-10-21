@@ -23,6 +23,8 @@ from trusts.zero import get_entity_model, get_group_model
 
 
 def _trusts_model(name):
+    # Deferred import: django.apps. authorization is imported from model
+    # modules; a module-level apps import cycles during populate.
     from django.apps import apps as django_apps
     return django_apps.get_model('trusts', name)
 

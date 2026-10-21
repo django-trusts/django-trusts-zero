@@ -53,8 +53,8 @@ from django.conf import settings
 if not settings.configured:
     settings.configure(SECRET_KEY="iia-kernel-only")
 import trusts
-from trusts.apps import TrustsImplementationConfig
-assert TrustsImplementationConfig is not None
+from trusts.apps import TrustsConfigMixin
+assert TrustsConfigMixin is not None
 assert Path(trusts.__file__).name == "__init__.py"
 print("kernel-survived-ok")
 '''
@@ -64,7 +64,7 @@ from django.conf import settings
 if not settings.configured:
     settings.configure(SECRET_KEY="iia-zero-only")
 try:
-    from trusts.apps import TrustsImplementationConfig  # noqa: F401
+    from trusts.apps import TrustsConfigMixin  # noqa: F401
 except ImportError:
     print("core-required-ok")
     raise SystemExit(0)

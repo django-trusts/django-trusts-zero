@@ -6,7 +6,6 @@ from trusts.zero import (
     ENTITY_MODEL_NAME, PERMISSION_MODEL_NAME, GROUP_MODEL_NAME,
     DEFAULT_SETTLOR, ALLOW_NULL_SETTLOR, ROOT_PK,
 )
-from trusts import utils
 from trusts.zero.policy import permission_in_global_ceiling
 from trusts.zero.query import ContentManager, TrustManager
 
@@ -51,7 +50,6 @@ class Content(ReadonlyFieldsMixin, models.Model):
     class Meta:
         abstract = True
         default_permissions = ('add', 'change', 'delete', 'read',)
-        permission_conditions = ()
         auto_modeladmin = False
 
 
@@ -74,9 +72,6 @@ class Trust(Content):
     class Meta:
         unique_together = ('settlor', 'title')
         default_permissions = ('add', 'change', 'delete', 'read',)
-        permission_conditions = (
-            ('own', lambda u, p, o: u == o.settlor),
-        )
 
     def __str__(self):
         settlor_str = ' of %s' % str(self.settlor) if self.settlor is not None else ''
@@ -218,4 +213,8 @@ class Junction(ReadonlyFieldsMixin, models.Model):
 
     @classmethod
     def get_fieldlookup(cls):
-        return '%s__content' % utils.get_short_model_name_lower(cls).replace('.', '_')
+        # Lowercase ``app_label.model_name``. ``trusts.utils`` is gone and
+        # the helper is not on Core's public surface, so the junction
+        # accessor formats the label here.
+        label = '%s.%s' % (cls._meta.app_label.lower(), cls._meta.model_name)
+        return '%s__content' % label.replace('.', '_')

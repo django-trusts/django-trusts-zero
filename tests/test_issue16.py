@@ -1,7 +1,7 @@
 """Zero #16: donate Meta conditions to the configured backend.
 
 Paired against the exact django-trusts candidate
-``cbe72e573911f34225c8322e1133288c1bcb3c43``.
+``f898123987569817bc93e31e34505211e1c61b82``.
 """
 
 import inspect
@@ -13,7 +13,7 @@ from django.db import models
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import isolate_apps
 
-from trusts.checks import (
+from trusts.inspect.checks import (
     CHECK_ID_OBSOLETE_CALLBACK_SETTING,
     check_obsolete_legacy_callback_setting,
     check_permission_conditions,
@@ -23,8 +23,8 @@ from trusts.conditions import (
     PermissionConditionError,
     PermissionConditionNotQueryable,
 )
-from trusts.core import TrustsConfigurationError, TrustsRegistry
-from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
+from trusts.errors import TrustsConfigurationError
+from trusts.zero.apps import zero_config
 from trusts.zero.models import (
     Content,
     Junction,
@@ -36,7 +36,15 @@ from trusts.zero.registration import (
     donate_installed_permission_conditions,
     donate_junction_content_permission_conditions,
 )
-from tests.apps import isolated_backend, live_backend, publish_permission_condition
+from tests.apps import (
+    IsolatedTarget,
+    isolated_backend,
+    live_backend,
+    live_registry,
+    publish_permission_condition,
+    tests_config,
+    tests_registry,
+)
 from tests.models import Category, Ticket, ticket_own
 
 
@@ -51,7 +59,11 @@ REMOVED_STATIC = (
 
 
 def _zero_registry():
-    return zero_config().configured_backend(CANONICAL_BACKEND_PATH).registry
+    return live_registry()
+
+
+def _tests_registry():
+    return tests_registry()
 
 
 def _staticmethods(cls):
@@ -118,13 +130,13 @@ class MetaDonationOnceTests(SimpleTestCase):
         self.assertEqual(len(own), 1)
         self.assertIsNotNone(own[0][2].expr)
 
-        ticket_own = _condition_rows(registry, Ticket, 'own')
+        ticket_own = _condition_rows(_tests_registry(), Ticket, 'own')
         self.assertEqual(len(ticket_own), 1)
         self.assertIsNotNone(ticket_own[0][2].expr)
 
         donate_installed_permission_conditions(live_backend())
         self.assertEqual(len(_condition_rows(registry, Trust, 'own')), 1)
-        self.assertEqual(len(_condition_rows(registry, Ticket, 'own')), 1)
+        self.assertEqual(len(_condition_rows(_tests_registry(), Ticket, 'own')), 1)
 
         live = [
             (model, code)
@@ -167,8 +179,8 @@ class MetaDonationOnceTests(SimpleTestCase):
 
 class OwnerIsolationTests(SimpleTestCase):
     def test_owners_do_not_share_or_overwrite_and_new_registry_is_empty(self):
-        left = TrustsRegistry()
-        right = TrustsRegistry()
+        left = IsolatedTarget()
+        right = IsolatedTarget()
         self.assertIsNot(left.condition_lookup, right.condition_lookup)
         self.assertIs(left.condition_lookup.conditions, left.conditions)
         self.assertIs(right.condition_lookup.conditions, right.conditions)
@@ -189,12 +201,12 @@ class OwnerIsolationTests(SimpleTestCase):
             right_expr.to_tuple(),
             ('eq', ('ref', 'object', ('title',)), ('const', 'keep')),
         )
-        live = _zero_registry().get_permission_condition_record(Ticket, 'own')
+        live = _tests_registry().get_permission_condition_record(Ticket, 'own')
         self.assertIsNot(live, left.get_permission_condition_record(Ticket, 'own'))
         self.assertIsNot(live.expr, left_expr)
         self.assertIsNot(live.expr, right_expr)
 
-        fresh = TrustsRegistry()
+        fresh = IsolatedTarget()
         self.assertIsNotNone(fresh.condition_lookup)
         self.assertIs(fresh.condition_lookup.conditions, fresh.conditions)
         self.assertEqual(list(fresh.iter_permission_conditions()), [])
@@ -276,7 +288,7 @@ class ExprParityTests(TestCase):
                 user.has_perm('trusts_zero_tests.read_ticket:nope16', self.ticket),
             )
 
-        isolated = TrustsRegistry()
+        isolated = IsolatedTarget()
         with self.assertNumQueries(0):
             with self.assertRaises(PermissionConditionError) as typo:
                 isolated.register_permission_condition(
@@ -286,23 +298,26 @@ class ExprParityTests(TestCase):
         self.assertIsNone(isolated.get_permission_condition_record(Ticket, 'typo16'))
         self.assertEqual(list(isolated.iter_permission_conditions()), [])
 
-        backend = live_backend()
-        registry = backend.registry
-        saved = registry.condition_lookup
-        self.assertIsNotNone(saved)
-        self.assertIs(saved.conditions, registry.conditions)
+        registry = _tests_registry()
+        key = (Ticket._meta.label, 'own')
+        saved = registry.conditions._records[key]
         try:
             with self.assertNumQueries(0):
-                registry.set_condition_lookup(None)
-            self.assertIsNone(registry.condition_lookup)
+                registry.conditions._records.pop(key)
+            self.assertIsNone(registry.get_permission_condition_record(Ticket, 'own'))
+            with self.assertNumQueries(0):
+                self.assertFalse(
+                    user.has_perm('trusts_zero_tests.read_ticket:own', self.ticket),
+                )
             with self.assertRaises(AttributeError) as unbound:
-                user.has_perm('trusts_zero_tests.read_ticket:own', self.ticket)
+                list(Ticket.objects.permitted('read:own', user))
             self.assertIn('own', str(unbound.exception))
-            # .permitted() compiles from the registry store, not the
-            # lookup, so an explicit unbind does not change list SQL.
         finally:
-            registry.set_condition_lookup(saved)
-        self.assertIs(registry.condition_lookup, saved)
+            registry.conditions._records[key] = saved
+        self.assertIs(
+            _tests_registry().get_permission_condition_record(Ticket, 'own'),
+            saved,
+        )
         self.assertTrue(user.has_perm('trusts_zero_tests.read_ticket:own', self.ticket))
         self.assertIn(self.ticket, set(Ticket.objects.permitted('read:own', user)))
 
@@ -322,7 +337,7 @@ class BuilderOnceTests(TestCase):
         TrustUserPermission(
             trust=self.org, entity=self.user, permission=read,
         ).save()
-        self.registry = _zero_registry()
+        self.registry = _tests_registry()
         self.log = _BuilderLog(lambda u, p, o: o.name == 'keep')
         publish_permission_condition(Category, 'spy16', self.log)
 
@@ -341,7 +356,7 @@ class BuilderOnceTests(TestCase):
     def test_frozen_live_register_is_before_builder(self):
         late = _BuilderLog(lambda u, p, o: o.name == 'keep')
         with self.assertRaises(TrustsConfigurationError):
-            live_backend().add_named_filter(Category, 'late16', predicate=late)
+            tests_config().recorder.add_named_filter(Category, 'late16', late)
         self.assertEqual(late.calls, [])
 
     def test_checks_never_reinvoke_builder(self):
@@ -354,7 +369,7 @@ class BuilderOnceTests(TestCase):
         )
 
     def test_boolean_builder_fails_at_register(self):
-        isolated = TrustsRegistry()
+        isolated = IsolatedTarget()
         exploding = _BuilderLog(lambda u, p, o: (_ for _ in ()).throw(
             AssertionError('callable must not run during checks')
         ))
@@ -379,7 +394,9 @@ class HelperDonationTests(TransactionTestCase):
     def test_content_meta_helper_is_not_a_second_store(self):
         isolated = isolated_backend()
         donate_content_permission_conditions(isolated, Ticket)
-        donate_content_permission_conditions(isolated, Ticket)
+        self.assertIsNone(isolated.registry.get_permission_condition_record(Ticket, 'own'))
+        isolated.add_named_filter(Ticket, 'own', ticket_own)
+        isolated.add_named_filter(Ticket, 'own', ticket_own)
         rows = _condition_rows(isolated.registry, Ticket, 'own')
         self.assertEqual(len(rows), 1)
         record = isolated.registry.get_permission_condition_record(Ticket, 'own')
@@ -389,16 +406,19 @@ class HelperDonationTests(TransactionTestCase):
             record.expr.to_tuple(),
             ('eq', ('ref', 'principal', ()), ('ref', 'object', ('owner',))),
         )
-        self.assertIs(Ticket._meta.permission_conditions[0][1], ticket_own)
+        self.assertFalse(hasattr(Ticket._meta, 'permission_conditions'))
         self.assertFalse(hasattr(Content, '_conditions'))
 
     def test_trust_own_builder_donation_is_zero_sql(self):
-        code, builder = Trust._meta.permission_conditions[0]
-        self.assertEqual(code, 'own')
-        self.assertTrue(callable(builder))
+        from trusts.zero.registration import trust_settlor_owns
+
         isolated = isolated_backend()
         with self.assertNumQueries(0):
             donate_content_permission_conditions(isolated, Trust)
+            self.assertIsNone(
+                isolated.registry.get_permission_condition_record(Trust, 'own'),
+            )
+            isolated.add_named_filter(Trust, 'own', trust_settlor_owns)
         record = isolated.registry.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(record)
         self.assertFalse(hasattr(record, 'func'))

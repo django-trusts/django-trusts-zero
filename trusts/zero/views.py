@@ -28,6 +28,8 @@ from trusts.zero.authorization import (
 
 
 def _trust_model():
+    # Deferred import: django.apps. views import authorization, which
+    # imports this module while models are still loading.
     from django.apps import apps as django_apps
     return django_apps.get_model('trusts', 'Trust')
 

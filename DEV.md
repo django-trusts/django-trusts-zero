@@ -8,20 +8,18 @@ points at `README.md`, not this file.
 ## Current pairing
 
 This tree is `django-trusts-zero==0.12.0.dev0` pairing against the
-django-trusts `1.0.0rc1` candidate
-`cbe72e573911f34225c8322e1133288c1bcb3c43`
-(Core dev after the Along and inactive-user train, including #267 / #269:
-an `auth.Permission` whose
-`content_type` is not the protected object is a denial. `user.has_perm`
-is the permission string. A custom permission model keeps primary-key
-identity).
+django-trusts candidate
+`f898123987569817bc93e31e34505211e1c61b82`
+(Core draft PR #330, branch `cursor/catalog-pullup-f275`: each host
+app extends `TrustsConfigMixin` and owns one catalog; `trusts.query`
+is `trusts.models`; named filters are `recorder.add_named_filter`).
 
 Earlier unpublished Zero snapshots used `2.0.0.dev0` / `dev1` / `dev2`.
 Those values are not a public compatibility line.
 
-`trusts.zero.apps.ZeroConfig` is the implementation owner. Core is a
-Python dependency only: do **not** list `'trusts'` in `INSTALLED_APPS`.
-Final core ships no Django `AppConfig`, no `kernel_config()`, and no
+`trusts.zero.apps.ZeroConfig` extends `TrustsConfigMixin` and owns the
+Trust catalog. Core is a Python dependency only: do **not** list
+`'trusts'` in `INSTALLED_APPS`. Core ships no `kernel_config()` and no
 `trusts.backends.TrustModelBackend`. The mixin stays at
 `trusts.backends.TrustModelBackendMixin`. The historical backend class
 lives only at `trusts.zero.backends.TrustModelBackend`.
@@ -53,7 +51,7 @@ See `docs/source/index.rst` and `migrates.md`.
 
 ## Verification
 
-Pair CI pins django-trusts `cbe72e573911f34225c8322e1133288c1bcb3c43`
+Pair CI pins django-trusts `f898123987569817bc93e31e34505211e1c61b82`
 only. It checks out that django-trusts candidate and does not install
 `django-trusts-example`. The Zero suite (including `tests/legacy/` historical copies),
 fresh-install, old-path fail-closed, wheel RECORD, and

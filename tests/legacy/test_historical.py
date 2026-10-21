@@ -409,7 +409,7 @@ class TrustContentTestMixin(ContentModel):
         self.assertEqual(len(perm), 0)
 
         self.assertFalse(
-            live_config().configured_backend().registry.plan_for(
+            live_config().get_catalog().plan_for(
                 type(self.user),
             ).records
         )

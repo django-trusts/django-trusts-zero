@@ -1,7 +1,7 @@
 """S8: freeze live registries and report detectable missing declarations.
 
 Structural and behavioral tests only — no source-token or
-``inspect.getsource`` assertions. Isolated ``TrustsRegistry()``
+``inspect.getsource`` assertions. Isolated ``IsolatedTarget()``
 instances stay independent of Django readiness.
 
 Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue89.py``.
@@ -20,11 +20,11 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from tests.apps import (
     TestsConfig,
+    clear_backend_cache,
     forget_models,
-    install_writable_registry,
     isolated_owner,
     live_config,
-    override_apps_ready,
+    tests_catalog,
 )
 import tests as tests_module
 from tests.models import (
@@ -35,15 +35,16 @@ from tests.models import (
     TestGroupJunction,
     Ticket,
 )
-from trusts.checks import (
+from trusts.inspect.checks import (
     CHECK_ID_MISSING_DECLARATION,
     CHECK_ID_OBSOLETE_CALLBACK_SETTING,
     check_missing_declarations,
     check_permission_conditions,
-    check_query_compilers,
 )
-from trusts.core import Ref, TrustsConfigurationError, TrustsRegistry
 from trusts.zero.models import Content, Junction, Trust, TrustUserPermission
+from trusts.compile.nodes import Ref
+from trusts.errors import TrustsConfigurationError
+from tests.apps import IsolatedTarget, configured_backend
 
 
 CONCRETE = 'trusts.zero.backends.TrustModelBackend'
@@ -62,22 +63,22 @@ def _objs(messages):
 
 
 def _contribute_category(registry):
-    j = Ref(TrustUserPermission)
     rev = Category._meta.get_field('trust').remote_field.get_accessor_name()
     registry.register(
-        content=getattr(j.trust, rev),
-        user=j.entity,
-        permission=j.permission,
+        trust=TrustUserPermission,
+        content='trust__%s' % rev,
+        user='entity',
+        permission='permission',
     )
 
 
 def _contribute_ticket(registry):
-    j = Ref(TrustUserPermission)
     rev = Ticket._meta.get_field('trust').remote_field.get_accessor_name()
     registry.register(
-        content=getattr(j.trust, rev),
-        user=j.entity,
-        permission=j.permission,
+        trust=TrustUserPermission,
+        content='trust__%s' % rev,
+        user='entity',
+        permission='permission',
     )
 
 
@@ -159,8 +160,8 @@ class _RegistryRestoreMixin(object):
 class StandaloneFreezeIndependenceTest(SimpleTestCase):
     def test_standalone_stays_writable_after_global_ready(self):
         self.assertTrue(apps.ready)
-        first = TrustsRegistry()
-        second = TrustsRegistry()
+        first = IsolatedTarget()
+        second = IsolatedTarget()
         self.assertFalse(first.frozen)
         self.assertFalse(second.frozen)
         first.freeze()
@@ -175,7 +176,7 @@ class StandaloneFreezeIndependenceTest(SimpleTestCase):
         self.assertEqual(first.records, ())
 
     def test_freeze_is_idempotent_and_register_does_not_inspect_apps_ready(self):
-        registry = TrustsRegistry()
+        registry = IsolatedTarget()
         _contribute_category(registry)
         before = registry.records
         registry.freeze()
@@ -191,7 +192,7 @@ class StandaloneFreezeIndependenceTest(SimpleTestCase):
 
 class RegisterAfterFreezeLeavesRecordsUnchangedTest(SimpleTestCase):
     def test_valid_duplicate_conflict_and_malformed_all_raise(self):
-        registry = TrustsRegistry()
+        registry = IsolatedTarget()
         j = Ref(TrustUserPermission)
         rev = Category._meta.get_field('trust').remote_field.get_accessor_name()
         registry.register(
@@ -232,7 +233,7 @@ class RegisterAfterFreezeLeavesRecordsUnchangedTest(SimpleTestCase):
 
 class FrozenPlanProjectionsTest(SimpleTestCase):
     def test_frozen_plan_still_projects(self):
-        registry = TrustsRegistry()
+        registry = IsolatedTarget()
         _contribute_category(registry)
         before = registry.plan_for(Category)
         registry.freeze()
@@ -245,176 +246,142 @@ class FrozenPlanProjectionsTest(SimpleTestCase):
         self.assertFalse(
             registry.plan_for(Ticket).records,
         )
-        qs = Category.objects.all()
-        filtered = registry.filter_authorized(qs, user, permission)
-        self.assertIs(filtered.model, Category)
+        self.assertFalse(hasattr(registry, 'filter_authorized'))
 
 
 class LiveFreezeLifecycleTest(_RegistryRestoreMixin, SimpleTestCase):
-    def test_writable_during_contributor_ready_then_freeze_on_first_read(self):
-        isolated = TrustsRegistry()
-        self.live.registries[CONCRETE] = isolated
+    def test_assignment_compiles_and_refuses_later_register(self):
+        isolated = IsolatedTarget()
+        _contribute_category(isolated)
         self.assertFalse(isolated.frozen)
-        with override_apps_ready(False):
-            handle = self.live.configured_backend()
-            self.assertIs(handle.registry, isolated)
-            self.assertFalse(isolated.frozen)
-            _contribute_category(isolated)
-            alias = self.live.registry
-            self.assertIs(alias, isolated)
-            self.assertFalse(isolated.frozen)
-            handles = self.live.configured_handles()
-            self.assertIs(handles[0].registry, isolated)
-            self.assertFalse(isolated.frozen)
-        handle = self.live.configured_backend()
-        self.assertIs(handle.registry, isolated)
+        self.live.registries[CONCRETE] = isolated
         self.assertTrue(isolated.frozen)
-        self.assertIs(self.live.registry, isolated)
-        self.assertIs(self.live.configured_handles()[0].registry, isolated)
+        view = self.live.registries[CONCRETE]
+        self.assertTrue(view.frozen)
+        self.assertEqual(len(view.plan_for(Category).records), 1)
         with self.assertRaises(TrustsConfigurationError):
             _contribute_ticket(isolated)
-        self.assertEqual(len(isolated.plan_for(Category).records), 1)
-        self.assertEqual(len(isolated.plan_for(Ticket).records), 0)
+        self.assertEqual(len(view.plan_for(Ticket).records), 0)
 
-    def test_multi_path_reversed_duplicate_and_late_observed_path(self):
+    def test_listed_paths_share_the_app_catalog(self):
         with override_settings(AUTHENTICATION_BACKENDS=(MIXIN, CONCRETE)):
-            handles = self.live.configured_handles()
-            self.assertEqual([handle.path for handle in handles], [CONCRETE])
-            self.assertIs(handles[0].registry, self.live.registries[CONCRETE])
-            self.assertTrue(handles[0].registry.frozen)
-            with self.assertRaises(TrustsConfigurationError):
-                self.live.configured_backend(MIXIN)
-            self.assertIs(
-                self.live.configured_backend(CONCRETE).registry,
-                self.live.registries[CONCRETE],
+            clear_backend_cache()
+            self.assertEqual(
+                self.live._configured_trusts_paths(), (MIXIN, CONCRETE),
             )
+            mixin = configured_backend(MIXIN)
+            zero = configured_backend(CONCRETE)
+            self.assertIs(mixin.catalog, tests_catalog())
+            self.assertIs(zero.catalog, self.live.get_catalog())
+            self.assertTrue(mixin.registry.frozen)
+            self.assertTrue(zero.registry.frozen)
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, CONCRETE)):
-            handle = self.live.configured_backend()
+            clear_backend_cache()
+            self.assertEqual(
+                self.live._configured_trusts_paths(), (CONCRETE, CONCRETE),
+            )
+            handle = configured_backend()
             self.assertEqual(handle.path, CONCRETE)
-            self.assertIs(handle.registry, self.live.registries[CONCRETE])
+            self.assertIs(handle.catalog, self.live.get_catalog())
             self.assertTrue(handle.registry.frozen)
-            self.assertIs(self.live.registry, handle.registry)
-        self.assertNotIn(HOST, self.live.registries)
+        self.assertNotIn(HOST, tuple(self.live.registries))
         with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, HOST)):
-            with self.assertRaises(TrustsConfigurationError):
-                self.live.configured_backend(HOST)
+            clear_backend_cache()
+            host = configured_backend(HOST)
+            self.assertIs(host.catalog, tests_catalog())
 
     def test_ready_does_not_replace_stored_objects_when_freezing(self):
         store = self.live.registries
-        first = self.live.registries[CONCRETE]
+        first = self.live.get_catalog()
         self.live.ready()
         self.assertIs(self.live.registries, store)
-        self.assertIs(self.live.registries[CONCRETE], first)
-        self.assertIs(self.live.configured_backend().registry, first)
-        self.assertTrue(first.frozen)
+        self.assertIs(self.live.get_catalog(), first)
+        self.assertIs(configured_backend().catalog, first)
+        self.assertTrue(configured_backend().registry.frozen)
 
-    def test_late_registry_assignment_freezes_replacement(self):
-        replacement = TrustsRegistry()
+    def test_late_registry_assignment_compiles_replacement(self):
+        replacement = IsolatedTarget()
         self.assertFalse(replacement.frozen)
-        before = self.live.registries[CONCRETE].records
+        before = self.live.get_catalog().records
         self.live.registry = replacement
         self.assertTrue(replacement.frozen)
-        self.assertIs(self.live.registries[CONCRETE], replacement)
+        view = self.live.registry
+        self.assertTrue(view.frozen)
+        self.assertIsNot(view, replacement)
         with self.assertRaises(TrustsConfigurationError) as ctx:
             _contribute_category(replacement)
         self.assertIn('frozen', str(ctx.exception).lower())
-        self.assertEqual(replacement.records, ())
-        self.assertIs(self.live.configured_backend().registry, replacement)
-        self.assertEqual(self.live.registry.records, ())
-        self.assertNotEqual(before, replacement.records)
+        self.assertEqual(view.records, ())
+        self.assertIs(configured_backend().catalog, view._catalog)
+        self.assertNotEqual(before, view.records)
 
-    def test_assignment_before_ready_stays_writable_then_freezes_on_read(self):
-        replacement = TrustsRegistry()
-        with override_apps_ready(False):
-            self.live.registry = replacement
-            self.assertIs(self.live.registries[CONCRETE], replacement)
-            self.assertFalse(replacement.frozen)
-            _contribute_category(replacement)
-            self.assertFalse(replacement.frozen)
+    def test_contribute_then_assign_freezes(self):
+        replacement = IsolatedTarget()
+        _contribute_category(replacement)
         self.assertFalse(replacement.frozen)
-        handle = self.live.configured_backend()
-        self.assertIs(handle.registry, replacement)
+        self.live.registry = replacement
         self.assertTrue(replacement.frozen)
+        view = self.live.registry
+        self.assertEqual(len(view.plan_for(Category).records), 1)
         before = replacement.records
         with self.assertRaises(TrustsConfigurationError):
             _contribute_ticket(replacement)
         self.assertEqual(replacement.records, before)
-        self.assertEqual(len(replacement.plan_for(Category).records), 1)
 
-    def test_standalone_appconfig_does_not_auto_freeze(self):
-        import trusts
-
+    def test_standalone_appconfig_builds_an_empty_catalog(self):
         isolated = isolated_owner()
-        self.assertFalse(isolated._apps_instance_ready())
-        first = isolated.registry
-        self.assertFalse(first.frozen)
+        with self.assertRaises(TrustsConfigurationError):
+            isolated.registry
         isolated.ready()
-        self.assertIs(isolated.registry, first)
-        self.assertFalse(first.frozen)
-        # C2: Trust-as-content is donated by Zero onto the live kernel
-        # store, not by a standalone AppConfig.ready().
-        self.assertFalse(first.plan_for(Trust).records)
+        self.assertTrue(isolated.registry.frozen)
+        self.assertFalse(isolated.registry.plan_for(Trust).records)
 
 
 class SentinelAfterFreezeTest(_RegistryRestoreMixin, SimpleTestCase):
     def test_same_instance_reentry_is_noop_after_freeze(self):
-        handle = self.live.configured_backend()
+        handle = configured_backend()
         self.assertTrue(handle.registry.frozen)
         before = handle.registry.records
-        with patch.object(
-            handle.registry, 'register', wraps=handle.registry.register,
-        ) as register:
-            self.live.ready()
-            self.live_contributor.ready()
-        register.assert_not_called()
-        self.assertEqual(handle.registry.records, before)
-        self.assertIs(
-            self.live_contributor._trusts_tup_category_registry_id,
-            handle.registry,
-        )
-
-    def test_new_contributor_cannot_mutate_frozen_live_store(self):
-        handle = self.live.configured_backend()
-        before = handle.registry.records
-        contributor = _new_contributor(apps)
-        with self.assertRaises(TrustsConfigurationError) as ctx:
-            contributor.ready()
-        self.assertIn('frozen', str(ctx.exception).lower())
+        self.live.ready()
+        self.live_contributor.ready()
         self.assertEqual(handle.registry.records, before)
         self.assertIsNone(
-            getattr(contributor, '_trusts_tup_category_registry_id', None)
-        )
-        self.assertIsNone(
-            getattr(contributor, '_trusts_tup_ticket_registry_id', None)
-        )
-        self.assertIsNone(
-            getattr(contributor, '_trusts_tup_group_registry_id', None)
+            getattr(
+                self.live_contributor, '_trusts_tup_category_registry_id', None,
+            )
         )
 
-    def test_partial_late_contribution_raises_without_setting_sentinel(self):
-        isolated = install_writable_registry(self.live, CONCRETE)
-        self.live.configured_backend()
-        self.assertTrue(isolated.frozen)
+    def test_new_contributor_does_not_mutate_the_installed_catalog(self):
+        before = tests_catalog().records
+        zero_before = self.live.get_catalog().records
         contributor = _new_contributor(apps)
-        contributor._trusts_tup_category_registry_id = isolated
-        with self.assertRaises(TrustsConfigurationError):
-            contributor.ready()
-        self.assertIs(contributor._trusts_tup_category_registry_id, isolated)
-        self.assertIsNone(
-            getattr(contributor, '_trusts_tup_ticket_registry_id', None)
+        contributor.ready()
+        self.assertEqual(tests_catalog().records, before)
+        self.assertEqual(self.live.get_catalog().records, zero_before)
+        self.assertTrue(contributor.catalog.plan_for(Category).records)
+        self.assertFalse(
+            hasattr(contributor, '_trusts_tup_category_registry_id')
         )
-        self.assertEqual(isolated.records, ())
 
-    def test_package_ready_after_supported_read_cannot_mutate_new_registry(self):
-        isolated = install_writable_registry(self.live, CONCRETE)
-        self.live.configured_backend()
-        self.assertTrue(isolated.frozen)
-        # Zero ready() donates Trust-as-content; a frozen replacement
-        # fail-closes instead of mutating.
+    def test_frozen_catalog_rejects_a_late_register(self):
+        handle = configured_backend()
         with self.assertRaises(TrustsConfigurationError) as ctx:
-            self.live.ready()
+            _contribute_ticket(handle.registry)
         self.assertIn('frozen', str(ctx.exception).lower())
-        self.assertFalse(isolated.plan_for(Trust).records)
+        self.assertFalse(handle.registry.plan_for(Ticket).records)
+
+    def test_installed_ready_does_not_refill_a_swapped_empty_catalog(self):
+        empty = IsolatedTarget().compile()
+        saved = self.live.get_catalog()
+        try:
+            self.live._config.catalog = empty
+            clear_backend_cache()
+            self.live.ready()
+            self.assertEqual(len(self.live.get_catalog().records), 0)
+            self.assertFalse(self.live.registry.plan_for(Trust).records)
+        finally:
+            self.live._config.catalog = saved
+            clear_backend_cache()
 
 
 class MissingDeclarationCheckTest(_RegistryRestoreMixin, TestCase):
@@ -482,30 +449,39 @@ class MissingDeclarationCheckTest(_RegistryRestoreMixin, TestCase):
 
         with _dynamic_models(SecondSheet):
             self.assertIn(SecondSheet, _objs(_e003()))
-            mixin = install_writable_registry(self.live, MIXIN)
-            j = Ref(TrustUserPermission)
+            stray = IsolatedTarget()
             rev = SecondSheet._meta.get_field(
                 'trust',
             ).remote_field.get_accessor_name()
-            mixin.register(
-                content=getattr(j.trust, rev),
-                user=j.entity,
-                permission=j.permission,
+            stray.register(
+                trust=TrustUserPermission,
+                content='trust__%s' % rev,
+                user='entity',
+                permission='permission',
             )
-            # Coverage on an unowned mixin path does not clear E003.
+            # An unlisted compiler does not clear E003.
             self.assertIn(SecondSheet, _objs(_e003()))
-            writable = install_writable_registry(self.live, CONCRETE)
-            writable.register(
-                content=getattr(j.trust, rev),
-                user=j.entity,
-                permission=j.permission,
+            listed = IsolatedTarget()
+            listed.register(
+                trust=TrustUserPermission,
+                content='trust__%s' % rev,
+                user='entity',
+                permission='permission',
             )
-            self.assertNotIn(SecondSheet, _objs(_e003()))
-            self.assertTrue(
-                self.live.configured_backend(CONCRETE).registry.plan_for(
-                    SecondSheet,
-                ).records
-            )
+            tests_config = apps.get_app_config('trusts_zero_tests')
+            saved = tests_config.catalog
+            try:
+                tests_config.catalog = listed.compile()
+                clear_backend_cache()
+                self.assertNotIn(SecondSheet, _objs(_e003()))
+                self.assertTrue(
+                    configured_backend(MIXIN).registry.plan_for(
+                        SecondSheet,
+                    ).records
+                )
+            finally:
+                tests_config.catalog = saved
+                clear_backend_cache()
 
     def test_abstract_proxy_and_manual_dependents_are_not_reported(self):
         class AbstractHolder(Content):
@@ -551,7 +527,7 @@ class MissingDeclarationCheckTest(_RegistryRestoreMixin, TestCase):
             self.assertEqual(broken[0].id, CHECK_ID_MISSING_DECLARATION)
 
     def test_check_is_zero_sql_and_does_not_register(self):
-        live = self.live.configured_backend().registry
+        live = configured_backend().registry
         before = live.records
         sentinels = (
             getattr(self.live, '_trusts_tup_trust_registry_id', None),
@@ -602,7 +578,10 @@ class MissingDeclarationCheckTest(_RegistryRestoreMixin, TestCase):
             all_ids = {message.id for message in run_checks()}
             self.assertIn(CHECK_ID_MISSING_DECLARATION, all_ids)
             condition_ids = {message.id for message in check_permission_conditions(None)}
-            compiler_ids = {message.id for message in check_query_compilers(None)}
+            compiler_ids = {
+                message.id for message in run_checks()
+                if getattr(message, 'id', None) == 'trusts.E004'
+            }
             self.assertNotIn(CHECK_ID_MISSING_DECLARATION, condition_ids)
             self.assertNotIn(CHECK_ID_MISSING_DECLARATION, compiler_ids)
             self.assertNotIn(CHECK_ID_OBSOLETE_CALLBACK_SETTING, _e003())
@@ -614,14 +593,14 @@ class MissingDeclarationCheckTest(_RegistryRestoreMixin, TestCase):
                 self.assertTrue(all(message.is_silenced() for message in silenced))
                 call_command('check', stdout=StringIO(), stderr=StringIO())
             self.assertFalse(
-                self.live.configured_backend().registry.plan_for(QuietSheet).records
+                configured_backend().registry.plan_for(QuietSheet).records
             )
 
 
 class LiveHandleIdentityTest(_RegistryRestoreMixin, SimpleTestCase):
     def test_supported_surfaces_return_the_same_stored_object(self):
         stored = self.live.registries[CONCRETE]
-        handle = self.live.configured_backend()
+        handle = configured_backend()
         alias = self.live.registry
         handles = self.live.configured_handles()
         self.assertIs(handle.registry, stored)

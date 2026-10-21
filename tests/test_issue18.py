@@ -15,7 +15,7 @@ from django.template.loader import get_template
 from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 
-from trusts.core import PlanQueryCompiler, TrustsRegistry
+from trusts.plan.relations import PlanQueryCompiler
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import (
     Role,
@@ -105,7 +105,7 @@ class ModelsDeclarativeOnlyTests(SimpleTestCase):
             inspect.getmodule(models_mod.TrustManager), models_mod,
         )
         src = inspect.getsource(filter_scope_rows)
-        self.assertIn('filter_authorized_scopes', src)
+        self.assertIn('filter_by_permitted_content', src)
         self.assertNotIn('trust_grant_q', src)
 
     def test_models_import_does_not_register_meta_names(self):
@@ -153,17 +153,18 @@ class MetaOptionRegistrationTests(SimpleTestCase):
 
 class BackendAndRegistrationTests(SimpleTestCase):
     def test_backend_uses_plan_query_compiler(self):
-        self.assertIsInstance(
-            TrustModelBackend.query_compiler, PlanQueryCompiler,
-        )
+        from django.apps import apps as django_apps
+
+        catalog = django_apps.get_app_config('trusts').get_catalog()
+        self.assertIsInstance(catalog.compiler, PlanQueryCompiler)
         self.assertFalse(hasattr(
             __import__('trusts.zero.backends', fromlist=['x']),
             'HistoricalGroupQueryCompiler',
         ))
         backends = (ROOT / 'trusts' / 'zero' / 'backends.py').read_text()
-        self.assertIn('query_compiler = PlanQueryCompiler()', backends)
+        self.assertNotIn('query_compiler = PlanQueryCompiler()', backends)
         self.assertNotIn('ZeroPlanQueryCompiler', backends)
-        self.assertIn('PlanQueryCompiler', backends)
+        self.assertNotIn('PlanQueryCompiler', backends)
         self.assertNotIn('HistoricalGroupQueryCompiler', backends)
         self.assertNotIn('inspect', backends)
         self.assertNotIn('RelationPlan', backends)
@@ -238,9 +239,9 @@ class BackendAndRegistrationTests(SimpleTestCase):
         self.assertIn('register_zero_relations(backend)', donate)
         self.assertNotIn('register_zero_relations(backend.registry)', donate)
         with self.assertRaises(TypeError):
-            register_zero_relations(TrustsRegistry())
+            register_zero_relations(object())
         with self.assertRaises(TypeError):
-            register_zero_group(TrustsRegistry(), (Trust,))
+            register_zero_group(object(), (Trust,))
         with self.assertRaises(TypeError):
             register_zero_direct(
                 isolated_backend(),

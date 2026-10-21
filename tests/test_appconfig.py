@@ -3,12 +3,7 @@
 from django.apps import apps
 from django.test import SimpleTestCase
 
-from trusts.apps import (
-    TrustsImplementationConfig,
-    implementation_configs,
-    implementation_for_class,
-    implementation_for_path,
-)
+from trusts.apps import TrustsConfigMixin
 from trusts.zero.apps import CANONICAL_BACKEND_PATH, ZeroConfig, zero_config
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust
@@ -26,20 +21,20 @@ class ZeroAppConfigTests(SimpleTestCase):
         )
 
     def test_zero_config_is_the_implementation_owner(self):
-        self.assertTrue(issubclass(ZeroConfig, TrustsImplementationConfig))
-        owners = implementation_configs()
-        self.assertEqual(len(owners), 1)
-        self.assertIs(owners[0], zero_config())
-        self.assertIs(owners[0], apps.get_app_config('trusts'))
+        self.assertTrue(issubclass(ZeroConfig, TrustsConfigMixin))
+        self.assertIsNot(ZeroConfig, TrustsConfigMixin)
+        config = zero_config()
+        self.assertIs(config, apps.get_app_config('trusts'))
+        contained = apps.get_containing_app_config(TrustModelBackend.__module__)
+        self.assertIs(contained, config)
+        self.assertIs(TrustModelBackend().catalog, config.get_catalog())
         self.assertEqual(
-            owners[0].trusts_backend_paths, (CANONICAL_BACKEND_PATH,),
+            config.catalog_path(),
+            'trusts.zero.apps.ZeroConfig',
         )
-        self.assertIs(
-            implementation_for_path(CANONICAL_BACKEND_PATH), owners[0],
-        )
-        self.assertIs(
-            implementation_for_class(TrustModelBackend), owners[0],
-        )
+        self.assertIn(CANONICAL_BACKEND_PATH, (
+            'trusts.zero.backends.TrustModelBackend',
+        ))
 
     def test_core_ships_no_appconfig_or_kernel_config(self):
         import trusts.apps as trusts_apps

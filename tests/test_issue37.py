@@ -14,13 +14,13 @@ from trusts.zero.registration import (
     register_zero_group,
     register_zero_relations,
 )
-from tests.apps import isolated_backend, live_backend
+from tests.apps import isolated_backend, live_backend, tests_registry
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = 'cbe72e573911f34225c8322e1133288c1bcb3c43'
+CORE_PIN = 'f898123987569817bc93e31e34505211e1c61b82'
 STALE_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
 STALE_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
@@ -235,9 +235,10 @@ class PublicRegisterAuthorizationTests(TestCase):
         backend = live_backend()
         self.assertTrue(callable(backend.register))
         self.assertFalse(hasattr(backend, 'register_relationship'))
-        tup = backend.registry.records_for_root(TrustUserPermission)
-        tgp = backend.registry.records_for_root(TrustGroupPermission)
-        grouped = backend.registry.records_for_root(TrustGroup)
+        hosted = tests_registry()
+        tup = hosted.records_for_root(TrustUserPermission)
+        tgp = hosted.records_for_root(TrustGroupPermission)
+        grouped = hosted.records_for_root(TrustGroup)
         self.assertTrue(any(row.content_model is Category for row in tup))
         self.assertEqual(
             len([row for row in tgp if row.content_model is Category]), 1,

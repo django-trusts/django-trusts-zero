@@ -3,8 +3,16 @@
 from django.contrib.auth.backends import ModelBackend
 
 from trusts.backends import TrustModelBackendMixin
-from trusts.core import PlanQueryCompiler
 from trusts.zero.backends import TrustModelBackend
+
+
+class TestsCatalogBackend(TrustModelBackendMixin, ModelBackend):
+    """Listed backend for the tests app catalog.
+
+    Category, Ticket, and Group registrations live on ``TestsConfig``.
+    This class's module is ``tests.backends``, so
+    ``get_containing_app_config`` binds it to that catalog.
+    """
 
 
 class MixinOnlyBackend(TrustModelBackendMixin, ModelBackend):
@@ -20,10 +28,9 @@ class GroupOnlyBackend(TrustModelBackendMixin, ModelBackend):
 
     Isolation is records present vs absent on this backend, not a
     Zero-owned compiler. Hosts that need group-only coverage donate
-    the TGP pair and omit TUP.
+    the TGP pair and omit TUP. The plan compiler is the app config's,
+    not an attribute of this class.
     """
-
-    query_compiler = PlanQueryCompiler()
 
 
 # Same owned Zero backend class under a second import path (alias tests).

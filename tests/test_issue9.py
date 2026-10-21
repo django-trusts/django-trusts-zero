@@ -4,28 +4,24 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
-from django.apps import apps
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 
-from trusts.apps import (
-    implementation_for_class,
-    implementation_for_path,
-)
+from django.apps import apps as django_apps
+
+from trusts.apps import TrustsConfigMixin
 from trusts.backends import TrustModelBackendMixin
+from trusts.plan.relations import PlanQueryCompiler
 from trusts.zero.apps import (
     CANONICAL_BACKEND_PATH,
     DEPRECATED_CORE_BACKEND_PATH,
-    FLOOR_MESSAGE,
     ZeroConfig,
     zero_config,
 )
-from trusts.core import PlanQueryCompiler
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
 
@@ -73,31 +69,36 @@ class CanonicalBackendIdentityTests(SimpleTestCase):
 
         self.assertTrue(issubclass(TrustModelBackend, TrustModelBackendMixin))
         self.assertTrue(issubclass(TrustModelBackend, object))
-        self.assertIsInstance(
-            TrustModelBackend.query_compiler, PlanQueryCompiler,
-        )
-        self.assertFalse(getattr(
-            TrustModelBackend.query_compiler, 'historical_fallback', False,
-        ))
+        catalog = django_apps.get_app_config('trusts').get_catalog()
+        self.assertIsInstance(catalog.compiler, PlanQueryCompiler)
+        self.assertFalse(getattr(catalog.compiler, 'historical_fallback', False))
+        self.assertFalse(hasattr(TrustModelBackend, 'query_compiler'))
         self.assertFalse(hasattr(core_backends, 'TrustModelBackend'))
         self.assertTrue(hasattr(core_backends, 'TrustModelBackendMixin'))
         with self.assertRaises(ImportError):
             import trusts.core_backends  # noqa: F401
 
     def test_canonical_path_resolves_only_through_zeroconfig(self):
-        owner = implementation_for_path(CANONICAL_BACKEND_PATH)
+        owner = django_apps.get_containing_app_config(
+            CANONICAL_BACKEND_PATH.rpartition('.')[0],
+        )
         self.assertIs(type(owner), ZeroConfig)
         self.assertIs(owner, zero_config())
-        self.assertIs(implementation_for_class(TrustModelBackend), owner)
-        backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
-        self.assertEqual(backend.path, CANONICAL_BACKEND_PATH)
-        self.assertIs(backend.registry, owner.registries[CANONICAL_BACKEND_PATH])
+        self.assertIs(
+            django_apps.get_containing_app_config(TrustModelBackend.__module__),
+            owner,
+        )
+        backend = TrustModelBackend()
+        self.assertIs(backend.catalog, owner.get_catalog())
+        self.assertEqual(
+            backend.catalog.path, 'trusts.zero.apps.ZeroConfig',
+        )
 
     def test_unconfigured_mixin_class_is_not_zero_identity(self):
-        from trusts.core import TrustsConfigurationError
+        from trusts.errors import TrustsMixinRequired
 
-        with self.assertRaises(TrustsConfigurationError):
-            implementation_for_class(TrustModelBackendMixin)
+        with self.assertRaises(TrustsMixinRequired):
+            TrustModelBackendMixin()
 
 
 class OwnerPresentOnFinalCoreTests(SimpleTestCase):
@@ -115,28 +116,25 @@ class OwnerPresentOnFinalCoreTests(SimpleTestCase):
 
     def test_mixin_owner_present_resolves_through_zeroconfig(self):
         backend = TrustModelBackend()
-        config = backend._trusts_config()
+        config = django_apps.get_containing_app_config(type(backend).__module__)
         self.assertIs(type(config), ZeroConfig)
         self.assertIs(config, zero_config())
-        own_backend = backend._own_handle()
-        self.assertEqual(own_backend.path, CANONICAL_BACKEND_PATH)
+        self.assertIs(backend.catalog, config.get_catalog())
 
     def test_zero_config_helper_returns_installed_owner(self):
         self.assertIs(type(zero_config()), ZeroConfig)
 
 
 class StartupBeltTests(SimpleTestCase):
-    def test_missing_step_i_helper_is_improperly_configured(self):
-        import trusts.zero.apps as zero_apps
+    def test_implementation_config_is_not_the_base(self):
+        import trusts.apps as trusts_apps
 
-        config = apps.get_app_config('trusts')
-        with patch.object(zero_apps, 'TrustsImplementationConfig', None):
-            with self.assertRaises(ImproperlyConfigured) as ctx:
-                config.ready()
-        self.assertIn('1.0.0rc1', str(ctx.exception))
-        self.assertIn('0.12.0.dev0', str(ctx.exception))
-        self.assertIn('TrustsImplementationConfig', str(ctx.exception))
-        self.assertEqual(str(ctx.exception), FLOOR_MESSAGE)
+        self.assertTrue(issubclass(ZeroConfig, TrustsConfigMixin))
+        self.assertFalse(hasattr(trusts_apps, 'TrustsImplementationConfig'))
+        with self.assertRaises(ImportError):
+            from trusts.apps import TrustsImplementationConfig  # noqa: F401
+        config = django_apps.get_app_config('trusts')
+        self.assertIs(type(config), ZeroConfig)
 
     def test_old_backend_path_alone_fails_startup(self):
         result = subprocess.run(

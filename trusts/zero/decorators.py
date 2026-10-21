@@ -2,8 +2,8 @@
 
 Public compatibility surface: ``P``, ``R``, ``K``, ``G``, ``O``,
 ``permission_required``. Behavior matches Core's current legacy block
-(above ``authorization_required``). ``parse_perm_code`` is imported from
-Core ``trusts.utils``; this module does not fork it.
+(above ``authorization_required``). ``parse_perm_code`` is Zero's codec
+in ``trusts.zero.policy``; ``trusts.utils`` is gone.
 """
 
 from functools import wraps
@@ -16,7 +16,7 @@ from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
 from django.shortcuts import resolve_url
 from django.http import Http404
 
-from trusts import utils
+from trusts.zero.policy import parse_perm_code
 
 
 class P(object):
@@ -121,6 +121,8 @@ def request_passes_test(test_func, login_url=None, redirect_field_name=REDIRECT_
             if ((not login_scheme or login_scheme == current_scheme) and
                     (not login_netloc or login_netloc == current_netloc)):
                 path = request.get_full_path()
+            # Deferred import: redirect_to_login. auth.views pulls in the
+            # auth stack; keep that off the decorator module import.
             from django.contrib.auth.views import redirect_to_login
 
             return redirect_to_login(
@@ -148,9 +150,11 @@ def _get_permissible_items(perm, request, fieldlookups):
     if fieldlookups is None:
         return None
 
+    # Deferred import: ContentType. contenttypes models are not safe to
+    # import while this decorator module is first loaded.
     from django.contrib.contenttypes.models import ContentType
 
-    applabel, modelname, action, cond = utils.parse_perm_code(perm)
+    applabel, modelname, action, cond = parse_perm_code(perm)
     try:
         ctype = ContentType.objects.get_by_natural_key(applabel, modelname)
 

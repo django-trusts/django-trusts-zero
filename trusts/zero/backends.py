@@ -2,26 +2,27 @@
 
 Defined here as a distinct class object. Do not alias or re-export
 ``trusts.backends.TrustModelBackend``; that temporary core historical
-class is a different identity and is not listed in
-``ZeroConfig.trusts_backend_paths``.
+class is a different identity.
+
+The catalog belongs to ``ZeroConfig``. ``TrustModelBackendMixin``
+loads it from the app config that contains this module
+(``apps.get_containing_app_config``). This class does not store a
+query compiler; Core compiles the catalog with the app config's
+compiler, defaulting to the plan compiler.
 """
 
 from django.contrib.auth.backends import ModelBackend
 
 from trusts.backends import TrustModelBackendMixin
-from trusts.core import PlanQueryCompiler
 
 
 class TrustModelBackend(TrustModelBackendMixin, ModelBackend):
-    """Durable Zero backend. Registry identity is this class object.
+    """Durable Zero backend. Inquiry reads ``ZeroConfig``'s catalog.
 
-    Uses Core ``PlanQueryCompiler``. Explicit ``group=`` ceilings share
-    one ``Group.permissions`` join in Core. This backend does not keep a
-    second compiler and does not infer a group from a membership-shaped
-    path.
+    Explicit ``group=`` ceilings share one ``Group.permissions`` join
+    in Core. This backend does not keep a second compiler and does not
+    infer a group from a membership-shaped path.
     """
-
-    query_compiler = PlanQueryCompiler()
 
     def get_user_permissions(self, user_obj, obj=None):
         """Direct ``user_permissions``, without the active-superuser shortcut.
@@ -47,7 +48,7 @@ class TrustModelBackend(TrustModelBackendMixin, ModelBackend):
 
         ``include_superusers`` is accepted so this matches Django's
         signature. It is not forwarded. This method does not read Core's
-        registry. Trusts grants and overrides come from Core's
+        catalog. Trusts grants and overrides come from Core's
         ``get_permitted_users``.
         """
         return super().with_perm(
