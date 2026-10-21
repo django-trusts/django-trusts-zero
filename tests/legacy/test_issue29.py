@@ -13,7 +13,7 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 
 from tests.apps import (
-    catalog_from, forget_models, isolated_catalog, isolated_factory,
+    catalog_from, forget_models, isolated_catalog, isolated_compiler,
     live_catalog, live_config, register_relations,
 )
 from tests.legacy.helpers import (
@@ -109,10 +109,10 @@ class PermissionConditionCheckTest(TestCase):
 
     def test_valid_custom_builder_proxy_and_cross_app_fk_pass_check(self):
         def register(factory):
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'owned', lambda u, p, o: u == o.owner,
             )
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 AutoAdminCategory, 'named', lambda u, p, o: o.name == 'ok',
             )
 
@@ -127,7 +127,7 @@ class PermissionConditionCheckTest(TestCase):
 
     def test_builder_unresolved_field_fails_at_register(self):
         def register(factory):
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'missing', lambda u, p, o: u == o.not_a_field,
             )
 
@@ -139,8 +139,8 @@ class PermissionConditionCheckTest(TestCase):
         )
 
     def test_register_permission_condition_invokes_the_builder_once(self):
-        factory = isolated_factory()
-        factory.register_permission_condition(
+        factory = isolated_compiler()
+        factory.add_named_filter(
             Ticket, 'deferred_own', lambda u, p, o: u == o.owner,
         )
         catalog = catalog_from(factory)
@@ -150,38 +150,34 @@ class PermissionConditionCheckTest(TestCase):
         messages = check_permission_conditions(None)
         self.assertEqual(_messages_with_id(messages, CHECK_ID_INVALID_EXPR), [])
 
-        bad = isolated_factory()
+        bad = isolated_compiler()
         with self.assertRaises(PermissionConditionError) as ctx:
-            bad.register_permission_condition(
+            bad.add_named_filter(
                 Ticket, 'deferred_bad',
                 lambda u, p, o: u == o.deferred_missing,
             )
         self.assertIn('deferred_missing', str(ctx.exception))
 
-    def test_meta_permission_conditions_fail_at_build(self):
+    def test_bad_named_filter_fails_at_register(self):
         class ImportTimeBadTicket(Content):
             class Meta:
                 app_label = 'trusts_zero_tests'
                 managed = False
-                permission_conditions = (
-                    ('bad_a', lambda u, p, o: u == o.missing_a),
-                    ('bad_b', lambda u, p, o: o.trust == 1),
-                )
 
         try:
-            factory = isolated_factory()
+            factory = isolated_compiler()
             with self.assertRaises(PermissionConditionError) as ctx:
-                for code, builder in ImportTimeBadTicket._meta.permission_conditions:
-                    factory.register_permission_condition(
-                        ImportTimeBadTicket, code, builder,
-                    )
+                factory.add_named_filter(
+                    ImportTimeBadTicket, 'bad_a',
+                    lambda u, p, o: u == o.missing_a,
+                )
             self.assertIn('missing_a', str(ctx.exception))
         finally:
             forget_models(ImportTimeBadTicket)
 
     def test_incompatible_builder_fails_at_register(self):
         def register(factory):
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'types', lambda u, p, o: o.status == 1,
             )
 
@@ -192,7 +188,7 @@ class PermissionConditionCheckTest(TestCase):
 
     def test_manage_py_check_stays_green_when_invalid_builder_does_not_land(self):
         def register(factory):
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'typo', lambda u, p, o: u == o.nope,
             )
 
@@ -211,7 +207,7 @@ class PermissionConditionCheckTest(TestCase):
     @override_settings(SILENCED_SYSTEM_CHECKS=['trusts.E001', 'trusts.E003', 'fields.W342'])
     def test_silenced_expr_check_does_not_register_invalid_builder(self):
         def register(factory):
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'missing', lambda u, p, o: u == o.not_a_field,
             )
 
@@ -232,7 +228,7 @@ class PermissionConditionCheckTest(TestCase):
 
         def register(factory):
             register_relations(factory, Ticket)
-            factory.register_permission_condition(Ticket, 'spy', log)
+            factory.add_named_filter(Ticket, 'spy', log)
 
         catalog = isolated_catalog(register)
         self.assertEqual(len(log.calls), 1)
@@ -260,8 +256,8 @@ class PermissionConditionCheckTest(TestCase):
     def test_leftover_setting_is_error_and_does_not_reinvoke_builder(self):
         log = _BuilderLog(lambda u, p, o: u == o.owner)
 
-        factory = isolated_factory()
-        factory.register_permission_condition(Ticket, 'spy', log)
+        factory = isolated_compiler()
+        factory.add_named_filter(Ticket, 'spy', log)
         catalog_from(factory)
         leftover = check_obsolete_legacy_callback_setting(None)
         self.assertEqual(len(leftover), 1)
@@ -275,7 +271,7 @@ class PermissionConditionCheckTest(TestCase):
         ))
 
         def register(factory):
-            factory.register_permission_condition(Ticket, 'boom', exploding)
+            factory.add_named_filter(Ticket, 'boom', exploding)
 
         with self.assertRaises(PermissionConditionError) as ctx:
             isolated_catalog(register)
@@ -284,7 +280,7 @@ class PermissionConditionCheckTest(TestCase):
 
     def test_ready_does_not_raise_when_invalid_builder_fails_at_build(self):
         def register(factory):
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'typo', lambda u, p, o: u == o.nope,
             )
 

@@ -154,7 +154,7 @@ class PermittedQuerySetTest(Issue8FixtureMixin, TestCase):
 
         def register(factory):
             register_relations(factory, Category)
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Category, 'never', lambda u, p, o: o.name == '__never__',
             )
 

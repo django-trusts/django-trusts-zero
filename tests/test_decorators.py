@@ -48,7 +48,8 @@ class LegacyDecoratorPublicSurfaceTests(SimpleTestCase):
             top.append(line)
         prelude = '\n'.join(top)
         self.assertIn('django.contrib.auth.views', prelude)
-        self.assertIn('django.contrib.contenttypes.models', prelude)
+        self.assertNotIn('django.contrib.contenttypes.models', prelude)
+        self.assertIn('get_model', (ROOT / 'trusts' / 'zero' / 'decorators.py').read_text())
 
     def test_public_import_surface(self):
         from trusts.zero.decorators import G, K, O, P, R, permission_required

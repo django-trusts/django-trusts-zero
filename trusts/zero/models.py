@@ -50,7 +50,6 @@ class Content(ReadonlyFieldsMixin, models.Model):
     class Meta:
         abstract = True
         default_permissions = ('add', 'change', 'delete', 'read',)
-        permission_conditions = ()
         auto_modeladmin = False
 
 
@@ -73,9 +72,6 @@ class Trust(Content):
     class Meta:
         unique_together = ('settlor', 'title')
         default_permissions = ('add', 'change', 'delete', 'read',)
-        permission_conditions = (
-            ('own', lambda u, p, o: u == o.settlor),
-        )
 
     def __str__(self):
         settlor_str = ' of %s' % str(self.settlor) if self.settlor is not None else ''
@@ -204,7 +200,6 @@ class Junction(ReadonlyFieldsMixin, models.Model):
     class Meta:
         abstract = True
         default_permissions = ()
-        content_permission_conditions = ()
         unique_together = ('content', )
 
     @classmethod
@@ -217,5 +212,4 @@ class Junction(ReadonlyFieldsMixin, models.Model):
 
     @classmethod
     def get_fieldlookup(cls):
-        label = '%s.%s' % (cls._meta.app_label.lower(), cls._meta.model_name)
-        return '%s__content' % label.replace('.', '_')
+        return '%s__content' % cls._meta.label_lower.replace('.', '_')

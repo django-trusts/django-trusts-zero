@@ -1,7 +1,7 @@
 """Zero #16: donate Meta conditions onto a recorder, then read the catalog.
 
 Paired against the exact django-trusts candidate
-``3aad8c25f34469f4ecb03e9cd441d9e6315d4f0f``.
+``f898123987569817bc93e31e34505211e1c61b82``.
 """
 
 import inspect
@@ -29,15 +29,11 @@ from trusts.zero.models import (
     Trust,
     TrustUserPermission,
 )
-from trusts.zero.registration import (
-    donate_content_permission_conditions,
-    donate_installed_permission_conditions,
-    donate_junction_content_permission_conditions,
-)
+from trusts.zero.registration import trust_settlor_owns
 from tests.apps import (
     catalog_from,
     isolated_catalog,
-    isolated_factory,
+    isolated_compiler,
     isolated_recorder,
     live_catalog,
     live_recorder,
@@ -120,7 +116,6 @@ class MetaDonationOnceTests(SimpleTestCase):
         self.assertEqual(len(ticket_rows), 1)
         self.assertIsNotNone(ticket_rows[0][2].expr)
 
-        donate_installed_permission_conditions(live_recorder())
         self.assertEqual(len(_condition_rows(catalog, Trust, 'own')), 1)
         self.assertEqual(len(_condition_rows(catalog, Ticket, 'own')), 1)
 
@@ -147,14 +142,10 @@ class MetaDonationOnceTests(SimpleTestCase):
 
             class Meta:
                 app_label = 'trusts_zero_tests'
-                content_permission_conditions = (
-                    ('via_memo', via_memo),
-                )
 
-        factory = isolated_factory()
-        code, builder = MemoJunction._meta.content_permission_conditions[0]
-        factory.register_permission_condition(MemoJunction, code, builder)
-        factory.register_permission_condition(MemoJunction, code, builder)
+        factory = isolated_compiler()
+        factory.add_named_filter(MemoJunction, 'via_memo', via_memo)
+        factory.add_named_filter(MemoJunction, 'via_memo', via_memo)
         catalog = catalog_from(factory)
         rows = _condition_rows(catalog, MemoJunction, 'via_memo')
         self.assertEqual(len(rows), 1)
@@ -168,12 +159,12 @@ class MetaDonationOnceTests(SimpleTestCase):
 class OwnerIsolationTests(SimpleTestCase):
     def test_catalogs_do_not_share_condition_records(self):
         def left_register(factory):
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'own', lambda u, p, o: u == o.owner,
             )
 
         def right_register(factory):
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'own', lambda u, p, o: o.title == 'keep',
             )
 
@@ -271,7 +262,7 @@ class ExprParityTests(TestCase):
             )
 
         def register(factory):
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'typo16', lambda u, p, o: u == o.nope,
             )
 
@@ -308,7 +299,7 @@ class BuilderOnceTests(TestCase):
 
         def register(factory):
             register_relations(factory, Category)
-            factory.register_permission_condition(Category, 'spy16', self.log)
+            factory.add_named_filter(Category, 'spy16', self.log)
 
         self.catalog = isolated_catalog(register)
 
@@ -332,9 +323,9 @@ class BuilderOnceTests(TestCase):
     def test_catalog_build_invokes_builder_once(self):
         late = _BuilderLog(lambda u, p, o: o.name == 'keep')
 
-        factory = isolated_factory()
+        factory = isolated_compiler()
         self.assertEqual(len(late.calls), 0)
-        factory.register_permission_condition(Category, 'late16', late)
+        factory.add_named_filter(Category, 'late16', late)
         catalog = catalog_from(factory)
         self.assertEqual(len(late.calls), 1)
         self.assertIsNotNone(
@@ -360,7 +351,7 @@ class BuilderOnceTests(TestCase):
         ))
 
         def register(factory):
-            factory.register_permission_condition(Category, 'boom16', exploding)
+            factory.add_named_filter(Category, 'boom16', exploding)
 
         with self.assertRaises(PermissionConditionError) as ctx:
             isolated_catalog(register)
@@ -381,16 +372,9 @@ class BuilderOnceTests(TestCase):
 
 
 class HelperDonationTests(TransactionTestCase):
-    def test_content_meta_helper_is_not_a_second_store(self):
-        recorder = isolated_recorder()
-        donate_content_permission_conditions(recorder, Ticket)
-        donate_content_permission_conditions(recorder, Ticket)
-        self.assertEqual(
-            len(recorder.rows), 2 * len(Ticket._meta.permission_conditions),
-        )
-        factory = isolated_factory()
-        for cond_code, condition in Ticket._meta.permission_conditions:
-            factory.register_permission_condition(Ticket, cond_code, condition)
+    def test_named_filter_stores_an_expr(self):
+        factory = isolated_compiler()
+        factory.add_named_filter(Ticket, 'own', ticket_own)
         catalog = catalog_from(factory)
         rows = _condition_rows(catalog, Ticket, 'own')
         self.assertEqual(len(rows), 1)
@@ -401,19 +385,14 @@ class HelperDonationTests(TransactionTestCase):
             record.expr.to_tuple(),
             ('eq', ('ref', 'principal', ()), ('ref', 'object', ('owner',))),
         )
-        self.assertIs(Ticket._meta.permission_conditions[0][1], ticket_own)
+        self.assertFalse(hasattr(Ticket._meta, 'permission_conditions'))
         self.assertFalse(hasattr(Content, '_conditions'))
 
     def test_trust_own_builder_donation_is_zero_sql(self):
-        code, builder = Trust._meta.permission_conditions[0]
-        self.assertEqual(code, 'own')
-        self.assertTrue(callable(builder))
-        recorder = isolated_recorder()
+        self.assertTrue(callable(trust_settlor_owns))
         with self.assertNumQueries(0):
-            donate_content_permission_conditions(recorder, Trust)
-            factory = isolated_factory()
-            code, builder = Trust._meta.permission_conditions[0]
-            factory.register_permission_condition(Trust, code, builder)
+            factory = isolated_compiler()
+            factory.add_named_filter(Trust, 'own', trust_settlor_owns)
             catalog = catalog_from(factory)
         record = catalog.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(record)

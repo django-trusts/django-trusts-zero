@@ -20,11 +20,11 @@ from tests.apps import live_config
 from trusts.zero.apps import ZeroConfig
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category, Organization
-from trusts.apps import TrustsImplementationConfig
+from trusts.apps import TrustsConfigMixin
 from trusts.decorators import filter_by_permitted_content
 from trusts.errors import TrustsConfigurationError
 from trusts.plan.relations import PlanQueryCompiler
-from trusts.query import AuthorizedManager, AuthorizedQuerySet
+from trusts.models import AuthorizedManagerMixin, AuthorizedQuerySet
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
 from trusts.zero.query import ContentQuerySet
@@ -79,12 +79,14 @@ class KernelConfigTest(TestCase):
             config = live_config()
         zero = apps.get_app_config('trusts')
         self.assertIs(type(config), ZeroConfig)
-        self.assertIsInstance(config, TrustsImplementationConfig)
+        self.assertIsInstance(config, TrustsConfigMixin)
         self.assertEqual(config.name, 'trusts.zero')
         self.assertEqual(config.label, 'trusts')
         self.assertIs(config, live_config())
         self.assertIs(config, zero)
-        self.assertIsInstance(TrustModelBackend.query_compiler, PlanQueryCompiler)
+        self.assertIsInstance(
+            TrustModelBackend().get_catalog().compiler, PlanQueryCompiler,
+        )
 
 
 class LegacyMatrixBPairTest(TestCase):
@@ -115,14 +117,14 @@ class AuthorizedQuerySetSurfaceTest(SimpleTestCase):
     def test_no_permitted_or_get_permission_on_generic_surface(self):
         self.assertFalse(hasattr(AuthorizedQuerySet, 'permitted'))
         self.assertFalse(hasattr(AuthorizedQuerySet, 'get_permission'))
-        self.assertFalse(hasattr(AuthorizedManager, 'permitted'))
-        self.assertFalse(hasattr(AuthorizedManager, 'get_permission'))
+        self.assertFalse(hasattr(AuthorizedManagerMixin, 'permitted'))
+        self.assertFalse(hasattr(AuthorizedManagerMixin, 'get_permission'))
         self.assertTrue(issubclass(ContentQuerySet, QuerySet))
         self.assertTrue(issubclass(ContentQuerySet, AuthorizedQuerySet))
         self.assertTrue(hasattr(ContentQuerySet, 'permitted'))
-        self.assertTrue(hasattr(AuthorizedManager, 'authorized'))
-        self.assertFalse(hasattr(AuthorizedManager, 'permitted'))
-        self.assertFalse(hasattr(AuthorizedManager, 'get_permission'))
+        self.assertTrue(hasattr(AuthorizedManagerMixin, 'authorized'))
+        self.assertFalse(hasattr(AuthorizedManagerMixin, 'permitted'))
+        self.assertFalse(hasattr(AuthorizedManagerMixin, 'get_permission'))
 
 
 class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):

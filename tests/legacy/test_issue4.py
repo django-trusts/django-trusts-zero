@@ -11,7 +11,7 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from tests.apps import (
-    catalog_from, isolated_catalog, isolated_factory, isolated_recorder,
+    catalog_from, isolated_catalog, isolated_compiler, isolated_recorder,
     live_catalog, register_relations,
 )
 from tests.legacy.helpers import (
@@ -97,40 +97,40 @@ class QueryableConditionTest(TestCase):
 
         def register(factory):
             register_relations(factory, Ticket)
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'editable',
                 lambda u, p, o: (
                     (u == o.owner)
                     | ((u == o.organization.manager) & (o.status != 'locked'))
                 ),
             )
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'unlocked',
                 lambda u, p, o: (
                     ((u == o.owner) | (u == o.organization.manager))
                     & (o.status != 'locked')
                 ),
             )
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'open', lambda u, p, o: o.status == 'open',
             )
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'never', lambda u, p, o: o.title == '__never__',
             )
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'unset_region', lambda u, p, o: o.region == None,
             )
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'named', lambda u, p, o: u.username == o.region,
             )
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'same_people',
                 lambda u, p, o: o.owner == o.organization.manager,
             )
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Ticket, 'status_eq_str', lambda u, p, o: o.status == '1',
             )
-            factory.register_permission_condition(Ticket, 'spy', self.spy_log)
+            factory.add_named_filter(Ticket, 'spy', self.spy_log)
 
         self.catalog = isolated_catalog(register)
         self.change = 'trusts_zero_tests.change_ticket'
@@ -140,7 +140,7 @@ class QueryableConditionTest(TestCase):
 
     def _reject(self, code, builder, exc=PermissionConditionError):
         def register(factory):
-            factory.register_permission_condition(Ticket, code, builder)
+            factory.add_named_filter(Ticket, code, builder)
 
         with self.assertRaises(exc) as ctx:
             isolated_catalog(register)
@@ -344,8 +344,8 @@ class QueryableConditionTest(TestCase):
         recorder = isolated_recorder()
         recorder.add_named_filter(Ticket, 'late', log)
         self.assertEqual(len(log.calls), 0)
-        factory = isolated_factory()
-        factory.register_permission_condition(Ticket, 'late', log)
+        factory = isolated_compiler()
+        factory.add_named_filter(Ticket, 'late', log)
         catalog = catalog_from(factory)
         self.assertEqual(len(log.calls), 1)
         self.assertIsNotNone(catalog.get_permission_condition_record(Ticket, 'late'))

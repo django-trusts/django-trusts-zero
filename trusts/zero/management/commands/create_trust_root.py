@@ -1,7 +1,6 @@
+from django.apps import apps
 from django.conf import settings
 from django.core.management.base import BaseCommand
-
-from trusts.zero.models import Trust
 
 
 def create_root_trust(Trust, pk, settlor, title):
@@ -27,5 +26,6 @@ class Command(BaseCommand):
         pk = getattr(settings, 'TRUSTS_ROOT_PK', 1)
         settlor = getattr(settings, 'TRUSTS_ROOT_SETTLOR', None)
         title = getattr(settings, 'TRUSTS_ROOT_TITLE', 'In Trust We Trust')
+        Trust = apps.get_model('trusts', 'Trust')
 
         create_root_trust(Trust, pk, settlor, title)

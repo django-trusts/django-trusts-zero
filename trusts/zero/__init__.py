@@ -102,10 +102,7 @@ def get_group_model():
     ``TRUSTS_GROUP_MODEL`` is deprecated and does not select a model.
     Runtime still fail-closes when that setting names anything else.
     """
-    # AppRegistryNotReady: auth.models touches the app registry at import.
-    from django.contrib.auth.models import Group
-
-    return Group
+    return django_apps.get_model('auth', 'Group')
 
 
 def get_permission_model():
@@ -114,10 +111,7 @@ def get_permission_model():
     ``TRUSTS_PERMISSION_MODEL`` is deprecated and does not select a model.
     Runtime still fail-closes when that setting names anything else.
     """
-    # AppRegistryNotReady: auth.models touches the app registry at import.
-    from django.contrib.auth.models import Permission
-
-    return Permission
+    return django_apps.get_model('auth', 'Permission')
 
 
 def lookup_group_model_setting():

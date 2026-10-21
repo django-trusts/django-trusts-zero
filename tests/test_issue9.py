@@ -11,6 +11,7 @@ from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 
 from trusts.backends import TrustModelBackendMixin
+from trusts.errors import TrustsMixinRequired
 from trusts.plan.relations import PlanQueryCompiler
 from trusts.zero.apps import (
     CANONICAL_BACKEND_PATH,
@@ -65,12 +66,9 @@ class CanonicalBackendIdentityTests(SimpleTestCase):
 
         self.assertTrue(issubclass(TrustModelBackend, TrustModelBackendMixin))
         self.assertTrue(issubclass(TrustModelBackend, object))
-        self.assertIsInstance(
-            TrustModelBackend.query_compiler, PlanQueryCompiler,
-        )
-        self.assertFalse(getattr(
-            TrustModelBackend.query_compiler, 'historical_fallback', False,
-        ))
+        catalog = TrustModelBackend().get_catalog()
+        self.assertIsInstance(catalog.compiler, PlanQueryCompiler)
+        self.assertFalse(getattr(catalog.compiler, 'historical_fallback', False))
         self.assertFalse(hasattr(core_backends, 'TrustModelBackend'))
         self.assertTrue(hasattr(core_backends, 'TrustModelBackendMixin'))
         with self.assertRaises(ImportError):
@@ -80,11 +78,12 @@ class CanonicalBackendIdentityTests(SimpleTestCase):
         owner = zero_config()
         self.assertIs(type(owner), ZeroConfig)
         catalog = TrustModelBackend().get_catalog()
-        self.assertEqual(catalog.path, CANONICAL_BACKEND_PATH)
+        self.assertEqual(catalog.path, zero_config().catalog_path())
         self.assertIs(catalog, TrustModelBackend().get_catalog())
 
     def test_unconfigured_mixin_class_is_not_zero_identity(self):
-        self.assertIsNone(TrustModelBackendMixin().get_catalog())
+        with self.assertRaises(TrustsMixinRequired):
+            TrustModelBackendMixin()
 
 
 class OwnerPresentOnFinalCoreTests(SimpleTestCase):
@@ -104,7 +103,7 @@ class OwnerPresentOnFinalCoreTests(SimpleTestCase):
         backend = TrustModelBackend()
         self.assertIs(type(zero_config()), ZeroConfig)
         catalog = backend.get_catalog()
-        self.assertEqual(catalog.path, CANONICAL_BACKEND_PATH)
+        self.assertEqual(catalog.path, zero_config().catalog_path())
 
     def test_zero_config_helper_returns_installed_owner(self):
         self.assertIs(type(zero_config()), ZeroConfig)

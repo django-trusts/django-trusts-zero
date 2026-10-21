@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import TestCase
 
-from trusts.query import AuthorizedQuerySet
+from trusts.models import AuthorizedQuerySet
 from trusts.zero.models import (
     Content,
     Trust,
@@ -22,7 +22,7 @@ from trusts.conditions import PermissionConditionNotQueryable
 from tests.apps import (
     catalog_from,
     isolated_catalog,
-    isolated_factory,
+    isolated_compiler,
     live_catalog,
     records_for_root,
     register_relations,
@@ -185,9 +185,9 @@ class RegistrationAndCodecTests(TestCase):
             calls.append((u, p, o))
             return o.name == 'n'
 
-        factory = isolated_factory()
+        factory = isolated_compiler()
         self.assertEqual(len(calls), 0)
-        factory.register_permission_condition(Category, 'cb', boom)
+        factory.add_named_filter(Category, 'cb', boom)
         catalog = catalog_from(factory)
         self.assertEqual(len(calls), 1)
         self.assertIsNotNone(
@@ -207,7 +207,7 @@ class RegistrationAndCodecTests(TestCase):
 
         def register(factory):
             register_relations(factory, Category)
-            factory.register_permission_condition(Category, 'cb', named_keep)
+            factory.add_named_filter(Category, 'cb', named_keep)
 
         catalog = isolated_catalog(register)
         cat = Category(name='n', trust=self.org)

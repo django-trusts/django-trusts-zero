@@ -1,7 +1,7 @@
 """Zero #32: migrate donation to the final configured-backend methods.
 
 Paired against the exact django-trusts candidate
-``3aad8c25f34469f4ecb03e9cd441d9e6315d4f0f``.
+``f898123987569817bc93e31e34505211e1c61b82``.
 """
 
 import inspect
@@ -17,16 +17,16 @@ from trusts.zero.apps import ZeroConfig, zero_config
 from trusts.zero.models import (
     Junction, Trust, TrustGroup, TrustGroupPermission, TrustUserPermission,
 )
+from trusts.zero.options import ZERO_META_OPTION_NAMES
 from trusts.zero.registration import (
-    donate_content_permission_conditions,
-    donate_installed_permission_conditions,
-    donate_junction_content_permission_conditions,
     register_zero_group,
     register_zero_relations,
+    trust_settlor_owns,
 )
 from tests.apps import (
     catalog_from,
-    isolated_factory,
+    catalog_from_recorder,
+    isolated_compiler,
     isolated_recorder,
     live_catalog,
     live_recorder,
@@ -37,7 +37,7 @@ from tests.models import Ticket
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = '3aad8c25f34469f4ecb03e9cd441d9e6315d4f0f'
+CORE_PIN = 'f898123987569817bc93e31e34505211e1c61b82'
 STALE_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
 STALE_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
@@ -67,14 +67,13 @@ class ZMethodsSurfaceTests(SimpleTestCase):
         migrates = (ROOT / 'migrates.md').read_text()
 
         self.assertIn('recorder.register(', registration)
-        self.assertIn('trust=TrustUserPermission', registration)
-        self.assertIn(
-            'recorder.add_named_filter(model, cond_code, condition)',
-            registration,
-        )
-        self.assertNotIn('predicate=', registration)
-        self.assertIn('donate_installed_permission_conditions(', apps)
-        self.assertIn('register_zero_relations(recorder)', apps)
+        self.assertIn('trust=trust_user_permission', registration)
+        self.assertNotIn('def donate_content_permission_conditions', registration)
+        self.assertNotIn('def donate_installed_permission_conditions', registration)
+        self.assertNotIn('def donate_junction_content_permission_conditions', registration)
+        self.assertNotIn('content_permission_conditions', ZERO_META_OPTION_NAMES)
+        self.assertIn('register_zero_relations(self.recorder)', apps)
+        self.assertIn('add_named_filter', apps)
         self.assertNotIn('def _donate_zero_relations', apps)
         self.assertIn('register_zero_content(backend, Receipt)', rst)
         self.assertIn('backend.add_named_filter', rst)
@@ -128,10 +127,12 @@ class ZMethodsSurfaceTests(SimpleTestCase):
         self.assertFalse(hasattr(recorder, 'register_relationship'))
         self.assertTrue(callable(recorder.add_named_filter))
         source = inspect.getsource(ZeroConfig.ready)
-        self.assertIn('add_named_filter', inspect.getsource(zero_registration))
+        self.assertIn('add_named_filter', source)
         self.assertNotIn('register_permission_condition', source)
         self.assertNotIn('handle =', source)
-        self.assertIn('register_zero_relations(recorder)', source)
+        self.assertIn('register_zero_relations(self.recorder)', source)
+        catalog = live_catalog()
+        self.assertIsNotNone(catalog.get_permission_condition_record(Trust, 'own'))
 
 
 class ZMethodsPlanTests(SimpleTestCase):
@@ -183,7 +184,6 @@ class ZMethodsDonationOnceTests(TestCase):
         ]
         self.assertEqual(len(own), 1)
         self.assertEqual(len(ticket), 1)
-        donate_installed_permission_conditions(live_recorder())
         self.assertEqual(
             len([
                 row for row in catalog.iter_permission_conditions()
@@ -196,16 +196,12 @@ class ZMethodsDonationOnceTests(TestCase):
         recorder = isolated_recorder()
         with self.assertNumQueries(0):
             register_zero_relations(recorder)
-            first = list(recorder.rows)
             register_zero_relations(recorder)
-            self.assertEqual(list(recorder.rows), first)
-            donate_content_permission_conditions(recorder, Trust)
-            donate_content_permission_conditions(recorder, Trust)
-            factory = isolated_factory()
-            factory.register_permission_condition(
-                Trust, 'own', Trust._meta.permission_conditions[0][1],
-            )
-            catalog = catalog_from(factory)
+            recorder.add_named_filter(Trust, 'own', trust_settlor_owns)
+            catalog = catalog_from_recorder(recorder)
+        self.assertEqual(
+            len(root_records(catalog, TrustUserPermission, Trust)), 1,
+        )
         self.assertEqual(len(root_records(live_catalog(), TrustUserPermission, Trust)), 1)
         own = catalog.get_permission_condition_record(Trust, 'own')
         self.assertIsNotNone(own)
@@ -237,9 +233,9 @@ class ZMethodsDonationOnceTests(TestCase):
             calls.append((u, p, o))
             return u == o.settlor
 
-        factory = isolated_factory()
+        factory = isolated_compiler()
         self.assertEqual(len(calls), 0)
-        factory.register_permission_condition(Trust, 'late32', boom)
+        factory.add_named_filter(Trust, 'late32', boom)
         catalog = catalog_from(factory)
         self.assertEqual(len(calls), 1)
         self.assertIsNotNone(
@@ -266,13 +262,9 @@ class ZMethodsDonationOnceTests(TestCase):
 
             class Meta:
                 app_label = 'trusts_zero_tests'
-                content_permission_conditions = (
-                    ('via_memo', via_memo),
-                )
 
-        factory = isolated_factory()
-        code, builder = MemoJunction._meta.content_permission_conditions[0]
-        factory.register_permission_condition(MemoJunction, code, builder)
+        factory = isolated_compiler()
+        factory.add_named_filter(MemoJunction, 'via_memo', via_memo)
         catalog = catalog_from(factory)
         self.assertIsNotNone(
             catalog.get_permission_condition_record(MemoJunction, 'via_memo')
@@ -286,8 +278,8 @@ class ZMethodsDonationOnceTests(TestCase):
 
 class ZMethodsRecorderContractTests(SimpleTestCase):
     def test_donation_requires_a_recorder(self):
-        factory = isolated_factory()
-        factory.register_permission_condition(
+        factory = isolated_compiler()
+        factory.add_named_filter(
             Ticket, 'own', lambda u, p, o: u == o.owner,
         )
         catalog = catalog_from(factory)
@@ -295,4 +287,4 @@ class ZMethodsRecorderContractTests(SimpleTestCase):
             catalog.get_permission_condition_record(Ticket, 'own')
         )
         with self.assertRaises(TypeError):
-            donate_content_permission_conditions(catalog, Ticket)
+            register_zero_relations(catalog)

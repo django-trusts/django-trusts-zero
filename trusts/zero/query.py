@@ -11,7 +11,7 @@ from django.db.models import Q
 from trusts.conditions import permission_has_condition
 from trusts.decorators import filter_by_permitted_content
 from trusts.errors import TrustsConfigurationError
-from trusts.query import AuthorizedQuerySet
+from trusts.models import AuthorizedQuerySet
 from trusts.zero import (
     ROOT_PK,
     supported_entity_contract,

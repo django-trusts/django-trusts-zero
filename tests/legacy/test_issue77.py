@@ -17,6 +17,7 @@ from tests.apps import (
 )
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category, Organization, Ticket
+from trusts.backends import compile_permitted_users
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
 
@@ -227,7 +228,7 @@ class OnePathAuthorizationTest(_UsersMixin, TestCase):
         self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a1))
         self.assertIn(
             self.alice.pk,
-            _pks(backend.get_permitted_users(self.cat_a1, self.change_code)),
+            _pks(compile_permitted_users(self.cat_a1, self.change_code)),
         )
         self.alice._trust_perm_cache = {(self.change_code, self.cat_a1.pk): False}
         self.alice._perm_cache = set()
@@ -249,7 +250,7 @@ class OnePathAuthorizationTest(_UsersMixin, TestCase):
         )
         self.assertNotIn(
             self.alice.pk,
-            _pks(backend.get_permitted_users(self.cat_a1, self.change_code)),
+            _pks(compile_permitted_users(self.cat_a1, self.change_code)),
         )
 
 
@@ -411,7 +412,7 @@ class RegisteredOrdinaryModelTest(TransactionTestCase):
             MemoGrant.objects.create(memo=memo, user=alice, permission=change)
 
             def register(factory):
-                factory.register_public(
+                factory.register(
                     trust=MemoGrant,
                     user='user',
                     permission='permission',

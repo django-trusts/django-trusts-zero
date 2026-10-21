@@ -6,7 +6,6 @@ from django.db.models import options
 ZERO_META_OPTION_NAMES = (
     'roles',
     'content_roles',
-    'content_permission_conditions',
     'auto_modeladmin',
 )
 
@@ -14,7 +13,9 @@ ZERO_META_OPTION_NAMES = (
 def register_zero_meta_option_names():
     """Add Zero-only names to ``options.DEFAULT_NAMES`` once.
 
-    ``permission_conditions`` is registered by importing ``trusts.apps``.
+    Named filters are ``recorder.add_named_filter`` in ``ready``.
+    ``permission_conditions`` and ``content_permission_conditions`` are
+    not Meta options.
     """
     extra = tuple(
         name for name in ZERO_META_OPTION_NAMES
