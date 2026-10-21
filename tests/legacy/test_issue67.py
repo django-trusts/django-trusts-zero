@@ -13,13 +13,10 @@ from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import isolate_apps
 
-import tests as tests_module
-from tests.apps import (
-    isolated_catalog, live_catalog, live_config, register_relations,
-)
-from tests.host import TestsConfig
+from tests.apps import TEST_BACKEND, trust_rows
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category
+from trusts.zero.apps import zero_config
 from trusts.zero.models import Trust, TrustGroup, TrustGroupPermission, TrustUserPermission
 from trusts.errors import TrustsConfigurationError
 
@@ -35,62 +32,32 @@ def _perm(model, codename):
     )
 
 
-def _tup(catalog, model):
-    matches = [
-        record for record in catalog.plan_for(model).records
-        if record.root is TrustUserPermission
-    ]
-    return matches[0]
-
-
 class CategoryRegistrationShapeTest(SimpleTestCase):
     def test_reenter_contributor_ready_raises_on_the_frozen_recorder(self):
-        catalog = live_catalog()
-        before = catalog.records
+        before = trust_rows(Category, backend=TEST_BACKEND)
         with self.assertRaises(TrustsConfigurationError):
             apps.get_app_config('trusts_zero_tests').ready()
-        self.assertIs(live_catalog(), catalog)
-        self.assertEqual(live_catalog().records, before)
+        self.assertEqual(trust_rows(Category, backend=TEST_BACKEND), before)
 
     def test_live_declaration_uses_meta_reverse(self):
-        catalog = live_catalog()
         rev = Category._meta.get_field('trust').remote_field.get_accessor_name()
-        record = _tup(catalog, Category)
+        record = trust_rows(Category, TrustUserPermission, TEST_BACKEND)[0]
         self.assertNotEqual(rev, 'tests_category_content')
-        self.assertEqual(record.content_field, 'trust__%s' % rev)
-        self.assertEqual(record.user_field, 'entity')
-        self.assertEqual(record.permission_field, 'permission')
-        self.assertIs(record.root, TrustUserPermission)
-        self.assertIs(record.content_model, Category._meta.concrete_model)
-        roots = {row.root for row in catalog.records}
+        self.assertEqual(record['content']['path'], 'trust__%s' % rev)
+        self.assertEqual(record['user']['path'], 'entity')
+        self.assertEqual(record['permission']['path'], 'permission')
+        self.assertEqual(record['root'], 'trusts.TrustUserPermission')
+        self.assertEqual(record['content']['model'], Category._meta.label)
+        roots = {row['root'] for row in trust_rows(Category, backend=TEST_BACKEND)}
         self.assertEqual(
-            roots, {TrustUserPermission, TrustGroup, TrustGroupPermission},
+            roots, {
+                'trusts.TrustUserPermission',
+                'trusts.TrustGroup',
+                'trusts.TrustGroupPermission',
+            },
         )
-        self.assertEqual(len(catalog.plan_for(Category).records), 3)
-        self.assertTrue(catalog.plan_for(Trust).records)
-
-
-@isolate_apps(
-    'tests',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    attr_name='isolated_apps',
-)
-class IsolatedAppsDoesNotDonateToLiveCatalogTest(SimpleTestCase):
-    def test_isolate_apps_ready_does_not_touch_live_catalog(self):
-        catalog = live_catalog()
-        before = catalog.records
-        self.assertFalse(self.isolated_apps.is_installed('trusts'))
-        contributor = TestsConfig('tests', tests_module)
-        contributor.apps = self.isolated_apps
-        contributor.ready()
-        self.assertIs(live_catalog(), catalog)
-        self.assertEqual(live_catalog().records, before)
-        self.assertEqual(len([
-            record for record in live_catalog().records
-            if record.root is TrustUserPermission
-            and record.content_model is Category._meta.concrete_model
-        ]), 1)
+        self.assertEqual(len(trust_rows(Category, backend=TEST_BACKEND)), 3)
+        self.assertTrue(trust_rows(Trust))
 
 
 class CategoryPermittedTest(TestCase):
@@ -196,11 +163,10 @@ class CategoryPermittedTest(TestCase):
             self.assertEqual(list(page), [self.cat_a1])
 
     def test_no_tup_rows_deny_without_changing_registration(self):
-        catalog = live_catalog()
-        self.assertTrue(catalog.plan_for(Category).records)
+        self.assertTrue(trust_rows(Category, backend=TEST_BACKEND))
         TrustUserPermission.objects.all().delete()
         self._reload()
-        self.assertTrue(catalog.plan_for(Category).records)
+        self.assertTrue(trust_rows(Category, backend=TEST_BACKEND))
         self.assertFalse(self.alice.has_perm(self.change_code, self.cat_a1))
         self.assertFalse(
             Category.objects.permitted(self.change_code, self.alice).exists()
@@ -211,39 +177,18 @@ class CategoryPermittedTest(TestCase):
         )
 
     def test_named_condition_constrains_the_complete_grant(self):
-        def register(factory):
-            register_relations(factory, Category)
-            factory.add_named_filter(
-                Category, 'named', lambda u, p, o: o.name == 'keep',
-            )
-
-        catalog = isolated_catalog(register)
-        conditioned = '%s:named' % self.change_code
-        self.assertTrue(catalog.has_perm(self.alice, conditioned, self.cat_a1))
-        self.assertFalse(catalog.has_perm(self.alice, conditioned, self.cat_a2))
-        self.assertTrue(catalog.has_perm(self.carol, conditioned, self.cat_a1))
-        self.assertFalse(catalog.has_perm(self.carol, conditioned, self.cat_a2))
-        overlay = catalog.compile_registered_condition_q(
-            Category, conditioned, self.alice,
-        )
-        alice_pks = set(
-            catalog.filter_authorized(
-                Category.objects.all(), self.alice, self.change,
-            ).filter(overlay).values_list('pk', flat=True)
-        )
-        carol_overlay = catalog.compile_registered_condition_q(
-            Category, conditioned, self.carol,
-        )
-        carol_pks = set(
-            catalog.filter_authorized(
-                Category.objects.all(), self.carol, self.change,
-            ).filter(carol_overlay).values_list('pk', flat=True)
-        )
+        conditioned = '%s:spy' % self.change_code
+        self.assertTrue(self.alice.has_perm(conditioned, self.cat_a1))
+        self.assertFalse(self.alice.has_perm(conditioned, self.cat_a2))
+        self.assertTrue(self.carol.has_perm(conditioned, self.cat_a1))
+        self.assertFalse(self.carol.has_perm(conditioned, self.cat_a2))
+        alice_pks = _pks(Category.objects.permitted(conditioned, self.alice))
+        carol_pks = _pks(Category.objects.permitted(conditioned, self.carol))
         self.assertEqual(alice_pks, {self.cat_a1.pk})
         self.assertEqual(carol_pks, {self.cat_a1.pk})
         direct = {
             obj.pk for obj in Category.objects.all()
-            if catalog.has_perm(self.alice, conditioned, obj)
+            if self.alice.has_perm(conditioned, obj)
         }
         self.assertEqual(alice_pks, direct)
 
@@ -259,9 +204,8 @@ class CategoryPermittedTest(TestCase):
             Category.objects.permitted(self.change_code, AnonymousUser()).exists()
         )
 
-    def test_ready_again_does_not_replace_the_catalog(self):
-        catalog = live_catalog()
-        before = catalog.records
-        live_config().ready()
-        self.assertIs(live_catalog(), catalog)
-        self.assertEqual(live_catalog().records, before)
+    def test_ready_again_raises_and_keeps_the_policy(self):
+        before = trust_rows(Category, backend=TEST_BACKEND)
+        with self.assertRaises(TrustsConfigurationError):
+            zero_config().ready()
+        self.assertEqual(trust_rows(Category, backend=TEST_BACKEND), before)

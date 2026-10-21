@@ -49,8 +49,6 @@ class ZeroConfig(TrustsConfigMixin):
             register_auto_modeladmins()
 
         self._require_canonical_backend()
-        if self.recorder.frozen:
-            return
         Trust = self.get_model('Trust')
         register_zero_relations(self.recorder)
         self.recorder.add_named_filter(Trust, 'own', trust_settlor_owns)

@@ -4,26 +4,25 @@ Multi-path handles, historical fallback, and compiler isolation across
 backends were removed with Core's catalog.
 """
 
-from django.apps import apps
 from django.contrib.auth.models import AnonymousUser, Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
-from django.db import connection, models
 from django.db.models.query import QuerySet
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 
-from tests.apps import (
-    category_spy, forget_models, isolated_catalog, live_catalog,
-)
+from tests.apps import category_spy
+from tests.backends import TestsBackend
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category, Organization, Ticket
-from trusts.backends import compile_permitted_users
+from trusts.models import PermittedUsersMixin
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
 
 
 CONCRETE = 'trusts.zero.backends.TrustModelBackend'
+TESTS = 'tests.backends.TestsBackend'
 MODEL = 'django.contrib.auth.backends.ModelBackend'
+OWNING = (CONCRETE, TESTS)
 
 
 def _pks(qs):
@@ -156,20 +155,20 @@ class OnePathAuthorizationTest(_UsersMixin, TestCase):
             )
         )
         self.assertEqual(
-            TrustModelBackend().get_all_permissions(self.alice, self.cat_a1),
+            TestsBackend().get_all_permissions(self.alice, self.cat_a1),
             set(),
         )
         anon = AnonymousUser()
         self.assertFalse(
-            TrustModelBackend().has_perm(anon, self.change_code, self.cat_a1)
+            TestsBackend().has_perm(anon, self.change_code, self.cat_a1)
         )
         self.assertEqual(
-            TrustModelBackend().get_all_permissions(anon, self.cat_a1),
+            TestsBackend().get_all_permissions(anon, self.cat_a1),
             set(),
         )
 
     def test_permission_identity_and_group_enumeration(self):
-        backend = TrustModelBackend()
+        backend = TestsBackend()
         all_perms = backend.get_all_permissions(self.alice, self.cat_a1)
         self.assertIn(self.change_code, all_perms)
         self.assertNotIn(self.add_code, all_perms)
@@ -194,7 +193,7 @@ class OnePathAuthorizationTest(_UsersMixin, TestCase):
         self.assertFalse(self.alice.has_perm(self.change_code, self.cat_a1))
 
     def test_query_bounds_one_path(self):
-        backend = TrustModelBackend()
+        backend = TestsBackend()
         qs = Category.objects.filter(pk__in=[self.cat_a1.pk, self.cat_a2.pk])
         with self.assertNumQueries(1):
             self.assertTrue(backend.has_perm(self.alice, self.change_code, qs))
@@ -222,13 +221,14 @@ class OnePathAuthorizationTest(_UsersMixin, TestCase):
             self.assertEqual(list(page), [self.cat_a1])
 
     def test_planted_cache_is_not_an_authorization_source(self):
-        backend = TrustModelBackend()
         self.alice._trust_perm_cache = {}
         self.alice._perm_cache = set()
         self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a1))
         self.assertIn(
             self.alice.pk,
-            _pks(compile_permitted_users(self.cat_a1, self.change_code)),
+            _pks(PermittedUsersMixin.get_permitted_users(
+                self.cat_a1, self.change_code,
+            )),
         )
         self.alice._trust_perm_cache = {(self.change_code, self.cat_a1.pk): False}
         self.alice._perm_cache = set()
@@ -250,7 +250,9 @@ class OnePathAuthorizationTest(_UsersMixin, TestCase):
         )
         self.assertNotIn(
             self.alice.pk,
-            _pks(compile_permitted_users(self.cat_a1, self.change_code)),
+            _pks(PermittedUsersMixin.get_permitted_users(
+                self.cat_a1, self.change_code,
+            )),
         )
 
 
@@ -272,7 +274,7 @@ class TrusteeAndGroupCoverageTest(_UsersMixin, TestCase):
         self._reload()
 
     def test_split_coverage_object_queryset_and_permitted(self):
-        concrete = TrustModelBackend()
+        concrete = TestsBackend()
         self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.cat_a))
         self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.cat_b))
         self.assertTrue(self.alice.has_perm(self.change_code, self.cat_a))
@@ -320,7 +322,7 @@ class ObjNoneBoundaryTest(_UsersMixin, TestCase):
         self.assertFalse(backend.has_perm(self.alice, self.change_code))
         self.assertEqual(backend.get_all_permissions(self.alice), set())
         self.assertEqual(backend.get_group_permissions(self.alice), set())
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE,)):
+        with override_settings(AUTHENTICATION_BACKENDS=OWNING):
             self.alice = User.objects.get(pk=self.alice.pk)
             self.assertFalse(self.alice.has_perm('auth.change_user'))
             self.assertFalse(self.alice.has_perms(('auth.change_user',)))
@@ -332,7 +334,7 @@ class ObjNoneBoundaryTest(_UsersMixin, TestCase):
         )
 
     def test_modelbackend_plus_trusts_restores_globals_not_object_grants(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(MODEL, CONCRETE)):
+        with override_settings(AUTHENTICATION_BACKENDS=(MODEL,) + OWNING):
             self.alice = User.objects.get(pk=self.alice.pk)
             self.assertTrue(self.alice.has_perm('auth.change_user'))
             self.assertTrue(self.alice.has_perms(('auth.change_user',)))
@@ -359,106 +361,10 @@ class PlanCommonPermissionsTest(_UsersMixin, TestCase):
         ).save()
         self._reload()
 
-    def test_plan_common_permissions_are_one_sql(self):
-        plan = live_catalog().plan_for(self.cat_a, user=self.alice)
+    def test_common_permissions_are_one_sql(self):
         with self.assertNumQueries(1):
-            codes = set(
-                plan.common_permissions(self.alice, self.cat_a).values_list(
-                    'codename', flat=True,
-                )
-            )
-        self.assertIn('change_category', codes)
-
-
-class RegisteredOrdinaryModelTest(TransactionTestCase):
-    """An ordinary model authorized by an isolated catalog."""
-
-    def test_registered_ordinary_instance_queryset_and_filter(self):
-        class Memo(models.Model):
-            title = models.CharField(max_length=40)
-
-            class Meta:
-                app_label = 'trusts_zero_tests'
-
-        class MemoGrant(models.Model):
-            memo = models.ForeignKey(Memo, on_delete=models.CASCADE)
-            user = models.ForeignKey(User, on_delete=models.CASCADE)
-            permission = models.ForeignKey(Permission, on_delete=models.CASCADE)
-
-            class Meta:
-                app_label = 'trusts_zero_tests'
-
-        with connection.schema_editor() as editor:
-            editor.create_model(Memo)
-            editor.create_model(MemoGrant)
-        try:
-            get_or_create_root_user(self)
-            call_command('create_trust_root')
-            alice = User.objects.create_user('alice-memo', 'alice-memo@example.com', 'x')
-            bob = User.objects.create_user('bob-memo', 'bob-memo@example.com', 'x')
-            alice.is_active = True
-            bob.is_active = True
-            alice.save()
-            bob.save()
-            memo = Memo.objects.create(title='note')
-            other = Memo.objects.create(title='other')
-            ct = ContentType.objects.get_for_model(Memo)
-            change, _created = Permission.objects.get_or_create(
-                content_type=ct,
-                codename='change_memo',
-                defaults={'name': 'Can change memo'},
-            )
-            code = 'trusts_zero_tests.change_memo'
-            MemoGrant.objects.create(memo=memo, user=alice, permission=change)
-
-            def register(factory):
-                factory.register(
-                    trust=MemoGrant,
-                    user='user',
-                    permission='permission',
-                    content='memo',
-                )
-
-            catalog = isolated_catalog(register)
-            self.assertTrue(catalog.plan_for(Memo).records)
-            self.assertTrue(catalog.has_perm(alice, code, memo))
-            self.assertFalse(catalog.has_perm(alice, code, other))
-            self.assertFalse(catalog.has_perm(bob, code, memo))
-            self.assertIn(code, catalog.get_all_permissions(alice, memo))
-            self.assertEqual(catalog.get_group_permissions(alice, memo), set())
-            qs = Memo.objects.filter(pk=memo.pk)
-            self.assertTrue(catalog.has_perm(alice, code, qs))
-            self.assertIn(code, catalog.get_all_permissions(alice, qs))
-            self.assertEqual(catalog.get_group_permissions(alice, qs), set())
-            self.assertFalse(
-                catalog.has_perm(
-                    alice, code,
-                    Memo.objects.filter(pk__in=[memo.pk, other.pk]),
-                )
-            )
-            self.assertEqual(
-                _pks(catalog.filter_authorized(Memo.objects.all(), alice, change)),
-                {memo.pk},
-            )
-            self.assertFalse(
-                catalog.filter_authorized(Memo.objects.all(), bob, change).exists()
-            )
-        finally:
-            with connection.schema_editor() as editor:
-                editor.delete_model(MemoGrant)
-                editor.delete_model(Memo)
-            forget_models(Memo, MemoGrant)
-            apps.clear_cache()
-
-
-class _BuilderLog(object):
-    def __init__(self, impl):
-        self.impl = impl
-        self.calls = []
-
-    def __call__(self, u, p, o):
-        self.calls.append((u, p, o))
-        return self.impl(u, p, o)
+            codes = self.alice.get_all_permissions(self.cat_a)
+        self.assertIn('trusts_zero_tests.change_category', codes)
 
 
 class BuilderOnceParityTest(_UsersMixin, TestCase):
@@ -488,13 +394,12 @@ class BuilderOnceParityTest(_UsersMixin, TestCase):
             )
         )
         self.assertEqual(permitted, {self.keep.pk})
-        catalog = live_catalog()
         self.assertIn(
             self.alice.pk,
-            _pks(catalog.permitted_users(self.keep, self.code)),
+            _pks(PermittedUsersMixin.get_permitted_users(self.keep, self.code)),
         )
         self.assertNotIn(
             self.alice.pk,
-            _pks(catalog.permitted_users(self.drop, self.code)),
+            _pks(PermittedUsersMixin.get_permitted_users(self.drop, self.code)),
         )
         self.assertEqual(len(category_spy.calls), 1)

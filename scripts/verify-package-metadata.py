@@ -52,7 +52,7 @@ def _check_metadata(meta_text: str, origin: str) -> None:
     description = meta.get('Description') or meta_text
     if 'pip install django-trusts-zero' not in description:
         raise SystemExit('%s long description is not the user README' % origin)
-    if 'IIa' in description or '2.0.0.dev' in description or 'kernel_config' in description:
+    if 'IIa' in description or '2.0.0.dev' in description:
         raise SystemExit('%s long description still contains internal-status language' % origin)
 
 

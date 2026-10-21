@@ -14,7 +14,6 @@ class ZeroDocumentationSurfaceTest(SimpleTestCase):
             "trust_grant_q",
             "historical_group_grant_exists",
             "HistoricalGroupQueryCompiler",
-            "kernel_config",
             "from trusts.models import",
             "from trusts.backends import TrustModelBackend",
             "Content.grant",
@@ -45,7 +44,6 @@ class ZeroDocumentationSurfaceTest(SimpleTestCase):
             "trusts.zero.apps.ZeroConfig",
             "trusts.zero.backends.TrustModelBackend",
             "from trusts.zero.models import",
-            "PlanQueryCompiler",
             "granted",
             "filter_authorized_scopes",
             "register_zero_content",
@@ -123,7 +121,6 @@ class ZeroMigratesRouteTest(SimpleTestCase):
         self.assertIn("0001_initial", text)
         self.assertIn("0002_trustgroup", text)
         self.assertIn("django-trusts>=1.0.0rc1,<2", text)
-        self.assertIn("trusts.conditions._ir", text)
         self.assertIn("set_condition_lookup", text)
         self.assertIn("include('trusts.zero.urls')", text)
         self.assertIn("create_trust_root", text)

@@ -11,9 +11,7 @@ from django.core.management import call_command
 from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase
 
-from tests.apps import (
-    catalog_from_recorder, isolated_recorder, live_catalog, root_records,
-)
+from tests.apps import ZERO_BACKEND, trust_rows
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from trusts.zero.models import (
     Trust,
@@ -35,38 +33,33 @@ def _perm(model, codename):
     )
 
 
-def _tup(catalog):
-    return root_records(catalog, TrustUserPermission, Trust)[0]
-
-
 class TrustRelationRegistrationTest(SimpleTestCase):
-    def test_register_zero_relations_is_idempotent_on_a_fresh_recorder(self):
-        recorder = isolated_recorder()
-        register_zero_relations(recorder)
-        register_zero_relations(recorder)
-        donated = catalog_from_recorder(recorder)
-        self.assertEqual(len(root_records(donated, TrustUserPermission, Trust)), 1)
-        catalog = live_catalog()
-        self.assertEqual(len(root_records(catalog, TrustUserPermission, Trust)), 1)
+    def test_live_trust_policy_has_one_tup_row(self):
+        with self.assertRaises(TypeError):
+            register_zero_relations(object())
+        self.assertEqual(len(trust_rows(Trust, TrustUserPermission, ZERO_BACKEND)), 1)
         self.assertEqual(
-            {record.root for record in catalog.records},
-            {TrustUserPermission, TrustGroup, TrustGroupPermission},
+            {row['root'] for row in trust_rows(Trust, backend=ZERO_BACKEND)},
+            {
+                'trusts.TrustUserPermission',
+                'trusts.TrustGroup',
+                'trusts.TrustGroupPermission',
+            },
         )
-        self.assertEqual(len(catalog.plan_for(Trust).records), 3)
+        self.assertEqual(len(trust_rows(Trust, backend=ZERO_BACKEND)), 3)
         rev = Trust._meta.get_field('trust').remote_field.get_accessor_name()
-        record = _tup(catalog)
-        self.assertIs(record.content_model, Trust._meta.concrete_model)
-        self.assertEqual(record.content_field, 'trust__%s' % rev)
-        self.assertNotEqual(record.content_field, 'trust')
-        self.assertEqual(record.user_field, 'entity')
-        self.assertEqual(record.permission_field, 'permission')
+        record = trust_rows(Trust, TrustUserPermission, ZERO_BACKEND)[0]
+        self.assertEqual(record['content']['model'], Trust._meta.label)
+        self.assertEqual(record['content']['path'], 'trust__%s' % rev)
+        self.assertNotEqual(record['content']['path'], 'trust')
+        self.assertEqual(record['user']['path'], 'entity')
+        self.assertEqual(record['permission']['path'], 'permission')
 
     def test_live_trust_plan_uses_the_parent_reverse(self):
-        catalog = live_catalog()
         rev = Trust._meta.get_field('trust').remote_field.get_accessor_name()
-        record = _tup(catalog)
-        self.assertEqual(record.content_field, 'trust__%s' % rev)
-        self.assertTrue(catalog.plan_for(Trust).records)
+        record = trust_rows(Trust, TrustUserPermission, ZERO_BACKEND)[0]
+        self.assertEqual(record['content']['path'], 'trust__%s' % rev)
+        self.assertTrue(trust_rows(Trust, backend=ZERO_BACKEND))
 
 
 class TrustPermittedTest(TestCase):
@@ -186,11 +179,10 @@ class TrustPermittedTest(TestCase):
             self.assertEqual(list(page), [self.child_a1])
 
     def test_no_tup_rows_deny_without_changing_registration(self):
-        catalog = live_catalog()
-        self.assertTrue(catalog.plan_for(Trust).records)
+        self.assertTrue(trust_rows(Trust, backend=ZERO_BACKEND))
         TrustUserPermission.objects.all().delete()
         self._reload()
-        self.assertTrue(catalog.plan_for(Trust).records)
+        self.assertTrue(trust_rows(Trust, backend=ZERO_BACKEND))
         self.assertFalse(self.alice.has_perm(self.change_code, self.child_a1))
         self.assertFalse(
             Trust.objects.permitted(self.change_code, self.alice).exists()

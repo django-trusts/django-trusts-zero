@@ -130,17 +130,7 @@ def main() -> int:
         from trusts.zero.models import Trust
         from django.contrib.contenttypes.models import ContentType
         from django.apps import apps as django_apps
-        import trusts.apps as trusts_apps
         from trusts.zero.apps import ZeroConfig, zero_config
-
-        if hasattr(trusts_apps, 'kernel_config') or hasattr(trusts_apps, 'AppConfig'):
-            raise SystemExit('final core still exports kernel_config or AppConfig')
-        try:
-            from trusts.apps import kernel_config  # noqa: F401
-        except ImportError:
-            pass
-        else:
-            raise SystemExit('kernel_config is still importable')
 
         config = django_apps.get_app_config('trusts')
         if type(config) is not ZeroConfig:

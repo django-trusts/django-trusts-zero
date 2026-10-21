@@ -12,7 +12,7 @@ from django.test import TestCase
 
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import AutoAdminCategory, Category, Organization, Ticket
-from trusts.conditions import PermissionConditionNotQueryable
+from trusts.errors import PermissionConditionError
 from trusts.zero.models import Trust, TrustUserPermission
 from trusts.zero.views import NewTeamForm
 
@@ -131,9 +131,9 @@ class FilterByUserContentPermTest(_UsersMixin, TestCase):
         self.assertFalse(self._filter(AnonymousUser()).exists())
 
     def test_condition_raises(self):
-        with self.assertRaises(PermissionConditionNotQueryable):
+        with self.assertRaises(PermissionConditionError):
             self._filter(self.alice, Category, 'add_category:own')
-        with self.assertRaises(PermissionConditionNotQueryable):
+        with self.assertRaises(PermissionConditionError):
             self._filter(self.alice, Organization, 'add:never')
 
     def test_unknown_model_is_none(self):

@@ -11,12 +11,15 @@ from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 
 from tests.apps import (
+    TEST_BACKEND,
+    content_row,
     junction_content_field,
-    live_catalog,
+    trust_rows,
 )
+from tests.backends import TestsBackend
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category, Organization, TestGroupJunction, Ticket
-from trusts.backends import compile_permitted_users
+from trusts.models import PermittedUsersMixin
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
 def _pks(qs):
@@ -30,23 +33,17 @@ def _perm(model, codename):
     )
 
 
-def _tup(catalog):
-    return [
-        record for record in catalog.plan_for(Group).records
-        if record.root is TrustUserPermission
-    ][0]
-
-
 class GroupRegistrationShapeTest(SimpleTestCase):
     def test_live_declaration_is_the_junction_path(self):
-        catalog = live_catalog()
         rev = TestGroupJunction._meta.get_field('trust').remote_field.get_accessor_name()
         content_name = junction_content_field(TestGroupJunction).name
-        record = _tup(catalog)
-        self.assertEqual(record.content_path, ('trust', rev, content_name))
-        self.assertEqual(record.content_field, 'trust__%s__%s' % (rev, content_name))
-        self.assertIs(record.content_model, Group._meta.concrete_model)
-        self.assertFalse(catalog.plan_for(TestGroupJunction).records)
+        record = trust_rows(Group, TrustUserPermission, TEST_BACKEND)[0]
+        self.assertEqual(
+            record['content']['path'],
+            'trust__%s__%s' % (rev, content_name),
+        )
+        self.assertEqual(record['content']['model'], Group._meta.label)
+        self.assertIsNone(content_row(TestGroupJunction, TEST_BACKEND))
 
 
 class _UsersMixin(object):
@@ -235,7 +232,7 @@ class GroupAuthorizationTest(_UsersMixin, TestCase):
     def test_concrete_trustee_keeps_historical_group(self):
         self.alice.groups.add(self.carol_group)
         self._reload()
-        backend = TrustModelBackend()
+        backend = TestsBackend()
         self.assertTrue(backend.has_perm(self.alice, self.change_code, self.group_a1))
         self.assertIn(
             self.change_code,
@@ -243,7 +240,9 @@ class GroupAuthorizationTest(_UsersMixin, TestCase):
         )
         self.assertIn(
             self.alice.pk,
-            _pks(compile_permitted_users(self.group_a1, self.change_code)),
+            _pks(PermittedUsersMixin.get_permitted_users(
+                self.group_a1, self.change_code,
+            )),
         )
         TrustUserPermission.objects.filter(
             trust=self.trust_a, entity=self.alice, permission=self.change,
@@ -261,7 +260,9 @@ class GroupAuthorizationTest(_UsersMixin, TestCase):
         )
         self.assertIn(
             self.alice.pk,
-            _pks(compile_permitted_users(self.group_a1, self.change)),
+            _pks(PermittedUsersMixin.get_permitted_users(
+                self.group_a1, self.change,
+            )),
         )
 
     def test_create_under_trust_gate_opens_for_declared_group(self):
