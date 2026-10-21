@@ -3,13 +3,8 @@
 from django.apps import apps
 from django.test import SimpleTestCase
 
-from trusts.apps import (
-    TrustsImplementationConfig,
-    implementation_configs,
-    implementation_for_class,
-    implementation_for_path,
-)
-from trusts.zero.apps import CANONICAL_BACKEND_PATH, ZeroConfig, zero_config
+from trusts.apps import TrustsConfigMixin
+from trusts.zero.apps import ZeroConfig, zero_config
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust
 
@@ -26,20 +21,11 @@ class ZeroAppConfigTests(SimpleTestCase):
         )
 
     def test_zero_config_is_the_implementation_owner(self):
-        self.assertTrue(issubclass(ZeroConfig, TrustsImplementationConfig))
-        owners = implementation_configs()
-        self.assertEqual(len(owners), 1)
-        self.assertIs(owners[0], zero_config())
-        self.assertIs(owners[0], apps.get_app_config('trusts'))
-        self.assertEqual(
-            owners[0].trusts_backend_paths, (CANONICAL_BACKEND_PATH,),
-        )
-        self.assertIs(
-            implementation_for_path(CANONICAL_BACKEND_PATH), owners[0],
-        )
-        self.assertIs(
-            implementation_for_class(TrustModelBackend), owners[0],
-        )
+        self.assertTrue(issubclass(ZeroConfig, TrustsConfigMixin))
+        owner = zero_config()
+        self.assertIs(owner, apps.get_app_config('trusts'))
+        catalog = TrustModelBackend().get_catalog()
+        self.assertEqual(catalog.path, zero_config().catalog_path())
 
     def test_core_ships_no_appconfig_or_kernel_config(self):
         import trusts.apps as trusts_apps

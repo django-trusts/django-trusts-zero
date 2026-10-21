@@ -1,64 +1,24 @@
-"""S6: Junction-backed Group contribution and backend routing (issue #85).
+"""Junction-backed Group authorization (issue #85).
 
-The host test app contributes ``TrustUserPermission → Trust ← Junction
-→ Group`` onto the configured Trusts handle. Group instance and
-QuerySet authorization use the registered plan. Structural and
-behavioral tests only — no source-token or ``inspect.getsource``
-assertions.
-
-Copied from django-trusts ``948d6666342377b9472debb57d4a1e26e81402d1`` ``trusts/test_issue85.py``.
+Swapped registries and mixin fan-out were removed with Core's catalog.
+Group grants use the live catalog. The junction path is compiled from
+an isolated recorder.
 """
 
-from unittest.mock import patch
-
-from django.apps import apps
 from django.contrib.auth.models import AnonymousUser, Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
-from django.db import models
-from django.db.models.query import QuerySet
-from django.test import SimpleTestCase, TestCase, override_settings
-from django.test.utils import isolate_apps
+from django.test import SimpleTestCase, TestCase
 
 from tests.apps import (
-    TestsConfig,
-    install_writable_registry,
-    isolate_live_registry,
     junction_content_field,
-    junction_group_content_path,
-    isolated_owner,
-    live_config,
-    override_apps_ready,
+    live_catalog,
 )
-from tests.backends import MixinOnlyBackend
-import tests as tests_module
+from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category, Organization, TestGroupJunction, Ticket
+from trusts.backends import compile_permitted_users
 from trusts.zero.backends import TrustModelBackend
-from trusts.core import (
-    Ref,
-    RelationPlan,
-    TrustsConfigurationError,
-    TrustsRegistry,
-)
-from trusts.zero.models import (
-    Content,
-    Trust,
-    TrustGroup,
-    TrustGroupPermission,
-    TrustUserPermission,
-)
-from trusts.zero.query import filter_authorized_scopes
-from tests.legacy.helpers import (
-    enable_local_group_grant,
-    get_or_create_root_user,
-)
-
-
-CONCRETE = 'trusts.zero.backends.TrustModelBackend'
-MIXIN = 'tests.backends.MixinOnlyBackend'
-ALIASED = 'tests.backends.AliasedTrustModelBackend'
-
-
+from trusts.zero.models import Trust, TrustUserPermission
 def _pks(qs):
     return set(qs.values_list('pk', flat=True))
 
@@ -70,371 +30,23 @@ def _perm(model, codename):
     )
 
 
-def _new_contributor(apps_registry):
-    contributor = TestsConfig('tests', tests_module)
-    contributor.apps = apps_registry
-    return contributor
-
-
-def _group_rows(registry):
+def _tup(catalog):
     return [
-        record for record in registry.records
+        record for record in catalog.plan_for(Group).records
         if record.root is TrustUserPermission
-        and record.content_model is Group._meta.concrete_model
-    ]
+    ][0]
 
 
-def _category_rows(registry):
-    return [
-        record for record in registry.records
-        if record.root is TrustUserPermission
-        and record.content_model is Category._meta.concrete_model
-    ]
-
-
-def _ticket_rows(registry):
-    return [
-        record for record in registry.records
-        if record.root is TrustUserPermission
-        and record.content_model is Ticket._meta.concrete_model
-    ]
-
-
-def _walk_public_path(root_ref, path):
-    """Isolated compiler helper: walk a public ``__`` path on a ``Ref``."""
-    node = root_ref
-    for name in path.split('__'):
-        node = getattr(node, name)
-    return node
-
-
-def _contribute_group(registry, junction_model=TestGroupJunction):
-    j = Ref(TrustUserPermission)
-    registry.register(
-        content=_walk_public_path(
-            j, junction_group_content_path('', junction_model),
-        ),
-        user=j.entity,
-        permission=j.permission,
-    )
-
-
-def _j1_lookup(junction_model=TestGroupJunction):
-    rev = junction_model._meta.get_field('trust').remote_field.get_accessor_name()
-    content_name = junction_content_field(junction_model).name
-    return rev, content_name, 'trust__%s__%s' % (rev, content_name)
-
-
-class _UnusableContents(object):
-    """Stand-in that fails if the static content registry is read."""
-
-    def __getitem__(self, key):
-        raise AssertionError('Content._contents must not be consulted')
-
-    def __contains__(self, key):
-        raise AssertionError('Content._contents must not be consulted')
-
-    def get(self, *args, **kwargs):
-        raise AssertionError('Content._contents must not be consulted')
-
-    def keys(self):
-        raise AssertionError('Content._contents must not be consulted')
-
-    def values(self):
-        raise AssertionError('Content._contents must not be consulted')
-
-    def items(self):
-        raise AssertionError('Content._contents must not be consulted')
-
-
-class _RegistryRestoreMixin(object):
-    def setUp(self):
-        super().setUp()
-        self.live = live_config()
-        self.saved_registries = dict(self.live.registries)
-        self.saved_trust_sentinel = getattr(
-            self.live, '_trusts_tup_trust_registry_id', None
-        )
-        self.saved_trust_ids = getattr(
-            self.live, '_trusts_tup_trust_registry_ids', None
-        )
-        self.live_contributor = apps.get_app_config('trusts_zero_tests')
-        self.saved_category_sentinel = getattr(
-            self.live_contributor, '_trusts_tup_category_registry_id', None
-        )
-        self.saved_ticket_sentinel = getattr(
-            self.live_contributor, '_trusts_tup_ticket_registry_id', None
-        )
-        self.saved_group_sentinel = getattr(
-            self.live_contributor, '_trusts_tup_group_registry_id', None
-        )
-
-    def tearDown(self):
-        self.live.registries.clear()
-        self.live.registries.update(self.saved_registries)
-        self.live._trusts_tup_trust_registry_id = self.saved_trust_sentinel
-        if self.saved_trust_ids is None:
-            if hasattr(self.live, '_trusts_tup_trust_registry_ids'):
-                delattr(self.live, '_trusts_tup_trust_registry_ids')
-        else:
-            self.live._trusts_tup_trust_registry_ids = self.saved_trust_ids
-        self.live_contributor._trusts_tup_category_registry_id = (
-            self.saved_category_sentinel
-        )
-        self.live_contributor._trusts_tup_ticket_registry_id = (
-            self.saved_ticket_sentinel
-        )
-        self.live_contributor._trusts_tup_group_registry_id = (
-            self.saved_group_sentinel
-        )
-        super().tearDown()
-
-
-class GroupContributionIdempotenceTest(SimpleTestCase):
-    def setUp(self):
-        self.live_trusts = live_config()
-        self.live_registry = self.live_trusts.registry
-        self.live_contributor = apps.get_app_config('trusts_zero_tests')
-        self.live_category_sentinel = getattr(
-            self.live_contributor, '_trusts_tup_category_registry_id', None
-        )
-        self.live_ticket_sentinel = getattr(
-            self.live_contributor, '_trusts_tup_ticket_registry_id', None
-        )
-        self.live_group_sentinel = getattr(
-            self.live_contributor, '_trusts_tup_group_registry_id', None
-        )
-
-    def tearDown(self):
-        self.live_trusts.registry = self.live_registry
-        self.live_contributor._trusts_tup_category_registry_id = (
-            self.live_category_sentinel
-        )
-        self.live_contributor._trusts_tup_ticket_registry_id = (
-            self.live_ticket_sentinel
-        )
-        self.live_contributor._trusts_tup_group_registry_id = (
-            self.live_group_sentinel
-        )
-
-    def test_reenter_same_contributor_ready_is_noop(self):
-        self.assertIs(
-            self.live_contributor._trusts_tup_group_registry_id,
-            self.live_registry,
-        )
-        self.assertIs(
-            self.live_contributor._trusts_tup_category_registry_id,
-            self.live_contributor._trusts_tup_group_registry_id,
-        )
-        before = self.live_registry.records
-        with patch.object(
-            self.live_registry, 'register', wraps=self.live_registry.register,
-        ) as register:
-            self.live_contributor.ready()
-        register.assert_not_called()
-        self.assertEqual(self.live_registry.records, before)
-
-    def test_category_and_ticket_sentinels_do_not_complete_group(self):
-        isolated = TrustsRegistry()
-        isolate_live_registry(self.live_trusts, isolated)
-        contributor = _new_contributor(apps)
-        contributor._trusts_tup_category_registry_id = isolated
-        contributor._trusts_tup_ticket_registry_id = isolated
-        with override_apps_ready(False):
-            contributor.ready()
-        self.assertIs(contributor._trusts_tup_category_registry_id, isolated)
-        self.assertIs(contributor._trusts_tup_ticket_registry_id, isolated)
-        self.assertIs(contributor._trusts_tup_group_registry_id, isolated)
-        self.assertEqual(len(_category_rows(isolated)), 0)
-        self.assertEqual(len(_ticket_rows(isolated)), 0)
-        self.assertEqual(len(_group_rows(isolated)), 1)
-
-    def test_different_root_group_registration_does_not_suppress_tup(self):
-        class OtherGroupGrant(models.Model):
-            group = models.ForeignKey(Group, on_delete=models.CASCADE)
-            user = models.ForeignKey(User, on_delete=models.CASCADE)
-            permission = models.ForeignKey(Permission, on_delete=models.CASCADE)
-
-            class Meta:
-                app_label = 'trusts_zero_tests'
-
-        isolated = TrustsRegistry()
-        other = Ref(OtherGroupGrant)
-        isolated.register(
-            content=other.group, user=other.user, permission=other.permission,
-        )
-        isolate_live_registry(self.live_trusts, isolated)
-        contributor = _new_contributor(apps)
-        with override_apps_ready(False):
-            contributor.ready()
-        self.assertIs(contributor._trusts_tup_group_registry_id, isolated)
-        roots = {record.root for record in isolated.records}
-        self.assertEqual(
-            roots,
-            {OtherGroupGrant, TrustUserPermission, TrustGroup, TrustGroupPermission},
-        )
-        plan = isolated.plan_for(Group)
-        self.assertEqual(len(plan.records), 4)
-        self.assertEqual(len(_group_rows(isolated)), 1)
-
-    def test_conflicting_contribution_fails_closed_without_group_sentinel(self):
-        isolated = TrustsRegistry()
-        j = Ref(TrustUserPermission)
-        isolated.register(
-            content=_walk_public_path(
-                j, junction_group_content_path('', TestGroupJunction),
-            ),
-            user=j.permission,
-            permission=j.entity,
-        )
-        isolate_live_registry(self.live_trusts, isolated)
-        contributor = _new_contributor(apps)
-        with override_apps_ready(False):
-            with self.assertRaises(TrustsConfigurationError):
-                contributor.ready()
-        self.assertIs(contributor._trusts_tup_category_registry_id, isolated)
-        self.assertIs(contributor._trusts_tup_ticket_registry_id, isolated)
-        self.assertIsNone(
-            getattr(contributor, '_trusts_tup_group_registry_id', None)
-        )
-        self.assertEqual(len(isolated.records), 7)
-        self.assertEqual(len(_group_rows(isolated)), 1)
-        with override_apps_ready(False):
-            with self.assertRaises(TrustsConfigurationError):
-                contributor.ready()
-        self.assertIsNone(
-            getattr(contributor, '_trusts_tup_group_registry_id', None)
-        )
-        self.assertEqual(len(isolated.records), 7)
-
-    def test_new_appconfig_registry_receives_declaration_again(self):
-        import trusts
-
-        new_trusts = isolated_owner()
-        original = self.live_registry
-        try:
-            isolate_live_registry(self.live_trusts, new_trusts.registry)
-            contributor = _new_contributor(apps)
-            with override_apps_ready(False):
-                contributor.ready()
-            self.assertIs(contributor._trusts_tup_group_registry_id, new_trusts.registry)
-            terminals = {
-                record.content_model for record in new_trusts.registry.records
-            }
-            self.assertEqual(
-                terminals,
-                {
-                    Category._meta.concrete_model,
-                    Ticket._meta.concrete_model,
-                    Group._meta.concrete_model,
-                },
-            )
-            self.assertEqual(len(_group_rows(new_trusts.registry)), 1)
-            self.assertEqual(self.live_registry.records, original.records)
-        finally:
-            self.live_trusts.registry = original
-
-    def test_declaration_is_j1_metadata_derived_and_independent_of_contents(self):
-        isolated = TrustsRegistry()
-        isolate_live_registry(self.live_trusts, isolated)
-        contributor = _new_contributor(apps)
-        remote = TestGroupJunction._meta.get_field('trust').remote_field
-        with patch.object(
-            remote, 'get_accessor_name', wraps=remote.get_accessor_name,
-        ) as accessor:
-            with patch.object(
-                TestGroupJunction, 'get_content_model',
-                wraps=TestGroupJunction.get_content_model,
-            ) as content_model:
-                self.assertFalse(hasattr(Content, '_contents'))
-                with override_apps_ready(False):
-                    contributor.ready()
-        accessor.assert_called()
-        content_model.assert_called()
-        rev, content_name, lookup = _j1_lookup()
-        self.assertEqual(len(_group_rows(isolated)), 1)
-        record = _group_rows(isolated)[0]
-        self.assertIs(record.root, TrustUserPermission)
-        self.assertIs(record.content_model, Group._meta.concrete_model)
+class GroupRegistrationShapeTest(SimpleTestCase):
+    def test_live_declaration_is_the_junction_path(self):
+        catalog = live_catalog()
+        rev = TestGroupJunction._meta.get_field('trust').remote_field.get_accessor_name()
+        content_name = junction_content_field(TestGroupJunction).name
+        record = _tup(catalog)
         self.assertEqual(record.content_path, ('trust', rev, content_name))
-        self.assertEqual(record.content_field, lookup)
-        self.assertEqual(record.user_field, 'entity')
-        self.assertEqual(record.permission_field, 'permission')
-        self.assertEqual(record.content_target, Group._meta.pk.attname)
-        self.assertNotEqual(record.content_field, 'trust')
-        self.assertNotEqual(record.content_path, ('trust', rev))
-        self.assertFalse(isolated.plan_for(TestGroupJunction).records)
-        self.assertIs(contributor._trusts_tup_group_registry_id, isolated)
-
-    def test_swapped_live_registry_receives_declaration_again(self):
-        isolated = TrustsRegistry()
-        isolate_live_registry(self.live_trusts, isolated)
-        with override_apps_ready(False):
-            self.live_contributor.ready()
-        self.assertIs(self.live_contributor._trusts_tup_group_registry_id, isolated)
-        self.assertEqual(len(_group_rows(isolated)), 1)
-        self.assertEqual(len(_category_rows(isolated)), 1)
-        self.assertEqual(len(_ticket_rows(isolated)), 1)
-
-
-@isolate_apps(
-    'tests',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    attr_name='isolated_apps',
-)
-class IsolatedAppsDoesNotDonateGroupContributionTest(SimpleTestCase):
-    def test_isolate_apps_ready_does_not_touch_live_registry(self):
-        live = live_config().registry
-        tup_group = _group_rows(live)
-        self.assertEqual(len(tup_group), 1)
-        self.assertFalse(self.isolated_apps.is_installed('trusts'))
-        contributor = TestsConfig('tests', tests_module)
-        contributor.apps = self.isolated_apps
-        contributor.ready()
-        self.assertIsNone(
-            getattr(contributor, '_trusts_tup_category_registry_id', None)
-        )
-        self.assertIsNone(
-            getattr(contributor, '_trusts_tup_ticket_registry_id', None)
-        )
-        self.assertIsNone(
-            getattr(contributor, '_trusts_tup_group_registry_id', None)
-        )
-        self.assertEqual(_group_rows(live), tup_group)
-
-
-class GroupContributionPathTest(_RegistryRestoreMixin, SimpleTestCase):
-    def test_omitted_ambiguous_path_fails_before_writing(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, ALIASED)):
-            contributor = _new_contributor(apps)
-            before_a = self.live.registries[CONCRETE].records
-            with self.assertRaises(TrustsConfigurationError) as ctx:
-                contributor.ready()
-            self.assertIn('multiple paths', str(ctx.exception))
-            self.assertEqual(self.live.registries[CONCRETE].records, before_a)
-            self.assertIsNone(
-                getattr(contributor, '_trusts_tup_group_registry_id', None)
-            )
-
-    def test_no_mixin_fan_out(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, MIXIN)):
-            with self.assertRaises(TrustsConfigurationError):
-                self.live.configured_backend(MIXIN)
-            handle_a = self.live.configured_backend(CONCRETE)
-            self.assertTrue(handle_a.registry.plan_for(Group).records)
-            self.assertFalse(handle_a.registry.plan_for(TestGroupJunction).records)
-
-    def test_unconfigured_path_fails_loud(self):
-        with self.assertRaises(TrustsConfigurationError):
-            self.live.configured_backend(MIXIN)
-
-    def test_duplicate_exact_paths_dedupe(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE, CONCRETE)):
-            handle = self.live.configured_backend()
-            self.assertEqual(handle.path, CONCRETE)
-            self.assertTrue(handle.registry.plan_for(Group).records)
-            self.assertEqual(len(_group_rows(handle.registry)), 1)
+        self.assertEqual(record.content_field, 'trust__%s__%s' % (rev, content_name))
+        self.assertIs(record.content_model, Group._meta.concrete_model)
+        self.assertFalse(catalog.plan_for(TestGroupJunction).records)
 
 
 class _UsersMixin(object):
@@ -465,7 +77,7 @@ class _UsersMixin(object):
         self.carol = User.objects.get(pk=self.carol.pk)
 
 
-class GroupAuthorizationRegistryTest(_UsersMixin, TestCase):
+class GroupAuthorizationTest(_UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
         self._make_users('auth')
@@ -499,15 +111,6 @@ class GroupAuthorizationRegistryTest(_UsersMixin, TestCase):
             trust=self.trust_a, entity=self.alice, permission=self.cat_change,
         ).save()
         self._reload()
-
-    def test_live_declaration_is_on_the_configured_handle(self):
-        handle = live_config().configured_backend()
-        self.assertTrue(handle.registry.plan_for(Group).records)
-        self.assertFalse(handle.registry.plan_for(TestGroupJunction).records)
-        rev, content_name, lookup = _j1_lookup()
-        record = handle.registry.plan_for(Group).records[0]
-        self.assertEqual(record.content_path, ('trust', rev, content_name))
-        self.assertEqual(record.content_field, lookup)
 
     def test_direct_trustee_allow_and_deny(self):
         self.assertTrue(self.alice.has_perm(self.change_code, self.group_a1))
@@ -567,9 +170,10 @@ class GroupAuthorizationRegistryTest(_UsersMixin, TestCase):
         self.assertFalse(self.bob.has_perm(self.change_code, self.group_a1))
         self.assertFalse(self.alice.has_perm(self.add_code, self.group_a1))
         self.assertFalse(self.alice.has_perm(self.change_code, self.group_b))
-        self.assertFalse(self.alice.has_perm(self.change_code))
-        self.assertEqual(self.alice.get_all_permissions(), set())
-        self.assertEqual(self.alice.get_group_permissions(), set())
+        backend = TrustModelBackend()
+        self.assertFalse(backend.has_perm(self.alice, self.change_code))
+        self.assertEqual(backend.get_all_permissions(self.alice), set())
+        self.assertEqual(backend.get_group_permissions(self.alice), set())
         self.alice.is_active = False
         self.alice.save()
         self._reload()
@@ -578,21 +182,6 @@ class GroupAuthorizationRegistryTest(_UsersMixin, TestCase):
         anon = AnonymousUser()
         self.assertFalse(anon.has_perm(self.change_code, self.group_a1))
         self.assertEqual(anon.get_all_permissions(self.group_a1), set())
-
-    def test_group_does_not_reach_get_trusts_or_filter_by_content(self):
-        self.assertFalse(hasattr(TrustModelBackend, '_get_trusts'))
-        self.assertFalse(hasattr(Trust.objects, 'filter_by_content'))
-        qs = Group.objects.filter(pk=self.group_a1.pk)
-        self.assertTrue(self.alice.has_perm(self.change_code, self.group_a1))
-        self.assertTrue(self.alice.has_perm(self.change_code, qs))
-        self.assertIn(
-            self.change_code,
-            self.alice.get_all_permissions(self.group_a1),
-        )
-        self.assertIn(
-            self.change_code,
-            self.carol.get_group_permissions(self.group_a1),
-        )
 
     def test_category_ticket_trust_unchanged(self):
         self.assertTrue(self.alice.has_perm(self.cat_code, self.cat_a))
@@ -642,115 +231,46 @@ class GroupAuthorizationRegistryTest(_UsersMixin, TestCase):
             self.assertIn(self.change_code, self.alice.get_all_permissions(qs))
         with self.assertNumQueries(1):
             self.assertIn(self.change_code, self.carol.get_group_permissions(qs))
-        handle = live_config().configured_backend()
-        plan = handle.registry.plan_for(qs, user=self.alice)
-        with self.assertNumQueries(1):
-            self.assertTrue(
-                list(plan.common_permissions(self.alice, qs).values_list(
-                    'codename', flat=True,
-                ))
-            )
+
+    def test_concrete_trustee_keeps_historical_group(self):
+        self.alice.groups.add(self.carol_group)
+        self._reload()
+        backend = TrustModelBackend()
+        self.assertTrue(backend.has_perm(self.alice, self.change_code, self.group_a1))
+        self.assertIn(
+            self.change_code,
+            backend.get_group_permissions(self.alice, self.group_a1),
+        )
+        self.assertIn(
+            self.alice.pk,
+            _pks(compile_permitted_users(self.group_a1, self.change_code)),
+        )
+        TrustUserPermission.objects.filter(
+            trust=self.trust_a, entity=self.alice, permission=self.change,
+        ).delete()
+        self._reload()
+        self.assertFalse(
+            TrustUserPermission.objects.filter(
+                entity=self.alice, permission=self.change,
+            ).exists()
+        )
+        self.assertTrue(self.alice.has_perm(self.change_code, self.group_a1))
+        self.assertIn(
+            self.change_code,
+            self.alice.get_group_permissions(self.group_a1),
+        )
+        self.assertIn(
+            self.alice.pk,
+            _pks(compile_permitted_users(self.group_a1, self.change)),
+        )
 
     def test_create_under_trust_gate_opens_for_declared_group(self):
-        with patch('trusts.zero.query.filter_authorized_scopes', wraps=filter_authorized_scopes) as grant_q:
-            pks = _pks(Trust.objects.filter_by_user_content_perm(
-                self.alice, Group, 'change_group',
-            ))
-            self.assertGreaterEqual(grant_q.call_count, 1)
+        pks = _pks(Trust.objects.filter_by_user_content_perm(
+            self.alice, Group, 'change_group',
+        ))
         self.assertEqual(pks, {self.trust_a.pk})
         self.assertFalse(
             Trust.objects.filter_by_user_content_perm(
                 self.bob, Group, 'change_group',
             ).exists()
         )
-
-
-class GroupCompilerIsolationTest(_RegistryRestoreMixin, _UsersMixin, TestCase):
-    def setUp(self):
-        super().setUp()
-        self._make_users('iso')
-        self.group = Group.objects.create(name='s6-iso')
-        TestGroupJunction.objects.create(
-            trust=self.trust_a, content=self.group, name='iso',
-        )
-        self.change = _perm(Group, 'change_group')
-        self.change_code = 'auth.change_group'
-        TrustUserPermission(
-            trust=self.trust_a, entity=self.alice, permission=self.change,
-        ).save()
-        self.carol_group = Group.objects.create(name='carol-iso-s6')
-        self.carol.groups.add(self.carol_group)
-        self.change.group_set.add(self.carol_group)
-        enable_local_group_grant(self.trust_a, self.carol_group, self.change)
-        self._reload()
-
-    def test_mixin_only_without_plan_denies_tup_and_trustgroup(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(MIXIN,)):
-            with self.assertRaises(TrustsConfigurationError):
-                self.live.configured_backend()
-            with self.assertRaises(TrustsConfigurationError):
-                MixinOnlyBackend().has_perm(
-                    self.alice, self.change_code, self.group,
-                )
-
-    def test_mixin_only_with_plan_gets_trustee_not_historical_group(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(MIXIN,)):
-            install_writable_registry(self.live, MIXIN, _contribute_group)
-            with self.assertRaises(TrustsConfigurationError):
-                self.live.configured_backend()
-            with self.assertRaises(TrustsConfigurationError):
-                MixinOnlyBackend().has_perm(
-                    self.alice, self.change_code, self.group,
-                )
-        concrete = TrustModelBackend()
-        self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.group))
-        self.assertTrue(concrete.has_perm(self.carol, self.change_code, self.group))
-
-    def test_concrete_keeps_trustee_and_historical_group(self):
-        concrete = TrustModelBackend()
-        self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.group))
-        self.assertTrue(concrete.has_perm(self.carol, self.change_code, self.group))
-        self.assertIn(
-            self.change_code,
-            concrete.get_group_permissions(self.carol, self.group),
-        )
-
-    def test_inapplicable_mixin_neither_adds_nor_suppresses_concrete(self):
-        concrete = TrustModelBackend()
-        self.assertTrue(
-            self.live.configured_backend(CONCRETE).registry.plan_for(Group).records
-        )
-        self.assertTrue(concrete.has_perm(self.alice, self.change_code, self.group))
-        self.assertTrue(self.alice.has_perm(self.change_code, self.group))
-        qs = Group.objects.filter(pk=self.group.pk)
-        self.assertTrue(concrete.has_perm(self.alice, self.change_code, qs))
-        with self.assertRaises(TrustsConfigurationError):
-            self.live.configured_backend(MIXIN)
-
-
-class GroupPlanUsesContentExistsTest(_UsersMixin, TestCase):
-    def setUp(self):
-        super().setUp()
-        self._make_users('exists')
-        self.group = Group.objects.create(name='s6-exists')
-        TestGroupJunction.objects.create(
-            trust=self.trust_a, content=self.group, name='exists',
-        )
-        self.change = _perm(Group, 'change_group')
-        TrustUserPermission(
-            trust=self.trust_a, entity=self.alice, permission=self.change,
-        ).save()
-        self._reload()
-
-    def test_authorization_uses_content_exists_not_filter_authorized(self):
-        registry = live_config().registry
-        plan = registry.plan_for(
-            self.group, user=self.alice, permission=self.change,
-        )
-        with patch.object(registry, 'filter_authorized') as filtered:
-            with patch.object(
-                RelationPlan, 'content_exists', wraps=plan.content_exists,
-            ) as exists:
-                self.assertTrue(self.alice.has_perm('auth.change_group', self.group))
-        filtered.assert_not_called()
-        self.assertGreaterEqual(exists.call_count, 1)

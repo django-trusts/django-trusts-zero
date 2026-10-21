@@ -16,6 +16,7 @@ to each trust's local grants). Membership changes therefore require
 administrative ``change`` on every trust that uses the group.
 """
 
+from django.apps import apps as django_apps
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
@@ -23,7 +24,6 @@ from trusts.zero import get_entity_model, get_group_model
 
 
 def _trusts_model(name):
-    from django.apps import apps as django_apps
     return django_apps.get_model('trusts', name)
 
 
@@ -83,7 +83,7 @@ def has_trust_row_perm(user, trust, perm):
     and trust-row administration use this check.
 
     Authorization goes through the registered Zero scope adapter
-    (``filter_by_user_content_perm`` / ``filter_authorized_scopes``),
+    (``filter_by_user_content_perm`` / ``filter_by_permitted_content``),
     not a deleted ``trust_grant_q`` fallback.
     """
     if not (user is not None and user.is_authenticated and not user.is_anonymous and user.is_active) or trust is None:

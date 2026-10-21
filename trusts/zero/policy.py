@@ -11,7 +11,7 @@ instances.
 
 from django.db.models import Q
 
-from trusts import utils
+from trusts.plan.conditions import parse_perm_code
 from trusts.conditions import (
     PermissionConditionNotQueryable,
     permission_has_condition,
@@ -51,7 +51,7 @@ def resolve_content_permission(model, perm):
     perm = str(perm)
     if '.' in perm:
         try:
-            applabel, modelname, action, _cond = utils.parse_perm_code(perm)
+            applabel, modelname, action, _cond = parse_perm_code(perm)
             perm = '%s_%s' % (action, modelname)
             app_label = applabel
             model_name = modelname

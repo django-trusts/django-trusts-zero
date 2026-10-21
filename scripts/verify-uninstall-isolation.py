@@ -53,8 +53,8 @@ from django.conf import settings
 if not settings.configured:
     settings.configure(SECRET_KEY="iia-kernel-only")
 import trusts
-from trusts.apps import TrustsImplementationConfig
-assert TrustsImplementationConfig is not None
+from trusts.apps import TrustsConfigMixin
+assert TrustsConfigMixin is not None
 assert Path(trusts.__file__).name == "__init__.py"
 print("kernel-survived-ok")
 '''
@@ -64,10 +64,13 @@ from django.conf import settings
 if not settings.configured:
     settings.configure(SECRET_KEY="iia-zero-only")
 try:
-    from trusts.apps import TrustsImplementationConfig  # noqa: F401
-except ImportError:
-    print("core-required-ok")
-    raise SystemExit(0)
+    from trusts.zero.apps import ZeroConfig  # noqa: F401
+except ModuleNotFoundError as exc:
+    missing = exc.name or ""
+    if missing == "trusts.apps" or missing.startswith("trusts"):
+        print("core-required-ok")
+        raise SystemExit(0)
+    raise
 print("unexpected-zero-without-core")
 raise SystemExit(1)
 '''
@@ -112,9 +115,16 @@ def main() -> int:
         py2 = _venv_python(venv2)
         _run([py2, '-m', 'pip', 'install', '-q', 'Django>=6.1,<6.2', str(kernel_wheel), str(zero_wheel)])
         _run([py2, '-m', 'pip', 'uninstall', '-y', '-q', 'django-trusts'])
+        # cwd is the temp dir so the checkout does not shadow the wheel.
+        # Zero's package init reads settings before apps.py imports Core.
+        isolated_env = os.environ.copy()
+        isolated_env.pop('PYTHONPATH', None)
+        isolated_env.pop('DJANGO_SETTINGS_MODULE', None)
         result = subprocess.run(
             [py2, '-c', ZERO_WITHOUT_CORE_PROBE],
             capture_output=True, text=True,
+            cwd=str(tmp),
+            env=isolated_env,
         )
         if result.returncode != 0 or 'core-required-ok' not in result.stdout:
             raise SystemExit(

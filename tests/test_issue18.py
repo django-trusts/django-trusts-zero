@@ -15,7 +15,8 @@ from django.template.loader import get_template
 from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 
-from trusts.core import PlanQueryCompiler, TrustsRegistry
+from trusts.plan.relations import PlanQueryCompiler
+from trusts.zero.apps import ZeroConfig
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import (
     Role,
@@ -29,14 +30,19 @@ from trusts.zero.policy import (
     permission_in_global_ceiling,
 )
 from trusts.zero.query import filter_scope_rows
-from trusts.zero.registration import (
+from trusts.zero import registration as zero_registration
+from trusts.zero.options import (
     ZERO_META_OPTION_NAMES,
+    register_zero_meta_option_names,
+)
+from trusts.zero.registration import (
     register_zero_direct,
     register_zero_group,
-    register_zero_meta_option_names,
     register_zero_relations,
 )
-from tests.apps import isolated_backend
+from tests.apps import (
+    catalog_from_recorder, isolated_recorder, live_catalog, root_records,
+)
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
@@ -105,7 +111,7 @@ class ModelsDeclarativeOnlyTests(SimpleTestCase):
             inspect.getmodule(models_mod.TrustManager), models_mod,
         )
         src = inspect.getsource(filter_scope_rows)
-        self.assertIn('filter_authorized_scopes', src)
+        self.assertIn('filter_by_permitted_content', src)
         self.assertNotIn('trust_grant_q', src)
 
     def test_models_import_does_not_register_meta_names(self):
@@ -135,7 +141,7 @@ class MetaOptionRegistrationTests(SimpleTestCase):
         env = os.environ.copy()
         env['DJANGO_SETTINGS_MODULE'] = 'tests.settings'
         script = (
-            'from trusts.zero.apps import register_zero_meta_option_names\n'
+            'from trusts.zero.options import register_zero_meta_option_names\n'
             'from django.db.models import options\n'
             'register_zero_meta_option_names()\n'
             'assert options.DEFAULT_NAMES.count("auto_modeladmin") == 1\n'
@@ -154,16 +160,16 @@ class MetaOptionRegistrationTests(SimpleTestCase):
 class BackendAndRegistrationTests(SimpleTestCase):
     def test_backend_uses_plan_query_compiler(self):
         self.assertIsInstance(
-            TrustModelBackend.query_compiler, PlanQueryCompiler,
+            TrustModelBackend().get_catalog().compiler, PlanQueryCompiler,
         )
         self.assertFalse(hasattr(
             __import__('trusts.zero.backends', fromlist=['x']),
             'HistoricalGroupQueryCompiler',
         ))
         backends = (ROOT / 'trusts' / 'zero' / 'backends.py').read_text()
-        self.assertIn('query_compiler = PlanQueryCompiler()', backends)
+        self.assertNotIn('query_compiler = PlanQueryCompiler()', backends)
         self.assertNotIn('ZeroPlanQueryCompiler', backends)
-        self.assertIn('PlanQueryCompiler', backends)
+        self.assertNotIn('PlanQueryCompiler', backends)
         self.assertNotIn('HistoricalGroupQueryCompiler', backends)
         self.assertNotIn('inspect', backends)
         self.assertNotIn('RelationPlan', backends)
@@ -179,23 +185,23 @@ class BackendAndRegistrationTests(SimpleTestCase):
             self.assertNotIn(name, query, name)
 
     def test_register_zero_relations_is_idempotent(self):
-        backend = isolated_backend()
-        register_zero_relations(backend)
-        first = list(backend.registry.records)
-        register_zero_relations(backend)
-        self.assertEqual(list(backend.registry.records), first)
-        tgp = backend.registry.records_for_root(TrustGroupPermission)
-        groups = backend.registry.records_for_root(TrustGroup)
+        recorder = isolated_recorder()
+        register_zero_relations(recorder)
+        register_zero_relations(recorder)
+        donated = catalog_from_recorder(recorder)
+        self.assertEqual(len(root_records(donated, TrustUserPermission, Trust)), 1)
+        catalog = live_catalog()
+        tgp = root_records(catalog, TrustGroupPermission, Trust)
+        groups = root_records(catalog, TrustGroup, Trust)
         self.assertEqual(len(tgp), 1)
         self.assertEqual(len(groups), 1)
         self.assertFalse(tgp[0].via_group)
         self.assertTrue(groups[0].via_group)
 
     def test_register_zero_group_splits_auth_group_and_role(self):
-        backend = isolated_backend()
-        register_zero_group(backend, (Trust,))
-        role = backend.registry.records_for_root(TrustGroupPermission)
-        grouped = backend.registry.records_for_root(TrustGroup)
+        catalog = live_catalog()
+        role = root_records(catalog, TrustGroupPermission, Trust)
+        grouped = root_records(catalog, TrustGroup, Trust)
         self.assertEqual(len(role), 1)
         self.assertEqual(len(grouped), 1)
         self.assertFalse(role[0].via_group)
@@ -206,10 +212,7 @@ class BackendAndRegistrationTests(SimpleTestCase):
         self.assertEqual(grouped[0].permission_path, ('group', 'permissions'))
         self.assertNotEqual(role[0].condition, grouped[0].condition)
 
-    def test_relation_helpers_require_backend_and_public_paths(self):
-        from trusts.zero import apps as zero_apps
-        from trusts.zero import registration as zero_registration
-
+    def test_relation_helpers_require_recorder_and_public_paths(self):
         source = inspect.getsource(zero_registration)
         self.assertNotIn('from trusts.core import Ref', source)
         self.assertNotIn('.registry.register(', source)
@@ -219,10 +222,13 @@ class BackendAndRegistrationTests(SimpleTestCase):
         self.assertNotIn('permission_in(', source)
         self.assertNotIn('predicate=', inspect.getsource(register_zero_direct))
         self.assertNotIn('predicate=', inspect.getsource(register_zero_group))
-        self.assertIn('backend.register(', source)
-        self.assertIn('trust=TrustUserPermission', source)
-        self.assertIn('trust=TrustGroup,', source)
-        self.assertIn('trust=TrustGroupPermission', source)
+        self.assertIn('recorder.register(', source)
+        self.assertIn("get_model('trusts', 'TrustUserPermission')", source)
+        self.assertIn("get_model('trusts', 'TrustGroup')", source)
+        self.assertIn("get_model('trusts', 'TrustGroupPermission')", source)
+        self.assertIn('trust=trust_user_permission', source)
+        self.assertIn('trust=trust_group,', source)
+        self.assertIn('trust=trust_group_permission', source)
         self.assertIn("user='group__user'", source)
         self.assertIn("group='group'", source)
         self.assertIn('t.permissions.contains(t.group.permissions)', source)
@@ -234,16 +240,16 @@ class BackendAndRegistrationTests(SimpleTestCase):
             't.trustgroup.group.roles.permissions.contains(', source,
         )
         self.assertIn('t.permission', source)
-        donate = inspect.getsource(zero_apps.ZeroConfig._donate_zero_relations)
-        self.assertIn('register_zero_relations(backend)', donate)
-        self.assertNotIn('register_zero_relations(backend.registry)', donate)
+        donate = inspect.getsource(ZeroConfig.ready)
+        self.assertIn('register_zero_relations(self.recorder)', donate)
+        self.assertNotIn('register_zero_relations(backend', donate)
         with self.assertRaises(TypeError):
-            register_zero_relations(TrustsRegistry())
+            register_zero_relations(object())
         with self.assertRaises(TypeError):
-            register_zero_group(TrustsRegistry(), (Trust,))
+            register_zero_group(object(), (Trust,))
         with self.assertRaises(TypeError):
             register_zero_direct(
-                isolated_backend(),
+                isolated_recorder(),
                 (Trust,),
                 content_via=lambda prefix, model: object(),
             )

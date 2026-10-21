@@ -6,18 +6,16 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from trusts.zero.models import Role, Trust, TrustGroup, TrustGroupPermission
-from trusts.zero.registration import register_zero_group
-from tests.apps import isolated_backend
+from tests.apps import live_catalog, root_records
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category
 
 
 class ExplicitGroupRegistrationTests(TestCase):
     def test_auth_group_record_is_explicit_and_role_is_not(self):
-        backend = isolated_backend()
-        register_zero_group(backend, (Trust,))
-        grouped = backend.registry.records_for_root(TrustGroup)[0]
-        role = backend.registry.records_for_root(TrustGroupPermission)[0]
+        catalog = live_catalog()
+        grouped = root_records(catalog, TrustGroup, Trust)[0]
+        role = root_records(catalog, TrustGroupPermission, Trust)[0]
         self.assertTrue(grouped.via_group)
         self.assertEqual(grouped.group_path, ('group',))
         self.assertEqual(grouped.group_model._meta.label, 'auth.Group')

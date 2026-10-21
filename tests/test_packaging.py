@@ -48,8 +48,19 @@ class ZeroSourceLayoutTests(SimpleTestCase):
                 stripped = line.strip()
                 if stripped.startswith('#'):
                     continue
-                if 'from trusts.models' in stripped or stripped == 'import trusts.models':
+                if stripped == 'import trusts.models':
                     offenders.append('%s: %s' % (path.relative_to(ROOT), stripped))
+                    continue
+                if 'from trusts.models' in stripped:
+                    # trusts.models is Core's public queryset module.
+                    # Product model classes stay in trusts.zero.models.
+                    allowed = stripped.startswith(
+                        'from trusts.models import AuthorizedQuerySet'
+                    )
+                    if not allowed:
+                        offenders.append(
+                            '%s: %s' % (path.relative_to(ROOT), stripped)
+                        )
         self.assertEqual(offenders, [])
 
     def test_zero_does_not_copy_generic_authorization_control_flow(self):
@@ -82,7 +93,7 @@ class ZeroSourceLayoutTests(SimpleTestCase):
         self.assertEqual(offenders, [])
         backends = (ROOT / 'trusts' / 'zero' / 'backends.py').read_text()
         self.assertNotIn('class HistoricalGroupQueryCompiler', backends)
-        self.assertIn('PlanQueryCompiler', backends)
+        self.assertNotIn('PlanQueryCompiler', backends)
         self.assertIn('class TrustModelBackend', backends)
         self.assertNotIn('from trusts.backends import TrustModelBackend\n', backends)
         self.assertNotIn('TrustModelBackend = ', backends)
@@ -183,7 +194,7 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         self.assertIn('readme = "README.md"', text)
         self.assertNotIn('readme = "DEV.md"', text)
         self.assertIn('license = "BSD-2-Clause"', text)
-        companion = 'cbe72e573911f34225c8322e1133288c1bcb3c43'
+        companion = 'f898123987569817bc93e31e34505211e1c61b82'
         stale_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
         stale_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
         stale_r5b = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
