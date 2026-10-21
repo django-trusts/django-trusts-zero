@@ -1,10 +1,17 @@
+"""Zero's Django app config.
+
+The catalog is built from ``self.recorder`` by ``TrustsConfigMixin.ready``.
+Relations and ``Trust:own`` are recorded here, before that build.
+"""
+
 from django.apps import apps as django_apps
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
-from trusts.apps import TrustsImplementationConfig
+from trusts.apps import TrustsConfigMixin
 from trusts.errors import TrustsConfigurationError
 from trusts.zero.options import register_zero_meta_option_names
+from trusts.zero.registration import register_zero_relations, trust_settlor_owns
 
 
 CANONICAL_BACKEND_PATH = 'trusts.zero.backends.TrustModelBackend'
@@ -15,11 +22,15 @@ DEPRECATED_CORE_BACKEND_PATH = 'trusts.backends.TrustModelBackend'
 register_zero_meta_option_names()
 
 
-class ZeroConfig(TrustsImplementationConfig):
+class ZeroConfig(TrustsConfigMixin):
     """Concrete Trusts app. ``label`` stays ``trusts``.
 
     Install ``trusts.zero.apps.ZeroConfig`` after apps that register in
     ``ready()``. Do not list ``'trusts'`` or the deprecated backend path.
+
+    ``query_compiler`` stays unset so ``ready`` stores Core's default
+    plan compiler on this app's catalog. The backend class does not
+    carry a compiler; it reads this catalog.
     """
 
     name = 'trusts.zero'
@@ -30,18 +41,22 @@ class ZeroConfig(TrustsImplementationConfig):
     default_auto_field = 'django.db.models.AutoField'
 
     def ready(self):
-        # AppRegistryNotReady: backends imports Permission; helpers import models.
-        from trusts.zero.backends import TrustModelBackend
-        from trusts.zero.registration import (
-            donate_installed_permission_conditions,
-            register_zero_relations,
-        )
-
+        # Optional contrib.admin. admin.py imports Zero models and
+        # registers ModelAdmins. Importing it on every install would
+        # require django.contrib.admin.
         if django_apps.is_installed('django.contrib.admin'):
-            # AppRegistryNotReady: admin imports models at import.
             from trusts.zero.admin import register_auto_modeladmins
             register_auto_modeladmins()
 
+        self._require_canonical_backend()
+        if self.recorder.frozen:
+            return
+        Trust = self.get_model('Trust')
+        register_zero_relations(self.recorder)
+        self.recorder.add_named_filter(Trust, 'own', trust_settlor_owns)
+        super().ready()
+
+    def _require_canonical_backend(self):
         listed = tuple(settings.AUTHENTICATION_BACKENDS or ())
         if CANONICAL_BACKEND_PATH not in listed:
             extra = ''
@@ -73,13 +88,6 @@ class ZeroConfig(TrustsImplementationConfig):
                     CANONICAL_BACKEND_PATH,
                 )
             )
-
-        recorder = TrustModelBackend().get_registry()
-        register_zero_relations(recorder)
-        donate_installed_permission_conditions(
-            recorder, apps_registry=self.apps,
-        )
-        super().ready()
 
 
 def zero_config(apps_registry=None):

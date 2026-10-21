@@ -6,20 +6,13 @@ with Core's catalog. One catalog ORs trustee and group records.
 
 from django.contrib.auth.models import Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
-from django.core.checks import Error, run_checks
 from django.core.management import call_command
 from django.db.models.query import QuerySet
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import TestCase
 
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category, Organization, Ticket
-from trusts.inspect.checks import CHECK_ID_MISSING_COMPILER, check_query_compilers
 from trusts.zero.models import Trust, TrustUserPermission
-
-
-MISSING = 'tests.backends.MissingCompilerBackend'
-MALFORMED = 'tests.backends.MalformedCompilerBackend'
-CONCRETE = 'trusts.zero.backends.TrustModelBackend'
 
 
 def _pks(qs):
@@ -31,46 +24,6 @@ def _perm(model, codename):
         content_type=ContentType.objects.get_for_model(model),
         codename=codename,
     )
-
-
-class CompilerCheckTest(SimpleTestCase):
-    def test_malformed_compiler_is_e004(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(MISSING,)):
-            errors = [
-                message for message in check_query_compilers(None)
-                if message.id == CHECK_ID_MISSING_COMPILER
-            ]
-            self.assertEqual(len(errors), 1)
-            self.assertIsInstance(errors[0], Error)
-            self.assertIn('not query-capable', errors[0].msg)
-        with override_settings(AUTHENTICATION_BACKENDS=(MALFORMED,)):
-            errors = [
-                message for message in check_query_compilers(None)
-                if message.id == CHECK_ID_MISSING_COMPILER
-            ]
-            self.assertEqual(len(errors), 1)
-
-    def test_listed_zero_backend_emits_no_e004(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(CONCRETE,)):
-            errors = [
-                message for message in check_query_compilers(None)
-                if message.id == CHECK_ID_MISSING_COMPILER
-            ]
-        self.assertEqual(errors, [])
-
-
-class CompilerCheckQueryCountTest(TestCase):
-    def test_e004_check_issues_zero_sql(self):
-        with override_settings(AUTHENTICATION_BACKENDS=(MISSING, CONCRETE)):
-            with self.assertNumQueries(0):
-                check_query_compilers(None)
-
-    def test_valid_compilers_emit_no_e004(self):
-        messages = [
-            message for message in run_checks()
-            if message.id == CHECK_ID_MISSING_COMPILER
-        ]
-        self.assertEqual(messages, [])
 
 
 class OnePathPermittedTest(TestCase):

@@ -16,7 +16,7 @@ from tests.apps import isolated_catalog, register_relations
 from tests.legacy.helpers import get_or_create_root_user
 from tests.models import Category
 from tests.runtests import NORMAL_SUITE
-from trusts.query import PermittedUsersMixin
+from trusts.models import PermittedUsersMixin
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
 

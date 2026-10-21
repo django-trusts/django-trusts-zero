@@ -7,10 +7,10 @@ from functools import wraps
 from urllib.parse import urlparse
 from operator import and_, or_
 
+from django.apps import apps as django_apps
 from django.conf import settings
 from django.contrib.auth import REDIRECT_FIELD_NAME
 from django.contrib.auth.views import redirect_to_login
-from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
 from django.shortcuts import resolve_url
 from django.http import Http404
@@ -147,7 +147,8 @@ def _get_permissible_items(perm, request, fieldlookups):
 
     applabel, modelname, action, cond = parse_perm_code(perm)
     try:
-        ctype = ContentType.objects.get_by_natural_key(applabel, modelname)
+        content_type = django_apps.get_model('contenttypes', 'ContentType')
+        ctype = content_type.objects.get_by_natural_key(applabel, modelname)
 
         return ctype.model_class().objects.filter(**fieldlookups)
     except ObjectDoesNotExist:

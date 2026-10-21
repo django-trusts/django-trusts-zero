@@ -16,6 +16,7 @@ from tests.apps import (
 )
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category, Organization, TestGroupJunction, Ticket
+from trusts.backends import compile_permitted_users
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
 def _pks(qs):
@@ -242,7 +243,7 @@ class GroupAuthorizationTest(_UsersMixin, TestCase):
         )
         self.assertIn(
             self.alice.pk,
-            _pks(backend.get_permitted_users(self.group_a1, self.change_code)),
+            _pks(compile_permitted_users(self.group_a1, self.change_code)),
         )
         TrustUserPermission.objects.filter(
             trust=self.trust_a, entity=self.alice, permission=self.change,
@@ -260,7 +261,7 @@ class GroupAuthorizationTest(_UsersMixin, TestCase):
         )
         self.assertIn(
             self.alice.pk,
-            _pks(backend.get_permitted_users(self.group_a1, self.change)),
+            _pks(compile_permitted_users(self.group_a1, self.change)),
         )
 
     def test_create_under_trust_gate_opens_for_declared_group(self):

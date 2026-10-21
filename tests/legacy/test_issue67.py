@@ -15,8 +15,9 @@ from django.test.utils import isolate_apps
 
 import tests as tests_module
 from tests.apps import (
-    TestsConfig, isolated_catalog, live_catalog, live_config, register_relations,
+    isolated_catalog, live_catalog, live_config, register_relations,
 )
+from tests.host import TestsConfig
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category
 from trusts.zero.models import Trust, TrustGroup, TrustGroupPermission, TrustUserPermission
@@ -212,7 +213,7 @@ class CategoryPermittedTest(TestCase):
     def test_named_condition_constrains_the_complete_grant(self):
         def register(factory):
             register_relations(factory, Category)
-            factory.register_permission_condition(
+            factory.add_named_filter(
                 Category, 'named', lambda u, p, o: o.name == 'keep',
             )
 

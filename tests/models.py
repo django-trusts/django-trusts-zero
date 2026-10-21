@@ -96,10 +96,6 @@ class Ticket(Content):
 
     class Meta:
         default_permissions = ('add', 'read', 'change', 'delete')
-        permission_conditions = (
-            ('own', ticket_own),
-            ('meta_own', ticket_meta_own),
-        )
 
     def __str__(self):
         return self.title

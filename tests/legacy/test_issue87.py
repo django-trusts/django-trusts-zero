@@ -12,7 +12,7 @@ from django.db import models
 from django.test import SimpleTestCase, TestCase
 
 from tests.apps import (
-    catalog_from, forget_models, isolated_factory, isolated_recorder,
+    catalog_from, forget_models, isolated_compiler, isolated_recorder,
     live_catalog,
 )
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
@@ -23,10 +23,6 @@ from tests.models import (
 from trusts.inspect.checks import check_permission_conditions
 from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Content, Junction, Trust, TrustUserPermission
-from trusts.zero.registration import (
-    donate_content_permission_conditions,
-    donate_junction_content_permission_conditions,
-)
 
 
 def _sheet_own(u, p, o):
@@ -58,18 +54,10 @@ class DonatedConditionCatalogTest(SimpleTestCase):
             class Meta:
                 app_label = 'trusts_zero_tests'
                 managed = False
-                permission_conditions = (
-                    ('sheet_own', _sheet_own),
-                )
 
         try:
-            recorder = isolated_recorder()
-            donate_content_permission_conditions(recorder, IsolatedSheet)
-            donate_content_permission_conditions(recorder, IsolatedSheet)
-            self.assertEqual(len(recorder.rows), 2)
-            factory = isolated_factory()
-            code, builder = IsolatedSheet._meta.permission_conditions[0]
-            factory.register_permission_condition(IsolatedSheet, code, builder)
+            factory = isolated_compiler()
+            factory.add_named_filter(IsolatedSheet, 'sheet_own', _sheet_own)
             catalog = catalog_from(factory)
             record = catalog.get_permission_condition_record(IsolatedSheet, 'sheet_own')
             self.assertIsNotNone(record)
@@ -93,16 +81,12 @@ class DonatedConditionCatalogTest(SimpleTestCase):
             class Meta:
                 app_label = 'trusts_zero_tests'
                 managed = False
-                content_permission_conditions = (
-                    ('junc_own', _junc_own),
-                )
 
         try:
             before = live_catalog().plan_for(Group).records
 
-            factory = isolated_factory()
-            code, builder = IsolatedJunction._meta.content_permission_conditions[0]
-            factory.register_permission_condition(IsolatedJunction, code, builder)
+            factory = isolated_compiler()
+            factory.add_named_filter(IsolatedJunction, 'junc_own', _junc_own)
             catalog = catalog_from(factory)
             record = catalog.get_permission_condition_record(
                 IsolatedJunction, 'junc_own',
@@ -115,11 +99,11 @@ class DonatedConditionCatalogTest(SimpleTestCase):
             forget_models(IsolatedJunction)
 
     def test_duplicate_named_filter_keeps_the_last_expression(self):
-        factory = isolated_factory()
-        factory.register_permission_condition(
+        factory = isolated_compiler()
+        factory.add_named_filter(
             Ticket, 'meta_own', lambda u, p, o: o.title == 'first',
         )
-        factory.register_permission_condition(
+        factory.add_named_filter(
             Ticket, 'meta_own', lambda u, p, o: u == o.owner,
         )
         catalog = catalog_from(factory)

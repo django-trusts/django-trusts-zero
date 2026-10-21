@@ -53,21 +53,21 @@ from django.conf import settings
 if not settings.configured:
     settings.configure(SECRET_KEY="iia-kernel-only")
 import trusts
-from trusts.apps import TrustsImplementationConfig
-assert TrustsImplementationConfig is not None
+from trusts.apps import TrustsConfigMixin
+assert TrustsConfigMixin is not None
 assert Path(trusts.__file__).name == "__init__.py"
 print("kernel-survived-ok")
 '''
 
 ZERO_WITHOUT_CORE_PROBE = r'''
-from django.conf import settings
-if not settings.configured:
-    settings.configure(SECRET_KEY="iia-zero-only")
 try:
-    from trusts.apps import TrustsImplementationConfig  # noqa: F401
-except ImportError:
-    print("core-required-ok")
-    raise SystemExit(0)
+    from trusts.zero.apps import ZeroConfig  # noqa: F401
+except ModuleNotFoundError as exc:
+    missing = exc.name or ""
+    if missing == "trusts.apps" or missing.startswith("trusts"):
+        print("core-required-ok")
+        raise SystemExit(0)
+    raise
 print("unexpected-zero-without-core")
 raise SystemExit(1)
 '''

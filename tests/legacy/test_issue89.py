@@ -17,7 +17,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from tests.apps import (
     catalog_from,
     forget_models,
-    isolated_factory,
+    isolated_compiler,
     live_catalog,
     live_config,
     live_recorder,
@@ -34,7 +34,6 @@ from trusts.inspect.checks import (
     CHECK_ID_OBSOLETE_CALLBACK_SETTING,
     check_missing_declarations,
     check_permission_conditions,
-    check_query_compilers,
 )
 from trusts.zero.models import Content, Junction, Trust, TrustUserPermission
 
@@ -78,13 +77,13 @@ class RecorderFreezeTest(SimpleTestCase):
             )
 
     def test_factory_build_freezes_the_factory(self):
-        factory = isolated_factory()
+        factory = isolated_compiler()
         register_relations(factory, Trust)
         catalog = catalog_from(factory)
         self.assertTrue(factory.frozen)
         self.assertTrue(catalog.plan_for(Trust).records)
         with self.assertRaises(TrustsConfigurationError):
-            factory.register_public(
+            factory.register(
                 trust=TrustUserPermission,
                 user='entity',
                 permission='permission',
@@ -92,15 +91,15 @@ class RecorderFreezeTest(SimpleTestCase):
             )
 
     def test_duplicate_trust_registration_fails_at_register(self):
-        factory = isolated_factory()
+        factory = isolated_compiler()
         register_relations(factory, Trust)
         with self.assertRaises(TrustsConfigurationError):
             register_relations(factory, Trust)
 
     def test_malformed_path_fails_at_register(self):
-        factory = isolated_factory()
+        factory = isolated_compiler()
         with self.assertRaises(TrustsConfigurationError):
-            factory.register_public(
+            factory.register(
                 trust=TrustUserPermission,
                 user='entity',
                 permission='permission',
@@ -246,9 +245,7 @@ class MissingDeclarationCheckTest(TestCase):
             condition_ids = {
                 message.id for message in check_permission_conditions(None)
             }
-            compiler_ids = {message.id for message in check_query_compilers(None)}
             self.assertNotIn(CHECK_ID_MISSING_DECLARATION, condition_ids)
-            self.assertNotIn(CHECK_ID_MISSING_DECLARATION, compiler_ids)
             self.assertNotIn(CHECK_ID_OBSOLETE_CALLBACK_SETTING, _e003())
             with override_settings(
                 SILENCED_SYSTEM_CHECKS=['trusts.E003', 'fields.W342'],

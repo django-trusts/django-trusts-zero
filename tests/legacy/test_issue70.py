@@ -11,7 +11,9 @@ from django.core.management import call_command
 from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase
 
-from tests.apps import isolated_recorder, live_catalog, root_records
+from tests.apps import (
+    catalog_from_recorder, isolated_recorder, live_catalog, root_records,
+)
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from trusts.zero.models import (
     Trust,
@@ -41,9 +43,9 @@ class TrustRelationRegistrationTest(SimpleTestCase):
     def test_register_zero_relations_is_idempotent_on_a_fresh_recorder(self):
         recorder = isolated_recorder()
         register_zero_relations(recorder)
-        first = list(recorder.rows)
         register_zero_relations(recorder)
-        self.assertEqual(list(recorder.rows), first)
+        donated = catalog_from_recorder(recorder)
+        self.assertEqual(len(root_records(donated, TrustUserPermission, Trust)), 1)
         catalog = live_catalog()
         self.assertEqual(len(root_records(catalog, TrustUserPermission, Trust)), 1)
         self.assertEqual(

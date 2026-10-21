@@ -40,7 +40,9 @@ from trusts.zero.registration import (
     register_zero_group,
     register_zero_relations,
 )
-from tests.apps import isolated_recorder, live_catalog, root_records
+from tests.apps import (
+    catalog_from_recorder, isolated_recorder, live_catalog, root_records,
+)
 from tests.legacy.helpers import (
     enable_local_group_grant,
     get_or_create_root_user,
@@ -158,7 +160,7 @@ class MetaOptionRegistrationTests(SimpleTestCase):
 class BackendAndRegistrationTests(SimpleTestCase):
     def test_backend_uses_plan_query_compiler(self):
         self.assertIsInstance(
-            TrustModelBackend.query_compiler, PlanQueryCompiler,
+            TrustModelBackend().get_catalog().compiler, PlanQueryCompiler,
         )
         self.assertFalse(hasattr(
             __import__('trusts.zero.backends', fromlist=['x']),
@@ -185,9 +187,9 @@ class BackendAndRegistrationTests(SimpleTestCase):
     def test_register_zero_relations_is_idempotent(self):
         recorder = isolated_recorder()
         register_zero_relations(recorder)
-        first = list(recorder.rows)
         register_zero_relations(recorder)
-        self.assertEqual(list(recorder.rows), first)
+        donated = catalog_from_recorder(recorder)
+        self.assertEqual(len(root_records(donated, TrustUserPermission, Trust)), 1)
         catalog = live_catalog()
         tgp = root_records(catalog, TrustGroupPermission, Trust)
         groups = root_records(catalog, TrustGroup, Trust)
@@ -221,9 +223,12 @@ class BackendAndRegistrationTests(SimpleTestCase):
         self.assertNotIn('predicate=', inspect.getsource(register_zero_direct))
         self.assertNotIn('predicate=', inspect.getsource(register_zero_group))
         self.assertIn('recorder.register(', source)
-        self.assertIn('trust=TrustUserPermission', source)
-        self.assertIn('trust=TrustGroup,', source)
-        self.assertIn('trust=TrustGroupPermission', source)
+        self.assertIn("get_model('trusts', 'TrustUserPermission')", source)
+        self.assertIn("get_model('trusts', 'TrustGroup')", source)
+        self.assertIn("get_model('trusts', 'TrustGroupPermission')", source)
+        self.assertIn('trust=trust_user_permission', source)
+        self.assertIn('trust=trust_group,', source)
+        self.assertIn('trust=trust_group_permission', source)
         self.assertIn("user='group__user'", source)
         self.assertIn("group='group'", source)
         self.assertIn('t.permissions.contains(t.group.permissions)', source)
@@ -236,7 +241,7 @@ class BackendAndRegistrationTests(SimpleTestCase):
         )
         self.assertIn('t.permission', source)
         donate = inspect.getsource(ZeroConfig.ready)
-        self.assertIn('register_zero_relations(recorder)', donate)
+        self.assertIn('register_zero_relations(self.recorder)', donate)
         self.assertNotIn('register_zero_relations(backend', donate)
         with self.assertRaises(TypeError):
             register_zero_relations(object())

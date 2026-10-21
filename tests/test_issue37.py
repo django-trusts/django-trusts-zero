@@ -19,7 +19,8 @@ from trusts.zero.registration import (
 )
 from tests.apps import (
     catalog_from,
-    isolated_factory,
+    catalog_from_recorder,
+    isolated_compiler,
     isolated_recorder,
     live_catalog,
     live_recorder,
@@ -31,7 +32,7 @@ from tests.models import Category
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = '3aad8c25f34469f4ecb03e9cd441d9e6315d4f0f'
+CORE_PIN = 'f898123987569817bc93e31e34505211e1c61b82'
 STALE_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
 STALE_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
@@ -44,9 +45,10 @@ class RegisterMigrationSurfaceTests(SimpleTestCase):
     def test_registration_uses_public_register_and_contains_grammar(self):
         source = REGISTRATION.read_text()
         self.assertIn('recorder.register(', source)
-        self.assertIn('trust=TrustUserPermission', source)
-        self.assertIn('trust=TrustGroup,', source)
-        self.assertIn('trust=TrustGroupPermission', source)
+        self.assertIn("get_model('trusts', 'TrustUserPermission')", source)
+        self.assertIn('trust=trust_user_permission', source)
+        self.assertIn('trust=trust_group,', source)
+        self.assertIn('trust=trust_group_permission', source)
         self.assertIn("group='group'", source)
         self.assertIn('t.permissions.contains(t.group.permissions)', source)
         self.assertNotIn(
@@ -172,13 +174,13 @@ class PublicRegisterDonationTests(TestCase):
         recorder = isolated_recorder()
         with self.assertNumQueries(0):
             register_zero_relations(recorder)
-            first = list(recorder.rows)
             register_zero_relations(recorder)
-            factory = isolated_factory()
+            donated = catalog_from_recorder(recorder)
+            factory = isolated_compiler()
             from tests.apps import register_relations
             register_relations(factory, Trust)
             catalog = catalog_from(factory)
-        self.assertEqual(list(recorder.rows), first)
+        self.assertEqual(len(donated.records), 3)
         self.assertEqual(len(catalog.records), 3)
         for row in catalog.records:
             self.assertFalse(callable(row.condition))
