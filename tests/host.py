@@ -16,6 +16,9 @@ class TestsConfig(AppConfig):
     default_auto_field = 'django.db.models.AutoField'
 
     def ready(self):
+        # Forced: tests.apps imports Catalog and the host models at module
+        # level, and Catalog imports auth.Permission. That import is not
+        # safe while Django is still loading app configs.
         from tests.apps import register_installed_terminals
 
         register_installed_terminals(self)
