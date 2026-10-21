@@ -29,7 +29,7 @@ from django.test import TestCase, TransactionTestCase
 from django.test.client import MULTIPART_CONTENT, Client
 from django.http.request import HttpRequest
 
-from tests.apps import live_catalog, live_config
+from tests.apps import content_row
 from tests.legacy.helpers import (
     ContentModelMixin,
     JunctionModelMixin,
@@ -408,7 +408,7 @@ class TrustContentTestMixin(ContentModel):
         self.assertIsIterable(perm)
         self.assertEqual(len(perm), 0)
 
-        self.assertFalse(live_catalog().plan_for(type(self.user)).records)
+        self.assertIsNone(content_row(type(self.user)))
         self.assertFalse(self.user.has_perm('auth.change_user', self.user))
         self.assertEqual(self.user.get_all_permissions(self.user), set())
         self.assertEqual(

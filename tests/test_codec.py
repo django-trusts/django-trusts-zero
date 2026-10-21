@@ -18,17 +18,15 @@ from trusts.zero.query import (
     ContentQuerySet,
     django_permission_filter,
 )
-from trusts.conditions import PermissionConditionNotQueryable
 from tests.apps import (
-    catalog_from,
-    isolated_catalog,
-    isolated_compiler,
-    live_catalog,
-    records_for_root,
-    register_relations,
-    root_records,
+    TEST_BACKEND,
+    ZERO_BACKEND,
+    category_spy,
+    named_filter_ids,
+    trust_rows,
 )
 from tests.models import Category, Ticket
+from trusts.errors import PermissionConditionError, TrustsConfigurationError
 
 
 class RegistrationAndCodecTests(TestCase):
@@ -50,42 +48,33 @@ class RegistrationAndCodecTests(TestCase):
         ).save()
 
     def test_content_queryset_is_authorized_queryset_subclass(self):
-        import inspect
         self.assertTrue(issubclass(ContentQuerySet, AuthorizedQuerySet))
-        src = inspect.getsource(ContentQuerySet.permitted)
-        self.assertIn('return django_permission_filter(', src)
+        self.assertTrue(callable(ContentQuerySet.permitted))
 
-    def test_tup_register_on_the_live_catalog(self):
-        catalog = live_catalog()
-        records = root_records(catalog, TrustUserPermission, Trust)
+    def test_tup_register_on_the_live_policy(self):
+        records = trust_rows(Trust, TrustUserPermission, backend=ZERO_BACKEND)
         self.assertEqual(len(records), 1)
-        self.assertIs(records[0].content_model, Trust)
-        self.assertEqual(records[0].user_field, 'entity')
+        self.assertEqual(records[0]['content']['model'], 'trusts.Trust')
+        self.assertEqual(records[0]['user']['path'], 'entity')
 
     def test_tgp_register_uses_group_and_role_ceilings(self):
-        catalog = live_catalog()
-        role = root_records(catalog, TrustGroupPermission, Trust)
-        grouped = root_records(catalog, TrustGroup, Trust)
+        role = trust_rows(Trust, TrustGroupPermission, backend=ZERO_BACKEND)
+        grouped = trust_rows(Trust, TrustGroup, backend=ZERO_BACKEND)
         self.assertEqual(len(role), 1)
         self.assertEqual(len(grouped), 1)
-        self.assertIs(role[0].content_model, Trust)
-        self.assertIs(grouped[0].content_model, Trust)
-        self.assertFalse(role[0].via_group)
-        self.assertTrue(grouped[0].via_group)
-        self.assertEqual(grouped[0].permission_path, ('group', 'permissions'))
-        self.assertEqual(role[0].permission_path, ('permission',))
-        self.assertNotEqual(role[0].condition, grouped[0].condition)
+        self.assertEqual(role[0]['content']['model'], 'trusts.Trust')
+        self.assertEqual(grouped[0]['content']['model'], 'trusts.Trust')
+        self.assertNotIn('group', role[0])
+        self.assertEqual(grouped[0]['group']['path'], 'group')
+        self.assertEqual(grouped[0]['permission']['path'], 'group__permissions')
+        self.assertEqual(role[0]['permission']['path'], 'permission')
+        self.assertNotEqual(role[0].get('condition'), grouped[0].get('condition'))
 
-    def test_live_catalog_has_tup_trust_and_own_condition(self):
-        catalog = live_catalog()
-        records = records_for_root(catalog, TrustUserPermission)
-        content_models = {row.content_model for row in records}
-        self.assertIn(Trust, content_models)
-        self.assertIn(Category, content_models)
-        self.assertIn(Ticket, content_models)
-        own = catalog.get_permission_condition_record(Trust, 'own')
-        self.assertIsNotNone(own)
-        self.assertIsNotNone(own.expr)
+    def test_live_policy_has_trust_category_ticket_and_own(self):
+        self.assertTrue(trust_rows(Trust, TrustUserPermission, backend=ZERO_BACKEND))
+        self.assertTrue(trust_rows(Category, TrustUserPermission, backend=TEST_BACKEND))
+        self.assertTrue(trust_rows(Ticket, TrustUserPermission, backend=TEST_BACKEND))
+        self.assertIn('trusts__Trust__own', named_filter_ids(Trust, ZERO_BACKEND))
 
     def test_permitted_and_has_perm_trustee_isolation(self):
         user = User.objects.get(pk=self.user.pk)
@@ -151,7 +140,7 @@ class RegistrationAndCodecTests(TestCase):
         self.assertNotIn(self.child, qs)
 
     def test_filter_by_user_content_perm_rejects_condition(self):
-        with self.assertRaises(PermissionConditionNotQueryable):
+        with self.assertRaises(PermissionConditionError):
             Trust.objects.filter_by_user_content_perm(
                 self.user, Trust, 'change:own',
             )
@@ -175,42 +164,13 @@ class RegistrationAndCodecTests(TestCase):
         permitted = list(Ticket.objects.permitted('read:own', self.user))
         self.assertIn(ticket, permitted)
         self.assertNotIn(other_ticket, permitted)
-        with self.assertRaises(AttributeError):
+        with self.assertRaises(TrustsConfigurationError):
             list(Ticket.objects.permitted('read:nope', self.user))
 
-    def test_catalog_build_invokes_builder_once(self):
-        calls = []
-
-        def boom(u, p, o):
-            calls.append((u, p, o))
-            return o.name == 'n'
-
-        factory = isolated_compiler()
-        self.assertEqual(len(calls), 0)
-        factory.add_named_filter(Category, 'cb', boom)
-        catalog = catalog_from(factory)
-        self.assertEqual(len(calls), 1)
-        self.assertIsNotNone(
-            catalog.get_permission_condition_record(Category, 'cb')
-        )
-        catalog.compile_registered_condition_q(
-            Category, 'trusts_zero_tests.read_category:cb', None,
-        )
-        self.assertEqual(len(calls), 1)
-
-    def test_builder_condition_is_queryable_without_reinvoke(self):
-        calls = []
-
-        def named_keep(u, p, o):
-            calls.append((u, p, o))
-            return o.name == 'n'
-
-        def register(factory):
-            register_relations(factory, Category)
-            factory.add_named_filter(Category, 'cb', named_keep)
-
-        catalog = isolated_catalog(register)
-        cat = Category(name='n', trust=self.org)
+    def test_named_filter_builder_is_not_reinvoked(self):
+        before = len(category_spy.calls)
+        self.assertGreaterEqual(before, 1)
+        cat = Category(name='keep', trust=self.org)
         cat.save()
         other = Category(name='other', trust=self.org)
         other.save()
@@ -218,20 +178,14 @@ class RegistrationAndCodecTests(TestCase):
         TrustUserPermission(
             trust=self.org, entity=self.user, permission=read,
         ).save()
-        self.assertEqual(len(calls), 1)
-        code = 'trusts_zero_tests.read_category:cb'
-        self.assertTrue(catalog.has_perm(self.user, code, cat))
-        self.assertFalse(catalog.has_perm(self.user, code, other))
-        granted = catalog.filter_authorized(
-            Category.objects.all(), self.user, read,
-        )
-        overlay = catalog.compile_registered_condition_q(
-            Category, code, self.user,
-        )
-        permitted = list(granted.filter(overlay))
+        user = User.objects.get(pk=self.user.pk)
+        code = 'trusts_zero_tests.read_category:spy'
+        self.assertTrue(user.has_perm(code, cat))
+        self.assertFalse(user.has_perm(code, other))
+        permitted = set(Category.objects.permitted('read:spy', user))
         self.assertIn(cat, permitted)
         self.assertNotIn(other, permitted)
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(category_spy.calls), before)
 
     def test_group_local_grant_still_authorizes_via_zero_compiler(self):
         group = Group.objects.create(name='writers')

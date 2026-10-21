@@ -1,7 +1,11 @@
-from contextlib import contextmanager
+"""Registration and public policy helpers for the Zero suite.
+
+``TestsConfig.ready`` calls ``register_test_terminals`` on its own
+recorder. Helpers below read ``policy_document`` or forget dynamic
+models. They do not build catalogs.
+"""
 
 from django.apps import apps as django_apps
-from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
 from tests.models import (
@@ -14,21 +18,12 @@ from tests.models import (
     ticket_meta_own,
     ticket_own,
 )
-from trusts.apps import Recorder
-from trusts.compile.catalogs import Catalog
-from trusts.compile.factory import Compiler
-from trusts.errors import TrustsConfigurationError
-from trusts.zero.apps import CANONICAL_BACKEND_PATH, zero_config
-from trusts.zero.backends import TrustModelBackend
-from trusts.zero.models import (
-    TrustGroup,
-    TrustGroupPermission,
-    TrustUserPermission,
-)
+from trusts.backends import policy_document
 from trusts.zero.registration import register_zero_content
 
 
-ZERO_BACKEND = CANONICAL_BACKEND_PATH
+TEST_BACKEND = 'tests.backends.TestsBackend'
+ZERO_BACKEND = 'trusts.zero.backends.TrustModelBackend'
 
 
 class _CallLog(object):
@@ -43,128 +38,15 @@ class _CallLog(object):
         return self.impl(u, p, o)
 
 
-# Recorded from TestsConfig.ready() before Zero freezes its recorder.
-# The catalog build invokes it once. Later has_perm / permitted must not.
+# Recorded from TestsConfig.ready(). The catalog build invokes it once.
+# Later has_perm / permitted must not.
 category_spy = _CallLog(lambda u, p, o: o.name == 'keep')
-
-
-def live_config(apps_registry=None):
-    """The unique installed ``ZeroConfig``."""
-    return zero_config(apps_registry)
-
-
-def live_catalog():
-    """Catalog built for ``TrustModelBackend`` at ready."""
-    catalog = TrustModelBackend().get_catalog()
-    if catalog is None:
-        raise TrustsConfigurationError('Zero backend has no catalog.')
-    return catalog
-
-
-def live_recorder():
-    """Recorder for ``TrustModelBackend``'s app config."""
-    return TrustModelBackend().recorder
-
-
-def records_for_root(catalog, root):
-    """Records on ``catalog`` whose registration root is ``root``."""
-    return tuple(record for record in catalog.records if record.root is root)
-
-
-def isolated_recorder():
-    """A recorder that has not been built into a catalog."""
-    return Recorder()
-
-
-def isolated_compiler(*, path='tests.isolated', user_model=None):
-    """A fresh compiler. Register through its public methods, then compile."""
-    return Compiler(
-        path=path,
-        family='relationship',
-        user_model=user_model or get_user_model(),
-        query_compiler=Compiler.default_query_compiler(),
-    )
-
-
-def catalog_from(compiler):
-    """``compiler.compile()``. The compiler freezes here."""
-    built = compiler.compile()
-    if not isinstance(built, Catalog):
-        raise TrustsConfigurationError(
-            'Compiler.compile() did not return a Catalog.'
-        )
-    return built
-
-
-def catalog_from_recorder(recorder, *, path='tests.isolated', user_model=None):
-    """Freeze ``recorder``, replay it, and return the catalog."""
-    compiler = isolated_compiler(path=path, user_model=user_model)
-    if not recorder.frozen:
-        recorder.freeze()
-    recorder.play(compiler)
-    return compiler.compile()
-
-
-def isolated_catalog(register=None, *, path='tests.isolated', user_model=None):
-    """Build one isolated catalog from public registration calls.
-
-    ``register`` receives the compiler. It uses ``register``,
-    ``add_named_filter``, ``set_user_condition``, and
-    ``set_user_override``.
-    """
-    compiler = isolated_compiler(path=path, user_model=user_model)
-    if register is not None:
-        register(compiler)
-    return catalog_from(compiler)
-
-
-def register_relations(compiler, model, content_via=None):
-    """TUP, ``auth.Group``, and role records via ``Compiler.register``.
-
-    Isolated tests that need Zero's relation shape call this. App
-    behaviour is ``live_catalog()``.
-    """
-    def content_path(prefix=''):
-        if content_via is not None:
-            return content_via(prefix, model)
-        rev = model._meta.get_field('trust').remote_field.get_accessor_name()
-        return '__'.join(part for part in (prefix, 'trust', rev) if part)
-
-    compiler.register(
-        trust=TrustUserPermission,
-        user='entity',
-        permission='permission',
-        content=content_path(),
-    )
-    compiler.register(
-        trust=TrustGroup,
-        user='group__user',
-        content=content_path(),
-        group='group',
-        condition=lambda t: t.permissions.contains(t.group.permissions),
-    )
-    compiler.register(
-        trust=TrustGroupPermission,
-        user='trustgroup__group__user',
-        permission='permission',
-        content=content_path('trustgroup'),
-        condition=lambda t: t.trustgroup.group.roles.permissions.contains(
-            t.permission,
-        ),
-    )
-
-
-def root_records(catalog, root, model):
-    """Records on ``catalog`` for ``root`` terminating on ``model``."""
-    concrete = model._meta.concrete_model
-    return tuple(
-        record for record in records_for_root(catalog, root)
-        if record.content_model is concrete
-    )
 
 
 def junction_content_field(junction_model):
     """Return the Junction→content field from the concrete Junction contract."""
+    from trusts.errors import TrustsConfigurationError
+
     content_model = junction_model.get_content_model()._meta.concrete_model
     matches = [
         field for field in junction_model._meta.fields
@@ -194,16 +76,8 @@ def dependent_content_path(prefix, content_model, *suffixes):
     return '__'.join(part for part in parts if part)
 
 
-def register_installed_terminals(config):
-    """Register host terminals on Zero's recorder before the catalog build.
-
-    ``TestsConfig`` is listed before ``ZeroConfig``. A second ``ready()``
-    on this app hits the frozen recorder and raises. An isolated Apps
-    registry is not the running app, so it returns without recording.
-    """
-    if config.apps is not django_apps:
-        return
-    recorder = live_recorder()
+def register_test_terminals(recorder):
+    """Category, Ticket, Group, and dependent image terminals on this recorder."""
     register_zero_content(recorder, Category)
     register_zero_content(recorder, Ticket)
     register_zero_content(
@@ -232,15 +106,39 @@ def register_installed_terminals(config):
     recorder.add_named_filter(Ticket, 'meta_own', ticket_meta_own)
 
 
-@contextmanager
-def override_apps_ready(ready, apps_registry=None):
-    target = django_apps if apps_registry is None else apps_registry
-    was = target.ready
-    target.ready = ready
-    try:
-        yield
-    finally:
-        target.ready = was
+def policy_rows(backend=None):
+    """Content rows from ``policy_document``, one backend or the project."""
+    document = policy_document(backend=backend)
+    rows = []
+    for item in document['backends']:
+        for row in item['contents']:
+            rows.append(row)
+    return rows
+
+
+def content_row(model, backend=None):
+    """The policy row for ``model``, or ``None``."""
+    label = model if isinstance(model, str) else model._meta.label
+    for row in policy_rows(backend):
+        if row['model'] == label:
+            return row
+    return None
+
+
+def trust_rows(model, root=None, backend=None):
+    """Trust rows on ``model``. ``root`` is a model or a label."""
+    row = content_row(model, backend=backend) or {}
+    trusts = tuple(row.get('trusts', ()))
+    if root is None:
+        return trusts
+    label = root if isinstance(root, str) else root._meta.label
+    return tuple(item for item in trusts if item['root'] == label)
+
+
+def named_filter_ids(model, backend=None):
+    """Named-filter ids recorded for ``model``."""
+    row = content_row(model, backend=backend) or {}
+    return tuple(item['id'] for item in row.get('named_filters', ()))
 
 
 def forget_models(*model_classes):

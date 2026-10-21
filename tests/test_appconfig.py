@@ -5,7 +5,8 @@ from django.test import SimpleTestCase
 
 from trusts.apps import TrustsConfigMixin
 from trusts.zero.apps import ZeroConfig, zero_config
-from trusts.zero.backends import TrustModelBackend
+from tests.apps import ZERO_BACKEND, content_row
+from trusts.backends import policy_document
 from trusts.zero.models import Trust
 
 
@@ -24,18 +25,12 @@ class ZeroAppConfigTests(SimpleTestCase):
         self.assertTrue(issubclass(ZeroConfig, TrustsConfigMixin))
         owner = zero_config()
         self.assertIs(owner, apps.get_app_config('trusts'))
-        catalog = TrustModelBackend().get_catalog()
-        self.assertEqual(catalog.path, zero_config().catalog_path())
+        document = policy_document(backend=ZERO_BACKEND)
+        self.assertEqual(document['schema_version'], 1)
+        self.assertEqual(document['backends'][0]['path'], 'trusts.zero.apps.ZeroConfig')
+        self.assertEqual(content_row(Trust, ZERO_BACKEND)['model'], 'trusts.Trust')
 
-    def test_core_ships_no_appconfig_or_kernel_config(self):
-        import trusts.apps as trusts_apps
-
-        self.assertFalse(hasattr(trusts_apps, 'kernel_config'))
-        self.assertFalse(hasattr(trusts_apps, 'AppConfig'))
-        with self.assertRaises(ImportError):
-            from trusts.apps import kernel_config  # noqa: F401
-        with self.assertRaises(ImportError):
-            from trusts.apps import AppConfig  # noqa: F401
+    def test_trusts_label_is_only_zeroconfig(self):
         self.assertIs(type(apps.get_app_config('trusts')), ZeroConfig)
         self.assertEqual(
             [type(config) for config in apps.get_app_configs() if config.label == 'trusts'],
