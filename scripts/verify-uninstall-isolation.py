@@ -60,6 +60,9 @@ print("kernel-survived-ok")
 '''
 
 ZERO_WITHOUT_CORE_PROBE = r'''
+from django.conf import settings
+if not settings.configured:
+    settings.configure(SECRET_KEY="iia-zero-only")
 try:
     from trusts.zero.apps import ZeroConfig  # noqa: F401
 except ModuleNotFoundError as exc:
@@ -112,9 +115,16 @@ def main() -> int:
         py2 = _venv_python(venv2)
         _run([py2, '-m', 'pip', 'install', '-q', 'Django>=6.1,<6.2', str(kernel_wheel), str(zero_wheel)])
         _run([py2, '-m', 'pip', 'uninstall', '-y', '-q', 'django-trusts'])
+        # cwd is the temp dir so the checkout does not shadow the wheel.
+        # Zero's package init reads settings before apps.py imports Core.
+        isolated_env = os.environ.copy()
+        isolated_env.pop('PYTHONPATH', None)
+        isolated_env.pop('DJANGO_SETTINGS_MODULE', None)
         result = subprocess.run(
             [py2, '-c', ZERO_WITHOUT_CORE_PROBE],
             capture_output=True, text=True,
+            cwd=str(tmp),
+            env=isolated_env,
         )
         if result.returncode != 0 or 'core-required-ok' not in result.stdout:
             raise SystemExit(
