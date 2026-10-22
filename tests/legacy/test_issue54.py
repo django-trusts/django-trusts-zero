@@ -21,7 +21,6 @@ from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_us
 from tests.models import Category, Organization
 from trusts.apps import TrustsConfigMixin
 from trusts.decorators import filter_by_permitted_content
-from trusts.errors import TrustsConfigurationError
 from trusts.models import AuthorizedManagerMixin, AuthorizedQuerySet
 from trusts.zero.models import Trust, TrustUserPermission
 from trusts.zero.query import ContentQuerySet
@@ -138,18 +137,20 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
         enable_local_group_grant(self.trust_a, self.carol_group, self.read)
         self._reload()
 
-    def test_wrong_permission_type_is_zero_sql_configuration_error(self):
+    def test_wrong_permission_type_is_zero_sql_empty(self):
         qs = AuthorizedQuerySet(Category)
         with patch.object(Category.objects, 'get_permission') as get_perm:
             with self.assertNumQueries(0):
-                with self.assertRaises(TrustsConfigurationError):
-                    qs.authorized(self.alice, 'read_category')
-                with self.assertRaises(TrustsConfigurationError):
-                    qs.authorized(self.alice, 'trusts_zero_tests.read_category')
-                with self.assertRaises(TrustsConfigurationError):
-                    qs.authorized(self.alice, 'read_category:own')
-                with self.assertRaises(TrustsConfigurationError):
-                    qs.authorized(self.alice, None)
+                for permission in (
+                    'read_category',
+                    'trusts_zero_tests.read_category',
+                    'read_category:own',
+                    None,
+                ):
+                    self.assertEqual(
+                        list(qs.authorized(self.alice, permission)),
+                        [],
+                    )
         get_perm.assert_not_called()
 
     def test_instance_filter_matches_trustee_and_group_and_stays_lazy(self):
@@ -202,7 +203,7 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
         with self.assertNumQueries(0):
             self.assertFalse(qs.exists())
 
-    def test_anonymous_is_denied_and_invalid_user_raises_without_codec(self):
+    def test_anonymous_is_denied_and_invalid_user_is_empty_without_codec(self):
         with self.assertNumQueries(0):
             for include_inactive in (False, True):
                 rows = AuthorizedQuerySet(Category).authorized(
@@ -211,8 +212,10 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
                 )
                 self.assertEqual(list(rows), [])
             for invalid_user in (None, object()):
-                with self.assertRaises(TrustsConfigurationError):
-                    _authorized(Category, invalid_user, self.read)
+                self.assertEqual(
+                    list(_authorized(Category, invalid_user, self.read)),
+                    [],
+                )
 
 
 class FilterByPermittedContentLiveTest(_UsersMixin, TestCase):
@@ -271,16 +274,15 @@ class FilterByPermittedContentLiveTest(_UsersMixin, TestCase):
                 ).exists()
             )
 
-    def test_permission_must_be_an_instance(self):
+    def test_non_instance_permission_is_empty(self):
         with self.assertNumQueries(0):
-            with self.assertRaises(TrustsConfigurationError):
-                filter_by_permitted_content(
-                    Trust.objects.all(), self.alice, 'add_category',
-                    content=Category,
-                )
-            with self.assertRaises(TrustsConfigurationError):
-                filter_by_permitted_content(
-                    Trust.objects.all(), self.alice, None, content=Category,
+            for permission in ('add_category', None):
+                self.assertEqual(
+                    list(filter_by_permitted_content(
+                        Trust.objects.all(), self.alice, permission,
+                        content=Category,
+                    )),
+                    [],
                 )
 
     def test_wrong_user_and_wrong_permission_deny(self):
