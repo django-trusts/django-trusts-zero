@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 # Exact django-trusts / kernel candidate.
-KERNEL_HEAD = '52fa0aa34c6ffb891938465133d30d8b1e04f8da'
+KERNEL_HEAD = '0e9440634cc2db971274e4f6f8a8dbe3bf0c0025'
 
 
 def resolved_kernel_head(kernel_root: Path) -> str:
