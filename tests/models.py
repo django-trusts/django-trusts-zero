@@ -141,3 +141,9 @@ class OrphanDoc(models.Model):
     )
     title = models.CharField(max_length=40)
     objects = ContentManager()
+
+
+from tests.backends import TestsBackend
+from tests.apps import register_test_terminals
+
+register_test_terminals(TestsBackend().get_registry())

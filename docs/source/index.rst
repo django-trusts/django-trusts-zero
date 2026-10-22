@@ -111,18 +111,20 @@ malformed, unsupported, or unregistered policy fails closed.
 Register protected content
 --------------------------
 
-``ZeroConfig`` registers ``Trust`` as protected content. A host application
-donates each additional ``Content`` model from its ``AppConfig.ready()``:
+``ZeroConfig`` registers ``Trust`` at the end of ``models.py`` on
+``TrustModelBackend().get_registry()``. A host application donates each
+additional content model the same way, on that application's backend:
 
 .. code-block:: python
 
-   from trusts.apps import implementation_for_path
-   from trusts.zero.apps import CANONICAL_BACKEND_PATH
+   from receipts.backends import ReceiptBackend
    from trusts.zero.registration import register_zero_content
 
-   owner = implementation_for_path(CANONICAL_BACKEND_PATH)
-   backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
-   register_zero_content(backend, Receipt)
+   registry = ReceiptBackend().get_registry()
+   register_zero_content(registry, Receipt)
+   registry.add_named_filter(
+       Receipt, "own", predicate=lambda u, p, o: u == o.owner,
+   )
 
 ``register_zero_content`` registers three complete paths. Direct
 ``TrustUserPermission`` uses ``permission=``. ``TrustGroup`` uses
@@ -133,18 +135,9 @@ permission. ``TrustGroupPermission`` keeps the role ceiling as ordinary
 ``get_group_permissions``. Complete paths combine by OR.
 ``register_zero_relations`` performs only Zero's Trust-as-content
 donation; host applications remain responsible for donating their own
-content models.
-
-Registered ``Meta.permission_conditions`` (including built-in
-``Trust:own``) are builder callables donated through
-``backend.add_named_filter`` in ``ZeroConfig.ready()`` while
-``apps.ready`` is still false. Core binds the registry-backed lookup at
-``TrustsRegistry`` construction; Zero donates conditions only through
-the configured-backend API. Explicit named-condition registration uses
-the same backend method in that pre-finalization window. After ready,
-the live backend is frozen; further condition writes raise
-``TrustsConfigurationError`` before a builder runs. Isolated tests wrap
-an unfrozen ``TrustsRegistry()`` in a ``BackendHandle``.
+content models. The catalog is built at the first permission question.
+A later ``register`` or ``add_named_filter`` raises
+``TrustsConfigurationError``.
 
 Edit grants
 -----------

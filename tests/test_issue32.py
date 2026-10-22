@@ -1,7 +1,7 @@
 """Zero #32: migrate donation to the final configured-backend methods.
 
 Paired against the exact django-trusts candidate
-``57da11607859e43987258a312a388f247a906571``.
+``ed0dfa9ab9f6fc1177f226d09e5709f78a949b56``.
 """
 
 from pathlib import Path
@@ -24,7 +24,7 @@ from trusts.errors import TrustsConfigurationError
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = '57da11607859e43987258a312a388f247a906571'
+CORE_PIN = 'ed0dfa9ab9f6fc1177f226d09e5709f78a949b56'
 STALE_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
 STALE_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
@@ -50,9 +50,9 @@ class ZMethodsSurfaceTests(SimpleTestCase):
         migrates = (ROOT / 'migrates.md').read_text()
 
         self.assertNotIn('content_permission_conditions', ZERO_META_OPTION_NAMES)
-        self.assertIn('register_zero_content(backend, Receipt)', rst)
-        self.assertIn('backend.add_named_filter', rst)
-        self.assertIn('backend.add_named_filter', migrates)
+        self.assertIn('register_zero_content(registry, Receipt)', rst)
+        self.assertIn('registry.add_named_filter', rst)
+        self.assertIn('registry.add_named_filter', migrates)
         self.assertIn('backend.register(\n    trust=TrustUserPermission', migrates)
         self.assertIn('backend.register_relationship(', migrates)
         self.assertIn('permission_in("trustgroup__group__permissions")', migrates)
@@ -135,11 +135,18 @@ class ZMethodsDonationOnceTests(TestCase):
             named_filter_ids(Ticket).count('trusts_zero_tests__Ticket__own'), 1,
         )
 
-    def test_repeated_ready_raises_and_keeps_the_policy(self):
+    def test_repeated_ready_keeps_the_policy_and_late_registration_raises(self):
+        from trusts.zero.backends import TrustModelBackend
+
         before = trust_rows(Trust, TrustUserPermission, ZERO_BACKEND)
         with self.assertNumQueries(0):
+            zero_config().ready()
+        self.assertEqual(trust_rows(Trust, TrustUserPermission, ZERO_BACKEND), before)
+        with self.assertNumQueries(0):
             with self.assertRaises(TrustsConfigurationError):
-                zero_config().ready()
+                TrustModelBackend().get_registry().add_named_filter(
+                    Trust, 'late', lambda u, p, o: u == o.settlor,
+                )
         self.assertEqual(trust_rows(Trust, TrustUserPermission, ZERO_BACKEND), before)
         self.assertIn('trusts__Trust__own', named_filter_ids(Trust, ZERO_BACKEND))
 
@@ -206,6 +213,6 @@ class ZMethodsAuthorizationTests(TestCase):
 
 
 class ZMethodsRecorderContractTests(SimpleTestCase):
-    def test_donation_requires_a_recorder(self):
-        with self.assertRaises(TypeError):
+    def test_donation_requires_a_registry(self):
+        with self.assertRaises(AttributeError):
             register_zero_relations(object())

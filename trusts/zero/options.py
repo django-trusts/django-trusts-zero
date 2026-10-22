@@ -13,7 +13,7 @@ ZERO_META_OPTION_NAMES = (
 def register_zero_meta_option_names():
     """Add Zero-only names to ``options.DEFAULT_NAMES`` once.
 
-    Named filters are ``recorder.add_named_filter`` in ``ready``.
+    Named filters are ``get_registry().add_named_filter``.
     ``permission_conditions`` and ``content_permission_conditions`` are
     not Meta options.
     """

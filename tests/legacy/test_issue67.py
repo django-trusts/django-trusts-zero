@@ -13,7 +13,7 @@ from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import isolate_apps
 
-from tests.apps import TEST_BACKEND, trust_rows
+from tests.apps import TEST_BACKEND, ZERO_BACKEND, trust_rows
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category
 from trusts.zero.apps import zero_config
@@ -33,10 +33,16 @@ def _perm(model, codename):
 
 
 class CategoryRegistrationShapeTest(SimpleTestCase):
-    def test_reenter_contributor_ready_raises_on_the_frozen_recorder(self):
+    def test_reenter_contributor_ready_keeps_the_policy(self):
+        from tests.backends import TestsBackend
+
         before = trust_rows(Category, backend=TEST_BACKEND)
+        apps.get_app_config('trusts_zero_tests').ready()
+        self.assertEqual(trust_rows(Category, backend=TEST_BACKEND), before)
         with self.assertRaises(TrustsConfigurationError):
-            apps.get_app_config('trusts_zero_tests').ready()
+            TestsBackend().get_registry().add_named_filter(
+                Category, 'late', lambda u, p, o: False,
+            )
         self.assertEqual(trust_rows(Category, backend=TEST_BACKEND), before)
 
     def test_live_declaration_uses_meta_reverse(self):
@@ -204,8 +210,14 @@ class CategoryPermittedTest(TestCase):
             Category.objects.permitted(self.change_code, AnonymousUser()).exists()
         )
 
-    def test_ready_again_raises_and_keeps_the_policy(self):
-        before = trust_rows(Category, backend=TEST_BACKEND)
+    def test_ready_again_keeps_the_policy(self):
+        from trusts.zero.backends import TrustModelBackend
+
+        before = trust_rows(Trust, backend=ZERO_BACKEND)
+        zero_config().ready()
+        self.assertEqual(trust_rows(Trust, backend=ZERO_BACKEND), before)
         with self.assertRaises(TrustsConfigurationError):
-            zero_config().ready()
-        self.assertEqual(trust_rows(Category, backend=TEST_BACKEND), before)
+            TrustModelBackend().get_registry().add_named_filter(
+                Trust, 'late', lambda u, p, o: u == o.settlor,
+            )
+        self.assertEqual(trust_rows(Trust, backend=ZERO_BACKEND), before)
