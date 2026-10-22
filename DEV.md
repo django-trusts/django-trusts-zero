@@ -9,9 +9,10 @@ points at `README.md`, not this file.
 
 This tree is `django-trusts-zero==0.12.0.dev0` pairing against the
 django-trusts `1.0.0rc1` candidate
-`52fa0aa34c6ffb891938465133d30d8b1e04f8da`
-(Core `backends-independent`: a backend that does not own a condition
-name contributes nothing, so `.permitted()` is an empty queryset).
+`0e9440634cc2db971274e4f6f8a8dbe3bf0c0025`
+(Core `runtime-fail-closed`: request-time caller input fails closed.
+A bad user or permission on `.authorized()` or
+`filter_by_permitted_content` is an empty queryset).
 
 Earlier unpublished Zero snapshots used `2.0.0.dev0` / `dev1` / `dev2`.
 Those values are not a public compatibility line.
@@ -50,7 +51,7 @@ See `docs/source/index.rst` and `migrates.md`.
 
 ## Verification
 
-Pair CI pins django-trusts `52fa0aa34c6ffb891938465133d30d8b1e04f8da`
+Pair CI pins django-trusts `0e9440634cc2db971274e4f6f8a8dbe3bf0c0025`
 only. It checks out that django-trusts candidate and does not install
 `django-trusts-example`. The Zero suite (including `tests/legacy/` historical copies),
 fresh-install, old-path fail-closed, wheel RECORD, and
