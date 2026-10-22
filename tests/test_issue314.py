@@ -12,7 +12,6 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import TestCase
 
-from tests.apps import isolated_catalog, register_relations
 from tests.legacy.helpers import get_or_create_root_user
 from tests.models import Category
 from tests.runtests import NORMAL_SUITE
@@ -136,20 +135,8 @@ class DjangoUserPermissionBoundaryTest(TestCase):
         ))
         self.assertIn(self.trustee, permitted)
         self.assertNotIn(self.superuser, permitted)
-
-        def register(factory):
-            factory.set_user_override(
-                'superuser', lambda user: user.is_superuser,
-            )
-            register_relations(factory, Category)
-
-        catalog = isolated_catalog(register)
-        permitted = set(catalog.permitted_users(self.category, self.read))
         django_holders = set(self.backend.with_perm(
             self.read_code, include_superusers=True,
         ))
-
-        self.assertIn(self.superuser, permitted)
-        self.assertIn(self.trustee, permitted)
         self.assertNotIn(self.superuser, django_holders)
         self.assertNotIn(self.trustee, django_holders)

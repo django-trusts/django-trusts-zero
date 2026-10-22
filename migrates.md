@@ -594,6 +594,33 @@ Migration-bot checklist:
 - run consumer tests
 - confirm no remaining reference
 
+## Public companion API (Core #334)
+
+django-trusts `57da11607859e43987258a312a388f247a906571` is the
+companion this Zero tree pairs with. Registration and queries use that
+public surface:
+
+- Each Django app that records relations subclasses `TrustsConfigMixin`,
+  calls `register_zero_content(self.recorder, Model)` and
+  `self.recorder.add_named_filter(...)` in its own `ready()`, then
+  `super().ready()`. A second `ready()` on a frozen recorder raises
+  `TrustsConfigurationError`. App order does not matter. Do not register
+  on another app's recorder.
+- List that app's `TrustModelBackendMixin` subclass in
+  `AUTHENTICATION_BACKENDS`. It answers only for the relations that app
+  recorded.
+- `from trusts.utils import parse_perm_code`. The fourth item is the
+  condition suffix, or `''` when the code has none.
+- `from trusts.errors import PermissionConditionError`. Create-under-trust
+  (`filter_by_user_content_perm`) raises that class for a `:code` suffix.
+  `PermissionConditionNotQueryable` is not on this core.
+- Content rows: `PermittedQuerySetMixin.permitted(qs, permission, user,
+  conditions=(code,))`, or Zero's `ContentQuerySet.permitted(perm, user)`.
+  An unknown condition name raises `TrustsConfigurationError` from
+  `permitted`. `has_perm` with an unknown `:code` is false.
+- What an app recorded: `policy_document(backend='dotted.Backend.path')`.
+  Reverse users: `PermittedUsersMixin.get_permitted_users(obj, perm)`.
+
 ## Archaeology
 
 This file is the live executable route only. It does not inline Core

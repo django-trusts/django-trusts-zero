@@ -34,8 +34,8 @@ from trusts.zero.models import (
     Trust,
     TrustUserPermission,
 )
-from trusts.conditions import PermissionConditionNotQueryable
-from tests.apps import isolated_catalog, register_relations
+from tests.apps import named_filter_ids
+from trusts.errors import PermissionConditionError, TrustsConfigurationError
 from tests.legacy.helpers import (
     ContentModelMixin,
     create_test_users,
@@ -137,39 +137,19 @@ class PermittedQuerySetTest(Issue8FixtureMixin, TestCase):
         self.assertFalse(self.user.has_perm(self.get_perm_code(self.perm_change), self.content))
 
     def test_conditioned_perm_fails_closed(self):
-        """A registered :condition must not return every unconditioned grant.
-
-        The live catalog is frozen at ready, so Category:never is recorded
-        on an isolated catalog. has_perm and the filtered queryset both
-        exclude the granted row. An unknown code on the live queryset
-        raises AttributeError.
-        """
+        """An unknown condition does not return the unconditioned grant."""
         TrustUserPermission(
             trust=self.org, entity=self.user, permission=self.perm_read
         ).save()
         reload_test_users(self)
         unconditioned = self.get_perm_code(self.perm_read)
-        conditioned = '%s:never' % unconditioned
         self.assertTrue(self.user.has_perm(unconditioned, self.content))
-
-        def register(factory):
-            register_relations(factory, Category)
-            factory.add_named_filter(
-                Category, 'never', lambda u, p, o: o.name == '__never__',
-            )
-
-        catalog = isolated_catalog(register)
-        self.assertTrue(catalog.has_perm(self.user, unconditioned, self.content))
-        self.assertFalse(catalog.has_perm(self.user, conditioned, self.content))
-        granted = catalog.filter_authorized(
-            Category.objects.all(), self.user, self.perm_read,
+        self.assertNotIn(
+            'trusts_zero_tests__Category__own', named_filter_ids(Category),
         )
-        overlay = catalog.compile_registered_condition_q(
-            Category, conditioned, self.user,
-        )
-        self.assertFalse(granted.filter(overlay).exists())
-        with self.assertRaises(AttributeError):
-            Category.objects.permitted('read_category:own', self.user)
+        self.assertFalse(self.user.has_perm('%s:own' % unconditioned, self.content))
+        with self.assertRaises(TrustsConfigurationError):
+            list(Category.objects.permitted('read_category:own', self.user))
         self.assertEqual(
             set(Category.objects.permitted(unconditioned, self.user).values_list('pk', flat=True)),
             {self.content.pk},
@@ -249,11 +229,11 @@ class FilterByUserContentPermTest(Issue8FixtureMixin, TestCase):
         reload_test_users(self)
         unconditioned = self.get_perm_code(self.perm_add)
         conditioned = '%s:never' % unconditioned
-        with self.assertRaises(PermissionConditionNotQueryable):
+        with self.assertRaises(PermissionConditionError):
             Trust.objects.filter_by_user_content_perm(
                 self.user, Category, conditioned
             )
-        with self.assertRaises(PermissionConditionNotQueryable):
+        with self.assertRaises(PermissionConditionError):
             Trust.objects.filter_by_user_content_perm(
                 self.user, Category, 'add_category:own'
             )

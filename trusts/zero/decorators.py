@@ -1,6 +1,6 @@
 """Legacy request decorators: ``P``, ``R``, ``K``, ``G``, ``O``, ``permission_required``.
 
-``parse_perm_code`` comes from ``trusts.plan.conditions``; this module does not fork it.
+``parse_perm_code`` comes from ``trusts.utils``; this module does not fork it.
 """
 
 from functools import wraps
@@ -15,7 +15,7 @@ from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
 from django.shortcuts import resolve_url
 from django.http import Http404
 
-from trusts.plan.conditions import parse_perm_code
+from trusts.utils import parse_perm_code
 
 
 class P(object):

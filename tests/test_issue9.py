@@ -10,9 +10,9 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 
-from trusts.backends import TrustModelBackendMixin
+from tests.apps import ZERO_BACKEND, content_row
+from trusts.backends import TrustModelBackendMixin, policy_document
 from trusts.errors import TrustsMixinRequired
-from trusts.plan.relations import PlanQueryCompiler
 from trusts.zero.apps import (
     CANONICAL_BACKEND_PATH,
     DEPRECATED_CORE_BACKEND_PATH,
@@ -62,24 +62,17 @@ raise SystemExit(1)
 
 class CanonicalBackendIdentityTests(SimpleTestCase):
     def test_zero_backend_is_the_canonical_mixin_subclass(self):
-        import trusts.backends as core_backends
-
         self.assertTrue(issubclass(TrustModelBackend, TrustModelBackendMixin))
-        self.assertTrue(issubclass(TrustModelBackend, object))
-        catalog = TrustModelBackend().get_catalog()
-        self.assertIsInstance(catalog.compiler, PlanQueryCompiler)
-        self.assertFalse(getattr(catalog.compiler, 'historical_fallback', False))
-        self.assertFalse(hasattr(core_backends, 'TrustModelBackend'))
-        self.assertTrue(hasattr(core_backends, 'TrustModelBackendMixin'))
-        with self.assertRaises(ImportError):
-            import trusts.core_backends  # noqa: F401
+        document = policy_document(backend=ZERO_BACKEND)
+        self.assertEqual(document['backends'][0]['path'], 'trusts.zero.apps.ZeroConfig')
+        self.assertEqual(content_row(Trust, ZERO_BACKEND)['model'], 'trusts.Trust')
 
     def test_canonical_path_resolves_only_through_zeroconfig(self):
         owner = zero_config()
         self.assertIs(type(owner), ZeroConfig)
-        catalog = TrustModelBackend().get_catalog()
-        self.assertEqual(catalog.path, zero_config().catalog_path())
-        self.assertIs(catalog, TrustModelBackend().get_catalog())
+        document = policy_document(backend=CANONICAL_BACKEND_PATH)
+        self.assertEqual(len(document['backends']), 1)
+        self.assertEqual(document['backends'][0]['path'], 'trusts.zero.apps.ZeroConfig')
 
     def test_unconfigured_mixin_class_is_not_zero_identity(self):
         with self.assertRaises(TrustsMixinRequired):
@@ -87,24 +80,6 @@ class CanonicalBackendIdentityTests(SimpleTestCase):
 
 
 class OwnerPresentOnFinalCoreTests(SimpleTestCase):
-    def test_kernel_config_is_not_importable(self):
-        import trusts.apps as trusts_apps
-
-        self.assertFalse(hasattr(trusts_apps, 'kernel_config'))
-        with self.assertRaises(ImportError):
-            from trusts.apps import kernel_config  # noqa: F401
-
-    def test_zero_config_ready_resolves_through_owner_api(self):
-        owner = zero_config()
-        owner.ready()
-        self.assertIs(type(owner), ZeroConfig)
-
-    def test_mixin_owner_present_resolves_through_zeroconfig(self):
-        backend = TrustModelBackend()
-        self.assertIs(type(zero_config()), ZeroConfig)
-        catalog = backend.get_catalog()
-        self.assertEqual(catalog.path, zero_config().catalog_path())
-
     def test_zero_config_helper_returns_installed_owner(self):
         self.assertIs(type(zero_config()), ZeroConfig)
 
@@ -213,11 +188,8 @@ class AuthorizationThroughZeroBackendTests(TestCase):
         ).save()
 
     def test_has_perm_and_permitted_resolve_through_zero_owner(self):
-        import trusts.apps as trusts_apps
-
         user = User.objects.get(pk=self.user.pk)
         child = Trust.objects.get(pk=self.child.pk)
-        self.assertFalse(hasattr(trusts_apps, 'kernel_config'))
         self.assertTrue(user.has_perm('trusts.change_trust', child))
         permitted = list(Trust.objects.permitted('change', user))
         self.assertIn(child, permitted)

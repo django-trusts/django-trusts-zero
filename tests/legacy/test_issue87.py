@@ -1,36 +1,27 @@
-"""Condition donation and live terminal parity (issue #87).
+"""Named filters and live terminal parity (issue #87).
 
-The static content map is gone. Meta conditions are donated onto a
-recorder and read from the compiled catalog. Live ``has_perm`` still
-covers Category, Ticket, Trust, and Group.
+Live ``has_perm`` covers Category, Ticket, Trust, and Group. Dependent
+image rows are on the test app's policy document.
 """
 
 from django.contrib.auth.models import AnonymousUser, Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
+from django.core.checks import run_checks
 from django.core.management import call_command
-from django.db import models
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
 
 from tests.apps import (
-    catalog_from, forget_models, isolated_compiler, isolated_recorder,
-    live_catalog,
+    TEST_BACKEND, ZERO_BACKEND, content_row, named_filter_ids, trust_rows,
 )
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import (
     Category, Organization, OrphanDoc, Receipt, ReceiptImage,
     ReceiptImageMeta, TestGroupJunction, Ticket,
 )
-from trusts.inspect.checks import check_permission_conditions
+from trusts.decorators import filter_by_permitted_content
+from trusts.models import PermittedUsersMixin
 from trusts.zero.backends import TrustModelBackend
-from trusts.zero.models import Content, Junction, Trust, TrustUserPermission
-
-
-def _sheet_own(u, p, o):
-    return o.trust != None
-
-
-def _junc_own(u, p, o):
-    return o.trust != None
+from trusts.zero.models import Trust, TrustUserPermission
 
 
 def _perm(model, codename):
@@ -46,88 +37,18 @@ def _perm(model, codename):
     return permission
 
 
-class DonatedConditionCatalogTest(SimpleTestCase):
-    def test_content_meta_lands_on_an_isolated_catalog(self):
-        class IsolatedSheet(Content):
-            title = models.CharField(max_length=40)
-
-            class Meta:
-                app_label = 'trusts_zero_tests'
-                managed = False
-
-        try:
-            factory = isolated_compiler()
-            factory.add_named_filter(IsolatedSheet, 'sheet_own', _sheet_own)
-            catalog = catalog_from(factory)
-            record = catalog.get_permission_condition_record(IsolatedSheet, 'sheet_own')
-            self.assertIsNotNone(record)
-            self.assertIs(record.model, IsolatedSheet)
-            self.assertIsNotNone(record.expr)
-            self.assertFalse(live_catalog().plan_for(IsolatedSheet).records)
-            codes = [
-                code for model, code, _record in catalog.iter_permission_conditions()
-                if model is IsolatedSheet
-            ]
-            self.assertEqual(codes, ['sheet_own'])
-        finally:
-            forget_models(IsolatedSheet)
-
-    def test_junction_meta_lands_on_an_isolated_catalog(self):
-        class IsolatedJunction(Junction):
-            content = models.ForeignKey(
-                Group, unique=True, on_delete=models.CASCADE,
-            )
-
-            class Meta:
-                app_label = 'trusts_zero_tests'
-                managed = False
-
-        try:
-            before = live_catalog().plan_for(Group).records
-
-            factory = isolated_compiler()
-            factory.add_named_filter(IsolatedJunction, 'junc_own', _junc_own)
-            catalog = catalog_from(factory)
-            record = catalog.get_permission_condition_record(
-                IsolatedJunction, 'junc_own',
-            )
-            self.assertIsNotNone(record)
-            self.assertIs(record.model, IsolatedJunction)
-            self.assertIsNotNone(record.expr)
-            self.assertEqual(live_catalog().plan_for(Group).records, before)
-        finally:
-            forget_models(IsolatedJunction)
-
-    def test_duplicate_named_filter_keeps_the_last_expression(self):
-        factory = isolated_compiler()
-        factory.add_named_filter(
-            Ticket, 'meta_own', lambda u, p, o: o.title == 'first',
-        )
-        factory.add_named_filter(
-            Ticket, 'meta_own', lambda u, p, o: u == o.owner,
-        )
-        catalog = catalog_from(factory)
-        record = catalog.get_permission_condition_record(Ticket, 'meta_own')
-        self.assertIs(record.model, Ticket)
-        self.assertEqual(
-            record.expr.to_tuple(),
-            ('eq', ('ref', 'principal', ()), ('ref', 'object', ('owner',))),
-        )
-
-
 class LiveConditionTest(TestCase):
     def test_trust_own_and_ticket_meta_own_remain(self):
-        catalog = live_catalog()
-        own = catalog.get_permission_condition_record(Trust, 'own')
-        self.assertIsNotNone(own)
-        self.assertIs(own.model, Trust)
-        self.assertIsNotNone(own.expr)
-        meta_own = catalog.get_permission_condition_record(Ticket, 'meta_own')
-        self.assertIsNotNone(meta_own)
-        self.assertIs(meta_own.model, Ticket)
-        self.assertIsNotNone(meta_own.expr)
-        messages = check_permission_conditions(None)
-        self.assertEqual([message for message in messages if message.id == 'trusts.E001'], [])
+        self.assertIn('trusts__Trust__own', named_filter_ids(Trust, ZERO_BACKEND))
+        self.assertIn(
+            'trusts_zero_tests__Ticket__meta_own',
+            named_filter_ids(Ticket, TEST_BACKEND),
+        )
+        messages = run_checks()
+        self.assertEqual(
+            [message for message in messages if message.id == 'trusts.E001'],
+            [],
+        )
 
 
 class _UsersMixin(object):
@@ -236,7 +157,7 @@ class UnknownTerminalTest(_UsersMixin, TestCase):
         self.assertEqual(backend.get_group_permissions(self.alice, {}), set())
         self.assertEqual(backend.get_all_permissions(self.alice, {}), set())
         self.assertFalse(backend.has_perm(self.alice, 'auth.change_user', self.alice))
-        self.assertFalse(live_catalog().plan_for(User).records)
+        self.assertIsNone(content_row(User))
 
 
 class DependentContentAuthorizationTest(_UsersMixin, TestCase):
@@ -248,7 +169,6 @@ class DependentContentAuthorizationTest(_UsersMixin, TestCase):
         self.Image = ReceiptImage
         self.Meta = ReceiptImageMeta
         self.Orphan = OrphanDoc
-        self.catalog = live_catalog()
         self._make_users('dep')
         self.receipt_a1 = self.Receipt.objects.create(
             trust=self.trust_a, title='A1',
@@ -315,16 +235,12 @@ class DependentContentAuthorizationTest(_UsersMixin, TestCase):
 
     def test_host_contributed_both_levels(self):
         rev = self.Receipt._meta.get_field('trust').remote_field.get_accessor_name()
-        image_paths = [
-            record.content_path for record in self.catalog.plan_for(self.Image).records
-        ]
-        meta_paths = [
-            record.content_path for record in self.catalog.plan_for(self.Meta).records
-        ]
-        self.assertIn(('trust', rev, 'image'), image_paths)
-        self.assertIn(('trust', rev, 'image', 'image'), meta_paths)
-        self.assertFalse(self.catalog.plan_for(self.Orphan).records)
-        self.assertFalse(self.catalog.plan_for(self.Receipt).records)
+        image = trust_rows(self.Image, TrustUserPermission, TEST_BACKEND)[0]
+        meta = trust_rows(self.Meta, TrustUserPermission, TEST_BACKEND)[0]
+        self.assertEqual(image['content']['path'], 'trust__%s__image' % rev)
+        self.assertEqual(meta['content']['path'], 'trust__%s__image__image' % rev)
+        self.assertIsNone(content_row(self.Orphan, TEST_BACKEND))
+        self.assertIsNone(content_row(self.Receipt, TEST_BACKEND))
 
     def test_image_object_queryset_enumeration_and_users(self):
         self._assert_terminal(
@@ -340,40 +256,32 @@ class DependentContentAuthorizationTest(_UsersMixin, TestCase):
 
     def _assert_terminal(self, model, code, perm, granted, sibling, other,
                          prefix_granted, prefix_denied):
-        catalog = self.catalog
-        self.assertTrue(catalog.has_perm(self.alice, code, granted))
-        self.assertTrue(catalog.has_perm(self.alice, code, sibling))
-        self.assertFalse(catalog.has_perm(self.alice, code, other))
-        self.assertFalse(catalog.has_perm(self.bob, code, granted))
-        self.assertTrue(catalog.has_perm(self.carol, code, granted))
-        self.assertFalse(catalog.has_perm(self.carol, code, other))
+        self.assertTrue(self.alice.has_perm(code, granted))
+        self.assertTrue(self.alice.has_perm(code, sibling))
+        self.assertFalse(self.alice.has_perm(code, other))
+        self.assertFalse(self.bob.has_perm(code, granted))
+        self.assertTrue(self.carol.has_perm(code, granted))
+        self.assertFalse(self.carol.has_perm(code, other))
         granted_qs = model.objects.filter(pk__in=[granted.pk, sibling.pk])
         mixed_qs = model.objects.filter(pk__in=[granted.pk, other.pk])
-        self.assertTrue(catalog.has_perm(self.alice, code, granted_qs))
-        self.assertFalse(catalog.has_perm(self.alice, code, mixed_qs))
-        self.assertTrue(catalog.has_perm(self.carol, code, granted_qs))
-        self.assertFalse(catalog.has_perm(self.carol, code, mixed_qs))
-        self.assertIn(code, catalog.get_all_permissions(self.alice, granted))
-        self.assertNotIn(code, catalog.get_group_permissions(self.alice, granted))
-        self.assertIn(code, catalog.get_all_permissions(self.carol, granted))
-        self.assertIn(code, catalog.get_group_permissions(self.carol, granted))
-        self.assertIn(code, catalog.get_all_permissions(self.alice, granted_qs))
-        self.assertEqual(catalog.get_group_permissions(self.alice, granted_qs), set())
-        self.assertIn(code, catalog.get_group_permissions(self.carol, granted_qs))
-        self.assertEqual(catalog.get_all_permissions(self.bob, granted), set())
-        self.assertIn(
-            self.alice.pk, _user_pks(catalog.permitted_users(granted, code)),
-        )
-        self.assertIn(
-            self.carol.pk, _user_pks(catalog.permitted_users(granted, code)),
-        )
-        self.assertNotIn(
-            self.bob.pk, _user_pks(catalog.permitted_users(granted, code)),
-        )
-        self.assertNotIn(
-            self.alice.pk, _user_pks(catalog.permitted_users(other, code)),
-        )
-        prefixes = catalog.filter_by_permitted_content(
+        self.assertTrue(self.alice.has_perm(code, granted_qs))
+        self.assertFalse(self.alice.has_perm(code, mixed_qs))
+        self.assertTrue(self.carol.has_perm(code, granted_qs))
+        self.assertFalse(self.carol.has_perm(code, mixed_qs))
+        self.assertIn(code, self.alice.get_all_permissions(granted))
+        self.assertNotIn(code, self.alice.get_group_permissions(granted))
+        self.assertIn(code, self.carol.get_all_permissions(granted))
+        self.assertIn(code, self.carol.get_group_permissions(granted))
+        self.assertIn(code, self.alice.get_all_permissions(granted_qs))
+        self.assertEqual(self.alice.get_group_permissions(granted_qs), set())
+        self.assertIn(code, self.carol.get_group_permissions(granted_qs))
+        self.assertEqual(self.bob.get_all_permissions(granted), set())
+        holders = PermittedUsersMixin.get_permitted_users
+        self.assertIn(self.alice.pk, _user_pks(holders(granted, code)))
+        self.assertIn(self.carol.pk, _user_pks(holders(granted, code)))
+        self.assertNotIn(self.bob.pk, _user_pks(holders(granted, code)))
+        self.assertNotIn(self.alice.pk, _user_pks(holders(other, code)))
+        prefixes = filter_by_permitted_content(
             self.Receipt.objects.all(), self.alice, perm, content=model,
         )
         prefix_pks = set(prefixes.values_list('pk', flat=True))
@@ -381,7 +289,6 @@ class DependentContentAuthorizationTest(_UsersMixin, TestCase):
         self.assertNotIn(prefix_denied.pk, prefix_pks)
 
     def test_one_sql_independent_of_candidate_count(self):
-        catalog = self.catalog
         image_qs = self.Image.objects.filter(
             pk__in=[self.img_a1.pk, self.img_a2.pk] + list(
                 self.Image.objects.exclude(
@@ -395,49 +302,51 @@ class DependentContentAuthorizationTest(_UsersMixin, TestCase):
             ],
         )
         with self.assertNumQueries(1):
-            self.assertTrue(catalog.has_perm(self.alice, self.image_code, self.img_a1))
+            self.assertTrue(self.alice.has_perm(self.image_code, self.img_a1))
         with self.assertNumQueries(1):
-            self.assertTrue(catalog.has_perm(self.alice, self.image_code, image_qs))
+            self.assertTrue(self.alice.has_perm(self.image_code, image_qs))
         with self.assertNumQueries(1):
             self.assertIn(
-                self.image_code, catalog.get_all_permissions(self.alice, image_qs),
+                self.image_code, self.alice.get_all_permissions(image_qs),
             )
         with self.assertNumQueries(1):
             self.assertIn(
                 self.image_code,
-                catalog.get_group_permissions(self.carol, image_qs),
+                self.carol.get_group_permissions(image_qs),
             )
         with self.assertNumQueries(1):
-            self.assertTrue(catalog.has_perm(self.alice, self.meta_code, self.meta_a1))
+            self.assertTrue(self.alice.has_perm(self.meta_code, self.meta_a1))
         with self.assertNumQueries(1):
-            self.assertTrue(catalog.has_perm(self.alice, self.meta_code, meta_qs))
+            self.assertTrue(self.alice.has_perm(self.meta_code, meta_qs))
         with self.assertNumQueries(1):
             self.assertIn(
-                self.meta_code, catalog.get_all_permissions(self.alice, meta_qs),
+                self.meta_code, self.alice.get_all_permissions(meta_qs),
             )
         with self.assertNumQueries(1):
             self.assertIn(
-                self.meta_code, catalog.get_group_permissions(self.carol, meta_qs),
+                self.meta_code, self.carol.get_group_permissions(meta_qs),
             )
 
     def test_undeclared_orphan_fails_closed(self):
-        catalog = self.catalog
-        self.assertFalse(catalog.has_perm(self.alice, self.orphan_code, self.orphan))
-        self.assertFalse(catalog.has_perm(self.carol, self.orphan_code, self.orphan))
+        self.assertFalse(self.alice.has_perm(self.orphan_code, self.orphan))
+        self.assertFalse(self.carol.has_perm(self.orphan_code, self.orphan))
         qs = self.Orphan.objects.filter(pk=self.orphan.pk)
-        self.assertFalse(catalog.has_perm(self.alice, self.orphan_code, qs))
-        self.assertEqual(catalog.get_all_permissions(self.alice, self.orphan), set())
+        self.assertFalse(self.alice.has_perm(self.orphan_code, qs))
+        self.assertEqual(self.alice.get_all_permissions(self.orphan), set())
         self.assertEqual(
-            catalog.get_group_permissions(self.alice, self.orphan), set(),
+            self.alice.get_group_permissions(self.orphan), set(),
         )
         self.assertFalse(
-            catalog.filter_by_permitted_content(
+            filter_by_permitted_content(
                 self.Receipt.objects.all(), self.alice, self.orphan_perm,
                 content=self.Orphan,
             ).exists()
         )
         self.assertEqual(
-            list(catalog.permitted_users(self.orphan, self.orphan_code)), [],
+            list(PermittedUsersMixin.get_permitted_users(
+                self.orphan, self.orphan_code,
+            )),
+            [],
         )
 
     def test_inactive_anonymous_obj_none(self):

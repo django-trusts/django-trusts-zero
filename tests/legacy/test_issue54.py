@@ -16,16 +16,13 @@ from django.db.models import Q
 from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase
 
-from tests.apps import live_config
-from trusts.zero.apps import ZeroConfig
+from trusts.zero.apps import ZeroConfig, zero_config
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category, Organization
 from trusts.apps import TrustsConfigMixin
 from trusts.decorators import filter_by_permitted_content
 from trusts.errors import TrustsConfigurationError
-from trusts.plan.relations import PlanQueryCompiler
 from trusts.models import AuthorizedManagerMixin, AuthorizedQuerySet
-from trusts.zero.backends import TrustModelBackend
 from trusts.zero.models import Trust, TrustUserPermission
 from trusts.zero.query import ContentQuerySet
 
@@ -76,22 +73,19 @@ class _UsersMixin(object):
 class KernelConfigTest(TestCase):
     def test_live_owner_is_zero(self):
         with self.assertNumQueries(0):
-            config = live_config()
+            config = zero_config()
         zero = apps.get_app_config('trusts')
         self.assertIs(type(config), ZeroConfig)
         self.assertIsInstance(config, TrustsConfigMixin)
         self.assertEqual(config.name, 'trusts.zero')
         self.assertEqual(config.label, 'trusts')
-        self.assertIs(config, live_config())
+        self.assertIs(config, zero_config())
         self.assertIs(config, zero)
-        self.assertIsInstance(
-            TrustModelBackend().get_catalog().compiler, PlanQueryCompiler,
-        )
 
 
 class LegacyMatrixBPairTest(TestCase):
     def test_pair_zero_owns_trusts_label_and_migration_keys(self):
-        config = live_config()
+        config = zero_config()
         self.assertEqual(config.name, 'trusts.zero')
         self.assertEqual(config.label, 'trusts')
         self.assertIs(config, apps.get_app_config('trusts'))
