@@ -35,7 +35,7 @@ from trusts.zero.models import (
     TrustUserPermission,
 )
 from tests.apps import named_filter_ids
-from trusts.errors import PermissionConditionError, TrustsConfigurationError
+from trusts.errors import PermissionConditionError
 from tests.legacy.helpers import (
     ContentModelMixin,
     create_test_users,
@@ -148,8 +148,10 @@ class PermittedQuerySetTest(Issue8FixtureMixin, TestCase):
             'trusts_zero_tests__Category__own', named_filter_ids(Category),
         )
         self.assertFalse(self.user.has_perm('%s:own' % unconditioned, self.content))
-        with self.assertRaises(TrustsConfigurationError):
-            list(Category.objects.permitted('read_category:own', self.user))
+        self.assertEqual(
+            list(Category.objects.permitted('read_category:own', self.user)),
+            [],
+        )
         self.assertEqual(
             set(Category.objects.permitted(unconditioned, self.user).values_list('pk', flat=True)),
             {self.content.pk},

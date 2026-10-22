@@ -570,7 +570,7 @@ Migration-bot checklist:
 
 ## Public companion API (Core #338)
 
-django-trusts `ed0dfa9ab9f6fc1177f226d09e5709f78a949b56` is the
+django-trusts `52fa0aa34c6ffb891938465133d30d8b1e04f8da` is the
 companion this Zero tree pairs with. Registration and queries use that
 public surface:
 
@@ -591,7 +591,7 @@ public surface:
   `PermissionConditionNotQueryable` is not on this core.
 - Content rows: `PermittedQuerySetMixin.permitted(qs, permission, user,
   conditions=(code,))`, or Zero's `ContentQuerySet.permitted(perm, user)`.
-  An unknown condition name raises `TrustsConfigurationError` from
+  An unknown condition name returns an empty queryset from
   `permitted`. `has_perm` with an unknown `:code` is false.
 - What an app recorded: `policy_document(backend='dotted.Backend.path')`.
   Reverse users: `PermittedUsersMixin.get_permitted_users(obj, perm)`.

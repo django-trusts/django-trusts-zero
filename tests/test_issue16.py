@@ -13,7 +13,6 @@ from tests.apps import (
     named_filter_ids,
 )
 from tests.models import Category, Ticket
-from trusts.errors import TrustsConfigurationError
 from trusts.zero.models import Content, Junction, Trust, TrustUserPermission
 from trusts.zero.registration import trust_settlor_owns
 
@@ -96,9 +95,10 @@ class ExprParityTests(TestCase):
 
     def test_unknown_condition_fails_closed(self):
         user = User.objects.get(pk=self.user.pk)
-        with self.assertRaises(TrustsConfigurationError) as missing:
-            list(Ticket.objects.permitted('read:nope16', user))
-        self.assertIn('nope16', str(missing.exception))
+        self.assertEqual(
+            list(Ticket.objects.permitted('read:nope16', user)),
+            [],
+        )
         with self.assertNumQueries(0):
             self.assertFalse(
                 user.has_perm('trusts_zero_tests.read_ticket:nope16', self.ticket),
