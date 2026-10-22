@@ -27,7 +27,7 @@ from tests.apps import (
     trust_rows,
 )
 from tests.models import Category, Ticket
-from trusts.errors import PermissionConditionError, TrustsConfigurationError
+from trusts.errors import PermissionConditionError
 
 
 class RegistrationAndCodecTests(TestCase):
@@ -169,8 +169,10 @@ class RegistrationAndCodecTests(TestCase):
         permitted = list(Ticket.objects.permitted('read:own', self.user))
         self.assertIn(ticket, permitted)
         self.assertNotIn(other_ticket, permitted)
-        with self.assertRaises(TrustsConfigurationError):
-            list(Ticket.objects.permitted('read:nope', self.user))
+        self.assertEqual(
+            list(Ticket.objects.permitted('read:nope', self.user)),
+            [],
+        )
 
     def test_named_filter_builder_is_not_reinvoked(self):
         before = len(category_spy.calls)
