@@ -30,7 +30,9 @@ from trusts.zero.options import (
     ZERO_META_OPTION_NAMES,
     register_zero_meta_option_names,
 )
+from trusts.apps import Recorder
 from trusts.zero.registration import (
+    register_zero_direct,
     register_zero_group,
     register_zero_relations,
 )
@@ -163,6 +165,17 @@ class BackendAndRegistrationTests(SimpleTestCase):
         with self.assertRaises(TypeError):
             register_zero_group(object(), (Trust,))
         self.assertEqual(len(trust_rows(Trust, TrustUserPermission, ZERO_BACKEND)), 1)
+
+    def test_content_via_must_return_a_path_string(self):
+        before = trust_rows(Trust, backend=ZERO_BACKEND)
+        with self.assertRaises(TypeError) as caught:
+            register_zero_direct(
+                Recorder(),
+                (Trust,),
+                content_via=lambda prefix, model: object(),
+            )
+        self.assertIn('content_via', str(caught.exception))
+        self.assertEqual(trust_rows(Trust, backend=ZERO_BACKEND), before)
 
 
 class GroupCeilingPathTests(TestCase):
