@@ -35,7 +35,7 @@ def _perm(model, codename):
 
 class TrustRelationRegistrationTest(SimpleTestCase):
     def test_live_trust_policy_has_one_tup_row(self):
-        with self.assertRaises(TypeError):
+        with self.assertRaises(AttributeError):
             register_zero_relations(object())
         self.assertEqual(len(trust_rows(Trust, TrustUserPermission, ZERO_BACKEND)), 1)
         self.assertEqual(

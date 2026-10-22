@@ -1,8 +1,9 @@
 """Registration and public policy helpers for the Zero suite.
 
-``TestsConfig.ready`` calls ``register_test_terminals`` on its own
-recorder. Helpers below read ``policy_document`` or forget dynamic
-models. They do not build catalogs.
+``tests.models`` calls ``register_test_terminals`` on
+``TestsBackend().get_registry()``. Helpers below read
+``policy_document`` or forget dynamic models. They do not build
+catalogs.
 """
 
 from django.apps import apps as django_apps
@@ -38,8 +39,8 @@ class _CallLog(object):
         return self.impl(u, p, o)
 
 
-# Recorded from TestsConfig.ready(). The catalog build invokes it once.
-# Later has_perm / permitted must not.
+# Invoked once when the catalog is built. Later has_perm / permitted
+# must not.
 category_spy = _CallLog(lambda u, p, o: o.name == 'keep')
 
 
@@ -76,34 +77,34 @@ def dependent_content_path(prefix, content_model, *suffixes):
     return '__'.join(part for part in parts if part)
 
 
-def register_test_terminals(recorder):
-    """Category, Ticket, Group, and dependent image terminals on this recorder."""
-    register_zero_content(recorder, Category)
-    register_zero_content(recorder, Ticket)
+def register_test_terminals(registry):
+    """Category, Ticket, Group, and dependent image terminals on this registry."""
+    register_zero_content(registry, Category)
+    register_zero_content(registry, Ticket)
     register_zero_content(
-        recorder,
+        registry,
         Group,
         content_via=lambda prefix, model: junction_group_content_path(
             prefix, TestGroupJunction,
         ),
     )
     register_zero_content(
-        recorder,
+        registry,
         ReceiptImage,
         content_via=lambda prefix, model: dependent_content_path(
             prefix, Receipt, 'image',
         ),
     )
     register_zero_content(
-        recorder,
+        registry,
         ReceiptImageMeta,
         content_via=lambda prefix, model: dependent_content_path(
             prefix, Receipt, 'image', 'image',
         ),
     )
-    recorder.add_named_filter(Category, 'spy', category_spy)
-    recorder.add_named_filter(Ticket, 'own', ticket_own)
-    recorder.add_named_filter(Ticket, 'meta_own', ticket_meta_own)
+    registry.add_named_filter(Category, 'spy', category_spy)
+    registry.add_named_filter(Ticket, 'own', ticket_own)
+    registry.add_named_filter(Ticket, 'meta_own', ticket_meta_own)
 
 
 def policy_rows(backend=None):

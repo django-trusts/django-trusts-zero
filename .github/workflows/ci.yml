@@ -10,7 +10,7 @@ permissions:
 
 env:
   # Exact django-trusts / kernel candidate.
-  COMPANION_KERNEL_SHA: 57da11607859e43987258a312a388f247a906571
+  COMPANION_KERNEL_SHA: ed0dfa9ab9f6fc1177f226d09e5709f78a949b56
 
 jobs:
   tests:

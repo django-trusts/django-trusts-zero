@@ -213,3 +213,12 @@ class Junction(ReadonlyFieldsMixin, models.Model):
     @classmethod
     def get_fieldlookup(cls):
         return '%s__content' % cls._meta.label_lower.replace('.', '_')
+
+
+from trusts.zero.backends import TrustModelBackend
+import trusts.zero.registration as zero_registration
+
+_registry = TrustModelBackend().get_registry()
+zero_registration.register_zero_relations(_registry)
+_registry.add_named_filter(Trust, 'own', zero_registration.trust_settlor_owns)
+del _registry

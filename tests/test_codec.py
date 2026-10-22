@@ -22,6 +22,7 @@ from tests.apps import (
     TEST_BACKEND,
     ZERO_BACKEND,
     category_spy,
+    content_row,
     named_filter_ids,
     trust_rows,
 )
@@ -72,9 +73,13 @@ class RegistrationAndCodecTests(TestCase):
 
     def test_live_policy_has_trust_category_ticket_and_own(self):
         self.assertTrue(trust_rows(Trust, TrustUserPermission, backend=ZERO_BACKEND))
+        self.assertIsNone(content_row(Trust, TEST_BACKEND))
         self.assertTrue(trust_rows(Category, TrustUserPermission, backend=TEST_BACKEND))
+        self.assertIsNone(content_row(Category, ZERO_BACKEND))
         self.assertTrue(trust_rows(Ticket, TrustUserPermission, backend=TEST_BACKEND))
+        self.assertIsNone(content_row(Ticket, ZERO_BACKEND))
         self.assertIn('trusts__Trust__own', named_filter_ids(Trust, ZERO_BACKEND))
+        self.assertNotIn('trusts__Trust__own', named_filter_ids(Trust, TEST_BACKEND))
 
     def test_permitted_and_has_perm_trustee_isolation(self):
         user = User.objects.get(pk=self.user.pk)

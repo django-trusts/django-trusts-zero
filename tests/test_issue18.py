@@ -30,7 +30,6 @@ from trusts.zero.options import (
     ZERO_META_OPTION_NAMES,
     register_zero_meta_option_names,
 )
-from trusts.apps import Recorder
 from trusts.zero.registration import (
     register_zero_direct,
     register_zero_group,
@@ -159,18 +158,22 @@ class BackendAndRegistrationTests(SimpleTestCase):
         self.assertNotEqual(role[0].get('condition'), grouped[0].get('condition'))
         self.assertEqual(len(trust_rows(Trust, TrustUserPermission, ZERO_BACKEND)), 1)
 
-    def test_relation_helpers_require_a_recorder(self):
-        with self.assertRaises(TypeError):
+    def test_relation_helpers_require_a_registry(self):
+        with self.assertRaises(AttributeError):
             register_zero_relations(object())
-        with self.assertRaises(TypeError):
+        with self.assertRaises(AttributeError):
             register_zero_group(object(), (Trust,))
         self.assertEqual(len(trust_rows(Trust, TrustUserPermission, ZERO_BACKEND)), 1)
 
     def test_content_via_must_return_a_path_string(self):
+        class _OpenRegistry(object):
+            def register(self, **kwargs):
+                raise AssertionError(kwargs)
+
         before = trust_rows(Trust, backend=ZERO_BACKEND)
         with self.assertRaises(TypeError) as caught:
             register_zero_direct(
-                Recorder(),
+                _OpenRegistry(),
                 (Trust,),
                 content_via=lambda prefix, model: object(),
             )

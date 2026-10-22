@@ -1,7 +1,7 @@
 """Zero's Django app config.
 
-The catalog is built from ``self.recorder`` by ``TrustsConfigMixin.ready``.
-Relations and ``Trust:own`` are recorded here, before that build.
+Relations and ``Trust:own`` are recorded at the end of ``models.py``
+on ``TrustModelBackend().get_registry()``.
 """
 
 from django.apps import apps as django_apps
@@ -11,7 +11,6 @@ from django.core.exceptions import ImproperlyConfigured
 from trusts.apps import TrustsConfigMixin
 from trusts.errors import TrustsConfigurationError
 from trusts.zero.options import register_zero_meta_option_names
-from trusts.zero.registration import register_zero_relations, trust_settlor_owns
 
 
 CANONICAL_BACKEND_PATH = 'trusts.zero.backends.TrustModelBackend'
@@ -28,9 +27,9 @@ class ZeroConfig(TrustsConfigMixin):
     Install ``trusts.zero.apps.ZeroConfig`` after apps that register in
     ``ready()``. Do not list ``'trusts'`` or the deprecated backend path.
 
-    ``query_compiler`` stays unset so ``ready`` stores Core's default
-    plan compiler on this app's catalog. The backend class does not
-    carry a compiler; it reads this catalog.
+    ``query_compiler`` stays unset so this app uses Core's default
+    plan compiler. The backend class does not carry a compiler; it
+    reads the catalog built from this app's registry.
     """
 
     name = 'trusts.zero'
@@ -49,9 +48,6 @@ class ZeroConfig(TrustsConfigMixin):
             register_auto_modeladmins()
 
         self._require_canonical_backend()
-        Trust = self.get_model('Trust')
-        register_zero_relations(self.recorder)
-        self.recorder.add_named_filter(Trust, 'own', trust_settlor_owns)
         super().ready()
 
     def _require_canonical_backend(self):
