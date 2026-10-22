@@ -23,7 +23,7 @@ from tests.models import Category
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = '57da11607859e43987258a312a388f247a906571'
+CORE_PIN = 'ed0dfa9ab9f6fc1177f226d09e5709f78a949b56'
 STALE_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
 STALE_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
@@ -35,8 +35,11 @@ MIGRATES = ROOT / 'migrates.md'
 class RegisterMigrationSurfaceTests(SimpleTestCase):
     def test_registration_uses_public_register_and_contains_grammar(self):
         source = REGISTRATION.read_text()
-        self.assertIn('recorder.register(', source)
-        self.assertIn("get_model('trusts', 'TrustUserPermission')", source)
+        self.assertIn('registry.register(', source)
+        self.assertIn(
+            "get_model(\n        'trusts', 'TrustUserPermission', require_ready=False,",
+            source,
+        )
         self.assertIn('trust=trust_user_permission', source)
         self.assertIn('trust=trust_group,', source)
         self.assertIn('trust=trust_group_permission', source)

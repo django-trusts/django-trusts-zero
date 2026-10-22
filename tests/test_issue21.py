@@ -47,7 +47,7 @@ class ZeroDocumentationSurfaceTest(SimpleTestCase):
             "granted",
             "filter_authorized_scopes",
             "register_zero_content",
-            "register_zero_content(backend, Receipt)",
+            "register_zero_content(registry, Receipt)",
             "trusts.zero.urls",
             "from trusts.zero.decorators import P, R, K, G, O, permission_required",
             "2015--2026",
@@ -179,28 +179,20 @@ class ZeroMigratesRouteTest(SimpleTestCase):
         ]
         self.assertEqual(vendored, [])
 
-    def test_ready_example_resolves_owner_on_the_public_api(self):
+    def test_condition_example_uses_get_registry(self):
         text = (ROOT / "migrates.md").read_text()
         heading = text.index("## Conditions (current rule)")
         fence_start = text.index("```python", heading)
         example = text[fence_start + len("```python") : text.index("```", fence_start + 9)]
-        ready = example.split("def ready(self):", 1)[1]
 
-        self.assertIn("from django.apps import AppConfig", example)
-        self.assertIn("from trusts.apps import implementation_for_path", example)
-        self.assertIn("from trusts.zero.apps import CANONICAL_BACKEND_PATH", example)
-        self.assertIn(
-            "owner = implementation_for_path(\n"
-            "            CANONICAL_BACKEND_PATH, apps_registry=self.apps,",
-            example,
-        )
-        self.assertIn("backend = owner.configured_backend(CANONICAL_BACKEND_PATH)", ready)
-        self.assertIn("backend.add_named_filter", ready)
-        self.assertNotIn("handle.register_permission_condition", ready)
-        self.assertNotIn("backend.register_permission_condition", ready)
-        self.assertLess(
-            ready.index("owner = implementation_for_path"),
-            ready.index("owner.configured_backend"),
-        )
+        self.assertIn("ReceiptBackend().get_registry()", example)
+        self.assertIn("registry.add_named_filter", example)
+        self.assertIn("predicate=", example)
+        self.assertNotIn("implementation_for_path", example)
+        self.assertNotIn("configured_backend", example)
+        self.assertNotIn("self.recorder", example)
+        self.assertNotIn("TrustsRegistry", example)
+        self.assertNotIn("handle.register_permission_condition", example)
+        self.assertNotIn("backend.register_permission_condition", example)
         self.assertNotIn("set_condition_lookup", example)
         self.assertNotIn("conditions._ir", example)

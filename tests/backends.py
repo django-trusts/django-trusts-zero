@@ -1,6 +1,7 @@
 """Test-app authentication backend.
 
-The catalog belongs to ``TestsConfig``. Do not borrow Zero's recorder.
+The catalog belongs to ``TestsConfig``. Do not register on Zero's
+registry.
 """
 
 from django.contrib.auth.backends import ModelBackend
