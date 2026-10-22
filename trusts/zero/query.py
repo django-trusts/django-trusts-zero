@@ -81,7 +81,7 @@ class ContentQuerySet(AuthorizedQuerySet):
         A ``:condition`` suffix is passed as ``conditions=(code,)``.
         Filtering is the public permitted grant: relational rows AND
         the named filter, in SQL (paginate the returned QuerySet).
-        An unknown code raises ``TrustsConfigurationError``.
+        An unknown code returns an empty queryset.
 
         The list algorithm is ``django_permission_filter``.
         """
