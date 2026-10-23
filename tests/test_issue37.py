@@ -23,7 +23,7 @@ from tests.models import Category
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = '0e9440634cc2db971274e4f6f8a8dbe3bf0c0025'
+CORE_PIN = 'b89c2eb0c163e67a6c5287cc256d44e6ffca54f9'
 STALE_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
 STALE_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
