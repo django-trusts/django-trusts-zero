@@ -9,7 +9,7 @@ points at `README.md`, not this file.
 
 This tree is `django-trusts-zero==0.12.0.dev0` pairing against the
 django-trusts `1.0.0rc1` candidate
-`780eedfe05083063a1129e278d3de5e292e493bd`
+`07dfb76a88cc6e80fa0c554218e543bd33fd4d1e`
 (Core `entries-exact-sql`: catalog questions build the runtime queries,
 and the policy snapshot renders those queries).
 
@@ -50,7 +50,7 @@ See `docs/source/index.rst` and `migrates.md`.
 
 ## Verification
 
-Pair CI pins django-trusts `780eedfe05083063a1129e278d3de5e292e493bd`
+Pair CI pins django-trusts `07dfb76a88cc6e80fa0c554218e543bd33fd4d1e`
 only. It checks out that django-trusts candidate and does not install
 `django-trusts-example`. The Zero suite (including `tests/legacy/` historical copies),
 fresh-install, old-path fail-closed, wheel RECORD, and

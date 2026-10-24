@@ -12,7 +12,6 @@ from django.test import SimpleTestCase, TestCase
 
 from tests.apps import ZERO_BACKEND, content_row
 from trusts.backends import TrustModelBackendMixin, policy_document
-from trusts.errors import TrustsMixinRequired
 from trusts.zero.apps import (
     CANONICAL_BACKEND_PATH,
     DEPRECATED_CORE_BACKEND_PATH,
@@ -75,8 +74,16 @@ class CanonicalBackendIdentityTests(SimpleTestCase):
         self.assertEqual(document['backends'][0]['path'], 'trusts.zero.apps.ZeroConfig')
 
     def test_unconfigured_mixin_class_is_not_zero_identity(self):
-        with self.assertRaises(TrustsMixinRequired):
-            TrustModelBackendMixin()
+        instance = TrustModelBackendMixin()
+        self.assertIs(instance.__class__, TrustModelBackendMixin)
+        self.assertIsNot(instance.__class__, TrustModelBackend)
+        self.assertNotEqual(
+            '%s.%s' % (
+                instance.__class__.__module__,
+                instance.__class__.__qualname__,
+            ),
+            'trusts.zero.backends.TrustModelBackend',
+        )
 
 
 class OwnerPresentOnFinalCoreTests(SimpleTestCase):
