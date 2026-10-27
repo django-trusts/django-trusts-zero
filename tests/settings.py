@@ -19,12 +19,13 @@ INSTALLED_APPS = (
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'trusts.zero.apps.ZeroConfig',
-    'tests.apps.TestsConfig',
+    'tests.host.TestsConfig',
 )
 
 AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend',
     'trusts.zero.backends.TrustModelBackend',
+    'tests.backends.TestsBackend',
 )
 
 MIDDLEWARE = (

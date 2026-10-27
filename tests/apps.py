@@ -1,92 +1,53 @@
-from contextlib import contextmanager
+"""Registration and public policy helpers for the Zero suite.
 
-from django.apps import AppConfig
+``tests.models`` calls ``register_test_terminals`` on
+``TestsBackend().get_registry()``. Helpers below read
+``policy_document`` or forget dynamic models. They do not build
+catalogs.
+"""
 
-from trusts.apps import TrustsImplementationConfig
-from trusts.core import TrustsConfigurationError
-from trusts.zero.apps import CANONICAL_BACKEND_PATH
+from django.apps import apps as django_apps
+from django.contrib.auth.models import Group
 
-
-ZERO_BACKEND = CANONICAL_BACKEND_PATH
-
-
-class IsolatedOwnerConfig(TrustsImplementationConfig):
-    """Unbound pair-test owner. Not installed; constructed in isolation."""
-
-    name = 'tests'
-    label = 'trusts_isolated_owner'
-    default = False
-    trusts_backend_paths = (ZERO_BACKEND,)
-
-    def ready(self):
-        for path in self.owned_backend_paths():
-            self._ensure(path)
-
-
-def isolated_owner():
-    """Construct a standalone implementation owner for isolation tests."""
-    import tests as tests_module
-
-    return IsolatedOwnerConfig('tests', tests_module)
+from tests.models import (
+    Category,
+    Receipt,
+    ReceiptImage,
+    ReceiptImageMeta,
+    TestGroupJunction,
+    Ticket,
+    ticket_meta_own,
+    ticket_own,
+)
+from trusts.backends import policy_document
+from trusts.zero.registration import register_zero_content
 
 
-def live_config(apps_registry=None):
-    """The unique installed ``TrustsImplementationConfig`` (ZeroConfig)."""
-    from trusts.apps import implementation_configs
-
-    configs = implementation_configs(apps_registry)
-    if len(configs) == 1:
-        return configs[0]
-    raise TrustsConfigurationError(
-        'live_config() needs exactly one implementation owner; got %r'
-        % (configs,)
-    )
+TEST_BACKEND = 'tests.backends.TestsBackend'
+ZERO_BACKEND = 'trusts.zero.backends.TrustModelBackend'
 
 
-def live_backend(apps_registry=None):
-    """Configured Zero backend."""
-    return live_config(apps_registry).configured_backend(CANONICAL_BACKEND_PATH)
+class _CallLog(object):
+    """Registration-time builder that records its one symbolic call."""
+
+    def __init__(self, impl):
+        self.impl = impl
+        self.calls = []
+
+    def __call__(self, u, p, o):
+        self.calls.append((u, p, o))
+        return self.impl(u, p, o)
 
 
-live_handle = live_backend
-
-
-def live_registry(apps_registry=None):
-    """Configured Zero backend registry (Core-internal test fixture)."""
-    return live_backend(apps_registry).registry
-
-
-def publish_permission_condition(model, cond_code, builder_or_expr, registry=None):
-    """Register on an unfrozen registry, then publish the IR onto live.
-
-    After ``apps.ready``, the live backend registry is frozen and
-    ``add_named_filter`` raises before a builder runs.
-    Isolated ``TrustsRegistry()`` never auto-freezes. Tests that need
-    ad-hoc conditions on the live lookup copy the resulting IR record.
-    This helper talks to Core's store directly; it is not an
-    application-facing donation path.
-    """
-    from trusts.core import TrustsRegistry
-
-    isolated = TrustsRegistry()
-    record = isolated.register_permission_condition(
-        model, cond_code, builder_or_expr,
-    )
-    target = live_registry() if registry is None else registry
-    target.conditions._records[(model._meta.label, cond_code)] = record
-    return record
-
-
-def publish_donated_conditions(source, target=None):
-    """Copy condition IR records from an unfrozen source onto live."""
-    dest = live_registry() if target is None else target
-    store = getattr(source, 'conditions', source)
-    for model, code, record in store.iter_permission_conditions():
-        dest.conditions._records[(model._meta.label, code)] = record
+# Invoked once when the catalog is built. Later has_perm / permitted
+# must not.
+category_spy = _CallLog(lambda u, p, o: o.name == 'keep')
 
 
 def junction_content_field(junction_model):
     """Return the Junction→content field from the concrete Junction contract."""
+    from trusts.errors import TrustsConfigurationError
+
     content_model = junction_model.get_content_model()._meta.concrete_model
     matches = [
         field for field in junction_model._meta.fields
@@ -109,105 +70,79 @@ def junction_group_content_path(prefix, junction_model):
     return '__'.join(part for part in parts if part)
 
 
-def isolated_backend(registry=None, path='tests.isolated'):
-    """Wrap an unfrozen registry in a ``BackendHandle`` for isolated tests."""
-    from trusts.core import BackendHandle, PlanQueryCompiler, TrustsRegistry
+def dependent_content_path(prefix, content_model, *suffixes):
+    """Public ``__`` path: Trust reverse onto ``content_model``, then suffixes."""
+    rev = content_model._meta.get_field('trust').remote_field.get_accessor_name()
+    parts = (prefix, 'trust', rev) + suffixes
+    return '__'.join(part for part in parts if part)
 
-    if registry is None:
-        registry = TrustsRegistry()
-    return BackendHandle(
-        path=path,
-        registry=registry,
-        compiler=PlanQueryCompiler(),
+
+def register_test_terminals(registry):
+    """Category, Ticket, Group, and dependent image terminals on this registry."""
+    register_zero_content(registry, Category)
+    register_zero_content(registry, Ticket)
+    register_zero_content(
+        registry,
+        Group,
+        content_via=lambda prefix, model: junction_group_content_path(
+            prefix, TestGroupJunction,
+        ),
     )
+    register_zero_content(
+        registry,
+        ReceiptImage,
+        content_via=lambda prefix, model: dependent_content_path(
+            prefix, Receipt, 'image',
+        ),
+    )
+    register_zero_content(
+        registry,
+        ReceiptImageMeta,
+        content_via=lambda prefix, model: dependent_content_path(
+            prefix, Receipt, 'image', 'image',
+        ),
+    )
+    registry.add_named_filter(Category, 'spy', category_spy)
+    registry.add_named_filter(Ticket, 'own', ticket_own)
+    registry.add_named_filter(Ticket, 'meta_own', ticket_meta_own)
 
 
-isolated_handle = isolated_backend
+def policy_rows(backend=None):
+    """Content rows from ``policy_document``, one backend or the project."""
+    document = policy_document(backend=backend)
+    rows = []
+    for item in document['backends']:
+        for row in item['contents']:
+            rows.append(row)
+    return rows
 
 
-class TestsConfig(AppConfig):
-    name = 'tests'
-    label = 'trusts_zero_tests'
-    default_auto_field = 'django.db.models.AutoField'
-
-    def ready(self):
-        if getattr(self, 'apps', None) is None:
-            return
-        from trusts.apps import implementation_for_path
-
-        try:
-            owner = implementation_for_path(
-                CANONICAL_BACKEND_PATH, apps_registry=self.apps,
-            )
-        except (TrustsConfigurationError, ImportError, LookupError):
-            return
-
-        try:
-            from django.contrib.auth.models import Group
-            from tests.models import Category, TestGroupJunction, Ticket
-            from trusts.zero.registration import register_zero_content
-        except ImportError:
-            return
-
-        backend = owner.configured_backend(CANONICAL_BACKEND_PATH)
-        registry = backend.registry
-
-        donated_category = getattr(self, '_trusts_tup_category_registry_id', None)
-        if donated_category is not registry:
-            register_zero_content(backend, Category)
-            self._trusts_tup_category_registry_id = registry
-
-        donated_ticket = getattr(self, '_trusts_tup_ticket_registry_id', None)
-        if donated_ticket is not registry:
-            register_zero_content(backend, Ticket)
-            self._trusts_tup_ticket_registry_id = registry
-
-        donated_group = getattr(self, '_trusts_tup_group_registry_id', None)
-        if donated_group is not registry:
-            register_zero_content(
-                backend,
-                Group,
-                content_via=lambda prefix, model: junction_group_content_path(
-                    prefix, TestGroupJunction,
-                ),
-            )
-            self._trusts_tup_group_registry_id = registry
+def content_row(model, backend=None):
+    """The policy row for ``model``, or ``None``."""
+    label = model if isinstance(model, str) else model._meta.label
+    for row in policy_rows(backend):
+        if row['model'] == label:
+            return row
+    return None
 
 
-@contextmanager
-def override_apps_ready(ready, apps_registry=None):
-    from django.apps import apps as django_apps
-
-    target = django_apps if apps_registry is None else apps_registry
-    was = target.ready
-    target.ready = ready
-    try:
-        yield
-    finally:
-        target.ready = was
+def trust_rows(model, root=None, backend=None):
+    """Trust rows on ``model``. ``root`` is a model or a label."""
+    row = content_row(model, backend=backend) or {}
+    trusts = tuple(row.get('trusts', ()))
+    if root is None:
+        return trusts
+    label = root if isinstance(root, str) else root._meta.label
+    return tuple(item for item in trusts if item['root'] == label)
 
 
-def isolate_live_registry(config, registry, path=None):
-    if path is None:
-        paths = config._configured_trusts_paths()
-        path = paths[0]
-    config.registries[path] = registry
-    return registry
-
-
-def install_writable_registry(config, path, contribute=None):
-    from trusts.core import TrustsRegistry
-
-    registry = TrustsRegistry()
-    if contribute is not None:
-        contribute(registry)
-    config.registries[path] = registry
-    return registry
+def named_filter_ids(model, backend=None):
+    """Named-filter ids recorded for ``model``."""
+    row = content_row(model, backend=backend) or {}
+    return tuple(item['id'] for item in row.get('named_filters', ()))
 
 
 def forget_models(*model_classes):
-    from django.apps import apps as django_apps
-
     all_models = django_apps.all_models
     for model in model_classes:
         app_models = all_models.get(model._meta.app_label, {})
@@ -216,41 +151,3 @@ def forget_models(*model_classes):
             if existing is model:
                 app_models.pop(name, None)
     django_apps.clear_cache()
-
-
-def apply_zero_trust_donation(config):
-    from django.utils.module_loading import import_string
-
-    from trusts.core import BackendHandle, compiler_for_class
-    from trusts.zero.backends import TrustModelBackend
-    from trusts.zero.registration import register_zero_relations
-
-    paths = config._configured_trusts_paths()
-    for path in paths:
-        cls = import_string(path)
-        if not issubclass(cls, TrustModelBackend):
-            continue
-        registry = config._ensure(path)
-        backend = BackendHandle(
-            path=path,
-            registry=registry,
-            compiler=compiler_for_class(cls),
-        )
-        register_zero_relations(backend)
-        ids = dict(getattr(config, '_trusts_tup_trust_registry_ids', None) or {})
-        ids[path] = registry
-        config._trusts_tup_trust_registry_ids = ids
-        if len(paths) == 1:
-            config._trusts_tup_trust_registry_id = registry
-    return config
-
-
-def clone_writable_registry(registry):
-    from trusts.core import TrustsRegistry
-
-    cloned = TrustsRegistry()
-    cloned._by_root = {
-        root: list(rows) for root, rows in registry._by_root.items()
-    }
-    cloned._order = list(registry._order)
-    return cloned

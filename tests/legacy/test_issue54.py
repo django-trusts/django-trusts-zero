@@ -1,59 +1,29 @@
-"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue54.py`` for issue #37 Zero-first coverage.
+"""#54 public authorization seams on the live catalog.
 
-Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+``set_condition_lookup``, ``filter_authorized_scopes`` handles, and
+custom multi-registry scope graphs were removed with Core's catalog.
 """
 
-"""#54 C1: additive generic public seams.
-
-AuthorizedQuerySet / AuthorizedManager, filter_authorized_scopes,
-ConditionLookup / set_condition_lookup, and live_config(). Structural
-and behavioral tests only — no source-token or inspect.getsource
-assertions. Does not retarget the app label, move models, bind a Zero
-Content lookup, or delete the legacy compiler.
-"""
-
-import sys
-from contextlib import contextmanager
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from django.apps import apps
-from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser, Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
-from django.db import connection, models
+from django.db import connection
 from django.db.migrations.loader import MigrationLoader
 from django.db.models import Q
 from django.db.models.query import QuerySet
-from django.test import SimpleTestCase, TestCase, TransactionTestCase
-from django.test.utils import isolate_apps
+from django.test import SimpleTestCase, TestCase
 
-from tests.apps import live_config, live_registry
-from tests.models import Category, Organization, Ticket
-from trusts.apps import TrustsImplementationConfig
-from trusts.core import PlanQueryCompiler
-from trusts.core import (
-    ConditionLookup,
-    PlanQueryCompiler,
-    Ref,
-    TrustsConfigurationError,
-    TrustsRegistry,
-    filter_authorized_scopes,
-)
-from trusts.zero.models import (
-    Trust,
-    TrustUserPermission,
-)
+from trusts.zero.apps import ZeroConfig, zero_config
+from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
+from tests.models import Category, Organization
+from trusts.apps import TrustsConfigMixin
+from trusts.decorators import filter_by_permitted_content
+from trusts.models import AuthorizedManagerMixin, AuthorizedQuerySet
+from trusts.zero.models import Trust, TrustUserPermission
 from trusts.zero.query import ContentQuerySet
-from trusts.conditions import PermissionConditionNotQueryable
-from trusts.query import (
-    AuthorizedManager,
-    AuthorizedQuerySet,
-)
-from tests.legacy.helpers import (
-    enable_local_group_grant,
-    get_or_create_root_user,
-)
 
 
 def _pks(qs):
@@ -69,79 +39,6 @@ def _perm(model, codename):
 
 def _authorized(model, user, permission, extra_q=None):
     return AuthorizedQuerySet(model).authorized(user, permission, extra_q=extra_q)
-
-
-class _Handle(object):
-    def __init__(self, registry):
-        self.registry = registry
-        self.compiler = PlanQueryCompiler()
-
-
-@contextmanager
-def _tables(*model_classes):
-    with connection.schema_editor() as editor:
-        for model in model_classes:
-            editor.create_model(model)
-    try:
-        yield
-    finally:
-        with connection.schema_editor() as editor:
-            for model in reversed(model_classes):
-                editor.delete_model(model)
-
-
-def _scope_models():
-    """FolderGrant → Folder ← Row → Payload (J1). Isolated nouns only."""
-
-    class Folder(models.Model):
-        title = models.CharField(max_length=40)
-
-        class Meta:
-            app_label = 'trusts_zero_tests'
-
-    class Payload(models.Model):
-        title = models.CharField(max_length=40)
-
-        class Meta:
-            app_label = 'trusts_zero_tests'
-
-    class Row(models.Model):
-        folder = models.ForeignKey(
-            Folder, related_name='rows', on_delete=models.CASCADE,
-        )
-        content = models.ForeignKey(
-            Payload, related_name='rows', on_delete=models.CASCADE,
-        )
-
-        class Meta:
-            app_label = 'trusts_zero_tests'
-
-    class Other(models.Model):
-        title = models.CharField(max_length=40)
-
-        class Meta:
-            app_label = 'trusts_zero_tests'
-
-    User = get_user_model()
-
-    class FolderGrant(models.Model):
-        folder = models.ForeignKey(Folder, on_delete=models.CASCADE)
-        user = models.ForeignKey(User, on_delete=models.CASCADE)
-        permission = models.ForeignKey(Permission, on_delete=models.CASCADE)
-
-        class Meta:
-            app_label = 'trusts_zero_tests'
-
-    return Folder, Payload, Row, Other, FolderGrant
-
-
-def _register_payload(registry, grant):
-    j = Ref(grant)
-    return registry.register(
-        content=j.folder.rows.content,
-        user=j.user,
-        permission=j.permission,
-    )
 
 
 class _UsersMixin(object):
@@ -173,43 +70,21 @@ class _UsersMixin(object):
 
 
 class KernelConfigTest(TestCase):
-    def test_live_owner_is_zero_and_kernel_config_is_gone(self):
-        import trusts.apps as apps_mod
-        from trusts.zero.apps import ZeroConfig
-
+    def test_live_owner_is_zero(self):
         with self.assertNumQueries(0):
-            config = live_config()
+            config = zero_config()
         zero = apps.get_app_config('trusts')
         self.assertIs(type(config), ZeroConfig)
-        self.assertIsInstance(config, TrustsImplementationConfig)
+        self.assertIsInstance(config, TrustsConfigMixin)
         self.assertEqual(config.name, 'trusts.zero')
         self.assertEqual(config.label, 'trusts')
-        self.assertIs(config, live_config())
+        self.assertIs(config, zero_config())
         self.assertIs(config, zero)
-        self.assertFalse(hasattr(apps_mod, 'kernel_config'))
-        self.assertFalse(hasattr(apps_mod, 'AppConfig'))
-
-    def test_historical_compiler_and_grant_q_are_gone_from_zero(self):
-        import trusts.zero.backends as zero_backends
-        import trusts.zero.models as zero_models
-        import trusts.zero.query as zero_query
-
-        self.assertFalse(hasattr(zero_backends, 'HistoricalGroupQueryCompiler'))
-        self.assertFalse(hasattr(zero_models, 'trust_grant_q'))
-        self.assertFalse(hasattr(zero_query, 'trust_grant_q'))
-        self.assertIsInstance(
-            zero_backends.TrustModelBackend.query_compiler, PlanQueryCompiler,
-        )
-        self.assertFalse(getattr(
-            zero_backends.TrustModelBackend.query_compiler,
-            'historical_fallback',
-            False,
-        ))
 
 
 class LegacyMatrixBPairTest(TestCase):
     def test_pair_zero_owns_trusts_label_and_migration_keys(self):
-        config = live_config()
+        config = zero_config()
         self.assertEqual(config.name, 'trusts.zero')
         self.assertEqual(config.label, 'trusts')
         self.assertIs(config, apps.get_app_config('trusts'))
@@ -217,10 +92,7 @@ class LegacyMatrixBPairTest(TestCase):
         self.assertTrue(apps.is_installed('trusts.zero'))
         self.assertFalse(apps.is_installed('trusts'))
         loader = MigrationLoader(connection)
-        keys = {
-            key for key in loader.disk_migrations
-            if key[0] == 'trusts'
-        }
+        keys = {key for key in loader.disk_migrations if key[0] == 'trusts'}
         self.assertEqual(
             keys,
             {('trusts', '0001_initial'), ('trusts', '0002_trustgroup')},
@@ -234,154 +106,18 @@ class LegacyMatrixBPairTest(TestCase):
         )
 
 
-class ConditionLookupBindTest(TestCase):
-    def test_construct_self_binds_and_unbind_is_zero_sql(self):
-        with self.assertNumQueries(0):
-            registry = TrustsRegistry()
-            lookup = registry.condition_lookup
-        self.assertIsNotNone(lookup)
-        self.assertIs(lookup.conditions, registry.conditions)
-
-        class Bound(ConditionLookup):
-            def record_for(self, model, cond_code):
-                raise AssertionError('must not invoke at bind')
-
-            def compile_q(self, model, perm_string, user):
-                raise AssertionError('must not invoke at bind')
-
-        override = Bound()
-        with self.assertNumQueries(0):
-            registry.set_condition_lookup(override)
-        self.assertIs(registry.condition_lookup, override)
-        with self.assertNumQueries(0):
-            registry.set_condition_lookup(None)
-        self.assertIsNone(registry.condition_lookup)
-
-    def test_missing_methods_raise_and_do_not_partial_bind(self):
-        registry = TrustsRegistry()
-        default = registry.condition_lookup
-        self.assertIs(default.conditions, registry.conditions)
-
-        class Complete(object):
-            def record_for(self, model, cond_code):
-                return None
-
-            def compile_q(self, model, perm_string, user):
-                return Q(pk__isnull=True)
-
-        class OnlyRecord(object):
-            def record_for(self, model, cond_code):
-                return None
-
-        class OnlyCompile(object):
-            def compile_q(self, model, perm_string, user):
-                return Q()
-
-        with self.assertNumQueries(0):
-            with self.assertRaises(TrustsConfigurationError):
-                registry.set_condition_lookup(OnlyRecord())
-            with self.assertRaises(TrustsConfigurationError):
-                registry.set_condition_lookup(OnlyCompile())
-            with self.assertRaises(TrustsConfigurationError):
-                registry.set_condition_lookup(object())
-        self.assertIs(registry.condition_lookup, default)
-        self.assertIs(default.conditions, registry.conditions)
-
-        complete = Complete()
-        with self.assertNumQueries(0):
-            registry.set_condition_lookup(complete)
-        with self.assertNumQueries(0):
-            with self.assertRaises(TrustsConfigurationError):
-                registry.set_condition_lookup(OnlyRecord())
-            with self.assertRaises(TrustsConfigurationError):
-                registry.set_condition_lookup(OnlyCompile())
-            with self.assertRaises(TrustsConfigurationError):
-                registry.set_condition_lookup(object())
-        self.assertIs(registry.condition_lookup, complete)
-
-    def test_callable_policy_is_not_invoked_by_the_protocol(self):
-        called = []
-
-        def callback(user, perm, obj):
-            called.append((user, perm, obj))
-            return True
-
-        class Refusing(ConditionLookup):
-            def record_for(self, model, cond_code):
-                return type('Rec', (), {'expr': None, 'func': callback})()
-
-            def compile_q(self, model, perm_string, user):
-                raise PermissionConditionNotQueryable('callables stay object-only')
-
-        lookup = Refusing()
-        with self.assertNumQueries(0):
-            with self.assertRaises(PermissionConditionNotQueryable):
-                lookup.compile_q(Category, 'read_category:own', None)
-        self.assertEqual(called, [])
-
-
-class ConditionLookupBackendAdapterTest(_UsersMixin, TestCase):
-    def setUp(self):
-        super().setUp()
-        self._make_users('cond')
-        self.cat_a = Category.objects.create(trust=self.trust_a, name='c1-cond')
-        self.read = _perm(Category, 'read_category')
-        TrustUserPermission(
-            trust=self.trust_a, entity=self.alice, permission=self.read,
-        ).save()
-        self._reload()
-        self.handle = live_config().configured_backend()
-        self.saved_lookup = self.handle.registry.condition_lookup
-
-    def tearDown(self):
-        self.handle.registry.set_condition_lookup(self.saved_lookup)
-        super().tearDown()
-
-    def test_zero_binds_content_condition_lookup(self):
-        self.assertIsNotNone(self.handle.registry.condition_lookup)
-        own = self.handle.registry.get_permission_condition_record(Trust, 'own')
-        self.assertIsNotNone(own)
-        self.assertIsNotNone(own.expr)
-        with self.assertNumQueries(0):
-            self.assertFalse(
-                self.alice.has_perm(
-                    'trusts_zero_tests.read_category:missing', self.cat_a,
-                ),
-            )
-
-    def test_bound_lookup_is_used_and_unregistered_is_non_match(self):
-        record_for = Mock(return_value=None)
-        compile_q = Mock(side_effect=AssertionError('compile_q must not run'))
-
-        class Bound(object):
-            pass
-
-        lookup = Bound()
-        lookup.record_for = record_for
-        lookup.compile_q = compile_q
-        self.handle.registry.set_condition_lookup(lookup)
-        with self.assertNumQueries(0):
-            self.assertFalse(
-                self.alice.has_perm(
-                    'trusts_zero_tests.read_category:missing', self.cat_a,
-                ),
-            )
-        record_for.assert_called()
-        compile_q.assert_not_called()
-
-
 class AuthorizedQuerySetSurfaceTest(SimpleTestCase):
     def test_no_permitted_or_get_permission_on_generic_surface(self):
         self.assertFalse(hasattr(AuthorizedQuerySet, 'permitted'))
         self.assertFalse(hasattr(AuthorizedQuerySet, 'get_permission'))
-        self.assertFalse(hasattr(AuthorizedManager, 'permitted'))
-        self.assertFalse(hasattr(AuthorizedManager, 'get_permission'))
+        self.assertFalse(hasattr(AuthorizedManagerMixin, 'permitted'))
+        self.assertFalse(hasattr(AuthorizedManagerMixin, 'get_permission'))
         self.assertTrue(issubclass(ContentQuerySet, QuerySet))
         self.assertTrue(issubclass(ContentQuerySet, AuthorizedQuerySet))
         self.assertTrue(hasattr(ContentQuerySet, 'permitted'))
-        self.assertTrue(hasattr(AuthorizedManager, 'authorized'))
-        self.assertFalse(hasattr(AuthorizedManager, 'permitted'))
-        self.assertFalse(hasattr(AuthorizedManager, 'get_permission'))
+        self.assertTrue(hasattr(AuthorizedManagerMixin, 'authorized'))
+        self.assertFalse(hasattr(AuthorizedManagerMixin, 'permitted'))
+        self.assertFalse(hasattr(AuthorizedManagerMixin, 'get_permission'))
 
 
 class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
@@ -401,18 +137,20 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
         enable_local_group_grant(self.trust_a, self.carol_group, self.read)
         self._reload()
 
-    def test_wrong_permission_type_is_zero_sql_configuration_error(self):
+    def test_wrong_permission_type_is_zero_sql_empty(self):
         qs = AuthorizedQuerySet(Category)
         with patch.object(Category.objects, 'get_permission') as get_perm:
             with self.assertNumQueries(0):
-                with self.assertRaises(TrustsConfigurationError):
-                    qs.authorized(self.alice, 'read_category')
-                with self.assertRaises(TrustsConfigurationError):
-                    qs.authorized(self.alice, 'trusts_zero_tests.read_category')
-                with self.assertRaises(TrustsConfigurationError):
-                    qs.authorized(self.alice, 'read_category:own')
-                with self.assertRaises(TrustsConfigurationError):
-                    qs.authorized(self.alice, None)
+                for permission in (
+                    'read_category',
+                    'trusts_zero_tests.read_category',
+                    'read_category:own',
+                    None,
+                ):
+                    self.assertEqual(
+                        list(qs.authorized(self.alice, permission)),
+                        [],
+                    )
         get_perm.assert_not_called()
 
     def test_instance_filter_matches_trustee_and_group_and_stays_lazy(self):
@@ -465,7 +203,7 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
         with self.assertNumQueries(0):
             self.assertFalse(qs.exists())
 
-    def test_anonymous_is_denied_and_invalid_user_raises_without_codec(self):
+    def test_anonymous_is_denied_and_invalid_user_is_empty_without_codec(self):
         with self.assertNumQueries(0):
             for include_inactive in (False, True):
                 rows = AuthorizedQuerySet(Category).authorized(
@@ -474,230 +212,13 @@ class AuthorizedQuerySetLiveTest(_UsersMixin, TestCase):
                 )
                 self.assertEqual(list(rows), [])
             for invalid_user in (None, object()):
-                with self.assertRaises(TrustsConfigurationError):
-                    _authorized(Category, invalid_user, self.read)
-
-
-@isolate_apps('tests', 'django.contrib.auth', 'django.contrib.contenttypes')
-class FilterAuthorizedScopesIsolatedTest(TransactionTestCase):
-    def setUp(self):
-        (
-            self.Folder,
-            self.Payload,
-            self.Row,
-            self.Other,
-            self.FolderGrant,
-        ) = _scope_models()
-        self._table_cm = _tables(
-            self.Folder,
-            self.Payload,
-            self.Row,
-            self.Other,
-            self.FolderGrant,
-        )
-        self._table_cm.__enter__()
-        User = get_user_model()
-        self.alice = User.objects.create_user(username='c1-scope-alice', password='x')
-        self.bob = User.objects.create_user(username='c1-scope-bob', password='x')
-        ct, _created = ContentType.objects.get_or_create(
-            app_label='trusts_zero_tests', model='payload',
-        )
-        self.add, _created = Permission.objects.get_or_create(
-            content_type=ct,
-            codename='add_payload',
-            defaults={'name': 'add payload'},
-        )
-        self.change, _created = Permission.objects.get_or_create(
-            content_type=ct,
-            codename='change_payload',
-            defaults={'name': 'change payload'},
-        )
-        self.folder_a = self.Folder.objects.create(title='A')
-        self.folder_b = self.Folder.objects.create(title='B')
-        self.payload = self.Payload.objects.create(title='P')
-        self.row = self.Row.objects.create(folder=self.folder_a, content=self.payload)
-        self.FolderGrant.objects.create(
-            folder=self.folder_a, user=self.alice, permission=self.add,
-        )
-        registry = TrustsRegistry()
-        _register_payload(registry, self.FolderGrant)
-        self.handle = _Handle(registry)
-
-    def tearDown(self):
-        self._table_cm.__exit__(None, None, None)
-
-    def _filter(self, queryset, user=None, permission=None, content=None, handles=None):
-        if handles is None:
-            handles = (self.handle,)
-        return filter_authorized_scopes(
-            queryset,
-            self.alice if user is None else user,
-            self.add if permission is None else permission,
-            content=self.Payload if content is None else content,
-            handles=handles,
-        )
-
-    def test_prefix_folder_is_create_under_scope_without_naming_zero(self):
-        qs = self._filter(self.Folder.objects.all(), handles=(self.handle,))
-        self.assertIsInstance(qs, QuerySet)
-        self.assertIsNone(qs._result_cache)
-        with self.assertNumQueries(1):
-            pks = _pks(qs)
-        self.assertEqual(pks, {self.folder_a.pk})
-        self.assertNotIn(self.folder_b.pk, pks)
-
-    def test_prefix_row_correlates_and_terminal_is_none(self):
-        self.assertEqual(
-            _pks(self._filter(self.Row.objects.all(), handles=(self.handle,))),
-            {self.row.pk},
-        )
-        qs = self._filter(self.Payload.objects.all(), handles=(self.handle,))
-        with self.assertNumQueries(0):
-            self.assertFalse(qs.exists())
-
-    def test_unknown_terminal_empty_handles_and_off_path_are_none(self):
-        cases = (
-            self._filter(
-                self.Folder.objects.all(), content=self.Other, handles=(self.handle,),
-            ),
-            self._filter(self.Folder.objects.all(), handles=()),
-            self._filter(
-                self.Other.objects.all(), content=self.Payload, handles=(self.handle,),
-            ),
-        )
-        for qs in cases:
-            self.assertIsInstance(qs, QuerySet)
-            self.assertIsNone(qs._result_cache)
-            with self.assertNumQueries(0):
-                self.assertFalse(qs.exists())
-
-    def test_wrong_permission_type_is_zero_sql(self):
-        with self.assertNumQueries(0):
-            with self.assertRaises(TrustsConfigurationError):
-                filter_authorized_scopes(
-                    self.Folder.objects.all(),
-                    self.alice,
-                    'add_payload',
-                    content=self.Payload,
-                    handles=(self.handle,),
-                )
-            with self.assertRaises(TrustsConfigurationError):
-                filter_authorized_scopes(
-                    self.Folder.objects.all(),
-                    self.alice,
-                    None,
-                    content=self.Payload,
-                    handles=(self.handle,),
+                self.assertEqual(
+                    list(_authorized(Category, invalid_user, self.read)),
+                    [],
                 )
 
-    def test_wrong_user_and_wrong_permission_deny(self):
-        self.assertFalse(
-            self._filter(
-                self.Folder.objects.all(), user=self.bob, handles=(self.handle,),
-            ).exists()
-        )
-        self.assertFalse(
-            self._filter(
-                self.Folder.objects.all(),
-                permission=self.change,
-                handles=(self.handle,),
-            ).exists()
-        )
 
-
-@isolate_apps('tests', 'django.contrib.auth', 'django.contrib.contenttypes')
-class FilterAuthorizedScopesToFieldTest(TransactionTestCase):
-    """Grant → Scope(slug) ← Row → Payload. Prefix identity is not pk."""
-
-    def test_non_pk_to_field_prefix_returns_authorized_scope(self):
-        User = get_user_model()
-
-        class Scope(models.Model):
-            slug = models.SlugField(unique=True)
-            title = models.CharField(max_length=40)
-
-            class Meta:
-                app_label = 'trusts_zero_tests'
-
-        class Payload(models.Model):
-            title = models.CharField(max_length=40)
-
-            class Meta:
-                app_label = 'trusts_zero_tests'
-
-        class Row(models.Model):
-            scope = models.ForeignKey(
-                Scope, related_name='rows', on_delete=models.CASCADE,
-            )
-            content = models.ForeignKey(
-                Payload, related_name='rows', on_delete=models.CASCADE,
-            )
-
-            class Meta:
-                app_label = 'trusts_zero_tests'
-
-        class Grant(models.Model):
-            scope = models.ForeignKey(
-                Scope, to_field='slug', on_delete=models.CASCADE,
-            )
-            user = models.ForeignKey(User, on_delete=models.CASCADE)
-            permission = models.ForeignKey(Permission, on_delete=models.CASCADE)
-
-            class Meta:
-                app_label = 'trusts_zero_tests'
-
-        with _tables(Scope, Payload, Row, Grant):
-            registry = TrustsRegistry()
-            j = Ref(Grant)
-            record = registry.register(
-                content=j.scope.rows.content,
-                user=j.user,
-                permission=j.permission,
-            )
-            self.assertEqual(record.content_path[0], 'scope')
-            self.assertNotEqual(record.content_target, 'slug')
-
-            alice = User.objects.create_user(username='c1-tf-alice', password='x')
-            bob = User.objects.create_user(username='c1-tf-bob', password='x')
-            ct, _created = ContentType.objects.get_or_create(
-                app_label='trusts_zero_tests', model='payload',
-            )
-            add, _created = Permission.objects.get_or_create(
-                content_type=ct,
-                codename='add_payload_tf',
-                defaults={'name': 'add payload tf'},
-            )
-            scope_a = Scope.objects.create(slug='alpha', title='A')
-            scope_b = Scope.objects.create(slug='beta', title='B')
-            self.assertNotEqual(scope_a.pk, 'alpha')
-            self.assertNotEqual(scope_b.pk, 'beta')
-            payload = Payload.objects.create(title='P')
-            Row.objects.create(scope=scope_a, content=payload)
-            Grant.objects.create(scope=scope_a, user=alice, permission=add)
-
-            handle = _Handle(registry)
-            qs = filter_authorized_scopes(
-                Scope.objects.order_by('pk'), alice, add,
-                content=Payload, handles=(handle,),
-            )
-            self.assertIsInstance(qs, QuerySet)
-            self.assertIsNone(qs._result_cache)
-            sql = str(qs.query).lower()
-            self.assertIn('exists', sql)
-            self.assertIn('slug', sql)
-            with self.assertNumQueries(1):
-                pks = _pks(qs)
-            self.assertEqual(pks, {scope_a.pk})
-            self.assertNotIn(scope_b.pk, pks)
-            self.assertFalse(
-                filter_authorized_scopes(
-                    Scope.objects.all(), bob, add,
-                    content=Payload, handles=(handle,),
-                ).exists()
-            )
-
-
-class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
+class FilterByPermittedContentLiveTest(_UsersMixin, TestCase):
     def setUp(self):
         super().setUp()
         self._make_users('scope-live')
@@ -711,12 +232,10 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
         self.add.group_set.add(self.carol_group)
         enable_local_group_grant(self.trust_a, self.carol_group, self.add)
         self._reload()
-        self.handles = live_config().configured_handles()
 
     def test_trust_is_prefix_of_category_for_trustee_and_registered_group(self):
-        qs = filter_authorized_scopes(
-            Trust.objects.all(), self.alice, self.add,
-            content=Category, handles=self.handles,
+        qs = filter_by_permitted_content(
+            Trust.objects.all(), self.alice, self.add, content=Category,
         )
         self.assertIsInstance(qs, QuerySet)
         self.assertIsNone(qs._result_cache)
@@ -725,9 +244,8 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
         self.assertEqual(pks, {self.trust_a.pk})
         self.assertNotIn(self.trust_b.pk, pks)
         self.assertTrue(
-            filter_authorized_scopes(
-                Trust.objects.all(), self.carol, self.add,
-                content=Category, handles=self.handles,
+            filter_by_permitted_content(
+                Trust.objects.all(), self.carol, self.add, content=Category,
             ).exists()
         )
         self.assertIn(
@@ -740,29 +258,45 @@ class FilterAuthorizedScopesLiveTest(_UsersMixin, TestCase):
     def test_content_terminal_and_unknown_scope_are_none(self):
         with self.assertNumQueries(0):
             self.assertFalse(
-                filter_authorized_scopes(
-                    Category.objects.all(), self.alice, self.add,
-                    content=Category, handles=self.handles,
+                filter_by_permitted_content(
+                    Category.objects.all(), self.alice, self.add, content=Category,
                 ).exists()
             )
             self.assertFalse(
-                filter_authorized_scopes(
+                filter_by_permitted_content(
                     Organization.objects.all(), self.alice, self.add,
-                    content=Category, handles=self.handles,
+                    content=Category,
                 ).exists()
             )
             self.assertFalse(
-                filter_authorized_scopes(
-                    Trust.objects.all(), self.alice, self.add,
-                    content=Organization, handles=self.handles,
+                filter_by_permitted_content(
+                    Trust.objects.all(), self.alice, self.add, content=Organization,
                 ).exists()
             )
-            self.assertFalse(
-                filter_authorized_scopes(
-                    Trust.objects.all(), self.alice, self.add,
-                    content=Ticket, handles=(),
-                ).exists()
-            )
+
+    def test_non_instance_permission_is_empty(self):
+        with self.assertNumQueries(0):
+            for permission in ('add_category', None):
+                self.assertEqual(
+                    list(filter_by_permitted_content(
+                        Trust.objects.all(), self.alice, permission,
+                        content=Category,
+                    )),
+                    [],
+                )
+
+    def test_wrong_user_and_wrong_permission_deny(self):
+        self.assertFalse(
+            filter_by_permitted_content(
+                Trust.objects.all(), self.bob, self.add, content=Category,
+            ).exists()
+        )
+        change = _perm(Category, 'change_category')
+        self.assertFalse(
+            filter_by_permitted_content(
+                Trust.objects.all(), self.alice, change, content=Category,
+            ).exists()
+        )
 
     def test_legacy_create_under_trust_path_is_unchanged(self):
         pks = _pks(Trust.objects.filter_by_user_content_perm(

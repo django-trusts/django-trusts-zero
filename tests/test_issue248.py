@@ -6,29 +6,25 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from trusts.zero.models import Role, Trust, TrustGroup, TrustGroupPermission
-from trusts.zero.registration import register_zero_group
-from tests.apps import isolated_backend
+from tests.apps import ZERO_BACKEND, trust_rows
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category
 
 
 class ExplicitGroupRegistrationTests(TestCase):
     def test_auth_group_record_is_explicit_and_role_is_not(self):
-        backend = isolated_backend()
-        register_zero_group(backend, (Trust,))
-        grouped = backend.registry.records_for_root(TrustGroup)[0]
-        role = backend.registry.records_for_root(TrustGroupPermission)[0]
-        self.assertTrue(grouped.via_group)
-        self.assertEqual(grouped.group_path, ('group',))
-        self.assertEqual(grouped.group_model._meta.label, 'auth.Group')
-        self.assertEqual(grouped.user_path, ('group', 'user'))
-        self.assertEqual(grouped.permission_path, ('group', 'permissions'))
-        self.assertEqual(grouped.permission_model._meta.label, 'auth.Permission')
-        self.assertNotIn('permissions', grouped.group_path)
-        self.assertFalse(role.via_group)
-        self.assertEqual(role.user_path, ('trustgroup', 'group', 'user'))
-        self.assertEqual(role.permission_path, ('permission',))
-        self.assertEqual(role.group_path, ())
+        grouped = trust_rows(Trust, TrustGroup, backend=ZERO_BACKEND)[0]
+        role = trust_rows(Trust, TrustGroupPermission, backend=ZERO_BACKEND)[0]
+        self.assertEqual(grouped['group']['path'], 'group')
+        self.assertEqual(grouped['group']['model'], 'auth.Group')
+        self.assertEqual(grouped['user']['path'], 'group__user')
+        self.assertEqual(grouped['permission']['path'], 'group__permissions')
+        self.assertEqual(grouped['permission']['model'], 'auth.Permission')
+        self.assertNotIn('permissions', grouped['group']['path'].split('__')[-1:])
+        self.assertNotIn('group', role)
+        self.assertEqual(role['user']['path'], 'trustgroup__group__user')
+        self.assertEqual(role['permission']['path'], 'permission')
+        self.assertNotEqual(grouped.get('condition'), role.get('condition'))
 
 
 class ExplicitGroupAuthorizationTests(TestCase):

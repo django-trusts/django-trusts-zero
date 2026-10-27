@@ -6,7 +6,6 @@ from trusts.zero import (
     ENTITY_MODEL_NAME, PERMISSION_MODEL_NAME, GROUP_MODEL_NAME,
     DEFAULT_SETTLOR, ALLOW_NULL_SETTLOR, ROOT_PK,
 )
-from trusts import utils
 from trusts.zero.policy import permission_in_global_ceiling
 from trusts.zero.query import ContentManager, TrustManager
 
@@ -51,7 +50,6 @@ class Content(ReadonlyFieldsMixin, models.Model):
     class Meta:
         abstract = True
         default_permissions = ('add', 'change', 'delete', 'read',)
-        permission_conditions = ()
         auto_modeladmin = False
 
 
@@ -74,9 +72,6 @@ class Trust(Content):
     class Meta:
         unique_together = ('settlor', 'title')
         default_permissions = ('add', 'change', 'delete', 'read',)
-        permission_conditions = (
-            ('own', lambda u, p, o: u == o.settlor),
-        )
 
     def __str__(self):
         settlor_str = ' of %s' % str(self.settlor) if self.settlor is not None else ''
@@ -205,7 +200,6 @@ class Junction(ReadonlyFieldsMixin, models.Model):
     class Meta:
         abstract = True
         default_permissions = ()
-        content_permission_conditions = ()
         unique_together = ('content', )
 
     @classmethod
@@ -218,4 +212,13 @@ class Junction(ReadonlyFieldsMixin, models.Model):
 
     @classmethod
     def get_fieldlookup(cls):
-        return '%s__content' % utils.get_short_model_name_lower(cls).replace('.', '_')
+        return '%s__content' % cls._meta.label_lower.replace('.', '_')
+
+
+from trusts.zero.backends import TrustModelBackend
+import trusts.zero.registration as zero_registration
+
+_registry = TrustModelBackend().get_registry()
+zero_registration.register_zero_relations(_registry)
+_registry.add_named_filter(Trust, 'own', zero_registration.trust_settlor_owns)
+del _registry

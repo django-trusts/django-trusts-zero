@@ -3,14 +3,10 @@
 from django.apps import apps
 from django.test import SimpleTestCase
 
-from trusts.apps import (
-    TrustsImplementationConfig,
-    implementation_configs,
-    implementation_for_class,
-    implementation_for_path,
-)
-from trusts.zero.apps import CANONICAL_BACKEND_PATH, ZeroConfig, zero_config
-from trusts.zero.backends import TrustModelBackend
+from trusts.apps import TrustsConfigMixin
+from trusts.zero.apps import ZeroConfig, zero_config
+from tests.apps import ZERO_BACKEND, content_row
+from trusts.backends import policy_document
 from trusts.zero.models import Trust
 
 
@@ -26,30 +22,15 @@ class ZeroAppConfigTests(SimpleTestCase):
         )
 
     def test_zero_config_is_the_implementation_owner(self):
-        self.assertTrue(issubclass(ZeroConfig, TrustsImplementationConfig))
-        owners = implementation_configs()
-        self.assertEqual(len(owners), 1)
-        self.assertIs(owners[0], zero_config())
-        self.assertIs(owners[0], apps.get_app_config('trusts'))
-        self.assertEqual(
-            owners[0].trusts_backend_paths, (CANONICAL_BACKEND_PATH,),
-        )
-        self.assertIs(
-            implementation_for_path(CANONICAL_BACKEND_PATH), owners[0],
-        )
-        self.assertIs(
-            implementation_for_class(TrustModelBackend), owners[0],
-        )
+        self.assertTrue(issubclass(ZeroConfig, TrustsConfigMixin))
+        owner = zero_config()
+        self.assertIs(owner, apps.get_app_config('trusts'))
+        document = policy_document(backend=ZERO_BACKEND)
+        self.assertEqual(document['schema_version'], 1)
+        self.assertEqual(document['backends'][0]['path'], 'trusts.zero.apps.ZeroConfig')
+        self.assertEqual(content_row(Trust, ZERO_BACKEND)['model'], 'trusts.Trust')
 
-    def test_core_ships_no_appconfig_or_kernel_config(self):
-        import trusts.apps as trusts_apps
-
-        self.assertFalse(hasattr(trusts_apps, 'kernel_config'))
-        self.assertFalse(hasattr(trusts_apps, 'AppConfig'))
-        with self.assertRaises(ImportError):
-            from trusts.apps import kernel_config  # noqa: F401
-        with self.assertRaises(ImportError):
-            from trusts.apps import AppConfig  # noqa: F401
+    def test_trusts_label_is_only_zeroconfig(self):
         self.assertIs(type(apps.get_app_config('trusts')), ZeroConfig)
         self.assertEqual(
             [type(config) for config in apps.get_app_configs() if config.label == 'trusts'],

@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth.models import Group, User
 
 from trusts.zero.models import Content, Junction
+from trusts.zero.query import ContentManager
 
 
 def ticket_own(u, p, o):
@@ -95,10 +96,54 @@ class Ticket(Content):
 
     class Meta:
         default_permissions = ('add', 'read', 'change', 'delete')
-        permission_conditions = (
-            ('own', ticket_own),
-            ('meta_own', ticket_meta_own),
-        )
 
     def __str__(self):
         return self.title
+
+
+class Receipt(models.Model):
+    """Trust prefix for dependent image content.
+
+    Not a ``Content`` subclass: an unregistered Content model is
+    ``trusts.E003``. Image and image-meta are the registered terminals.
+    """
+
+    title = models.CharField(max_length=40)
+    trust = models.ForeignKey(
+        'trusts.Trust',
+        related_name='trusts_zero_tests_receipt_content',
+        default=1,
+        on_delete=models.CASCADE,
+    )
+
+
+class ReceiptImage(models.Model):
+    receipt = models.ForeignKey(
+        Receipt, related_name='image', on_delete=models.CASCADE,
+    )
+    title = models.CharField(max_length=40)
+    objects = ContentManager()
+
+
+class ReceiptImageMeta(models.Model):
+    image = models.ForeignKey(
+        ReceiptImage, related_name='image', on_delete=models.CASCADE,
+    )
+    title = models.CharField(max_length=40)
+    objects = ContentManager()
+
+
+class OrphanDoc(models.Model):
+    """Dependent of Receipt that the host does not register."""
+
+    receipt = models.ForeignKey(
+        Receipt, related_name='orphan', on_delete=models.CASCADE,
+    )
+    title = models.CharField(max_length=40)
+    objects = ContentManager()
+
+
+from tests.backends import TestsBackend
+from tests.apps import register_test_terminals
+
+register_test_terminals(TestsBackend().get_registry())

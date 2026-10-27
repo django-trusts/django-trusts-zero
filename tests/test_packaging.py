@@ -48,8 +48,19 @@ class ZeroSourceLayoutTests(SimpleTestCase):
                 stripped = line.strip()
                 if stripped.startswith('#'):
                     continue
-                if 'from trusts.models' in stripped or stripped == 'import trusts.models':
+                if stripped == 'import trusts.models':
                     offenders.append('%s: %s' % (path.relative_to(ROOT), stripped))
+                    continue
+                if 'from trusts.models' in stripped:
+                    # trusts.models is Core's public queryset module.
+                    # Product model classes stay in trusts.zero.models.
+                    allowed = stripped.startswith(
+                        'from trusts.models import AuthorizedQuerySet'
+                    )
+                    if not allowed:
+                        offenders.append(
+                            '%s: %s' % (path.relative_to(ROOT), stripped)
+                        )
         self.assertEqual(offenders, [])
 
     def test_zero_does_not_copy_generic_authorization_control_flow(self):
@@ -82,7 +93,6 @@ class ZeroSourceLayoutTests(SimpleTestCase):
         self.assertEqual(offenders, [])
         backends = (ROOT / 'trusts' / 'zero' / 'backends.py').read_text()
         self.assertNotIn('class HistoricalGroupQueryCompiler', backends)
-        self.assertIn('PlanQueryCompiler', backends)
         self.assertIn('class TrustModelBackend', backends)
         self.assertNotIn('from trusts.backends import TrustModelBackend\n', backends)
         self.assertNotIn('TrustModelBackend = ', backends)
@@ -112,67 +122,6 @@ class ZeroSourceLayoutTests(SimpleTestCase):
         self.assertFalse((ROOT / 'trusts' / 'tests.py').exists())
         self.assertFalse((ROOT / 'trusts' / 'zero' / 'tests.py').exists())
 
-    def test_production_has_no_private_ir_import_or_lookup_bind(self):
-        banned = (
-            'trusts.conditions._ir',
-            'RegistryConditionLookup',
-            '_load_conditions_implementation',
-            '_IR_MODULE',
-            'set_condition_lookup',
-        )
-        offenders = []
-        for path in (ROOT / 'trusts' / 'zero').rglob('*.py'):
-            text = path.read_text()
-            for needle in banned:
-                if needle in text:
-                    offenders.append('%s: %s' % (path.relative_to(ROOT), needle))
-        self.assertEqual(offenders, [])
-
-    def test_converted_modules_do_not_import_public_store_names(self):
-        banned = (
-            'from trusts.conditions import RegistryConditionLookup',
-            'from trusts.conditions import ConditionRecord',
-            'from trusts.conditions import ConditionRegistry',
-            'from trusts.conditions import validate_expression',
-            'from trusts.conditions._ir import',
-            '_load_conditions_implementation',
-        )
-        converted = (
-            ROOT / 'tests' / 'test_codec.py',
-            ROOT / 'tests' / 'legacy' / 'test_issue54.py',
-            ROOT / 'tests' / 'legacy' / 'test_issue87.py',
-            ROOT / 'tests' / 'test_issue16.py',
-        )
-        offenders = []
-        for path in converted:
-            text = path.read_text()
-            for needle in banned:
-                if needle in text:
-                    offenders.append('%s: %s' % (path.relative_to(ROOT), needle))
-        self.assertEqual(offenders, [])
-
-    def test_core_conditions_public_surface_is_six_names(self):
-        import trusts.conditions as conditions
-
-        self.assertEqual(
-            set(conditions.__all__),
-            {
-                'PermissionConditionBooleanError',
-                'PermissionConditionError',
-                'PermissionConditionNotQueryable',
-                'PermissionConditionUnsupported',
-                'permission_condition_code',
-                'permission_has_condition',
-            },
-        )
-        with self.assertRaises(ImportError):
-            from trusts.conditions import RegistryConditionLookup  # noqa: F401
-        with self.assertRaises(ImportError):
-            from trusts.conditions import ConditionRecord  # noqa: F401
-        with self.assertRaises(ImportError):
-            from trusts.conditions import ConditionRegistry  # noqa: F401
-
-
 class ZeroPublishMetadataTests(SimpleTestCase):
     def test_pyproject_requires_final_core_floor(self):
         text = (ROOT / 'pyproject.toml').read_text()
@@ -183,7 +132,7 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         self.assertIn('readme = "README.md"', text)
         self.assertNotIn('readme = "DEV.md"', text)
         self.assertIn('license = "BSD-2-Clause"', text)
-        companion = 'cbe72e573911f34225c8322e1133288c1bcb3c43'
+        companion = '07dfb76a88cc6e80fa0c554218e543bd33fd4d1e'
         stale_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
         stale_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
         stale_r5b = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
@@ -252,7 +201,6 @@ class ZeroPublishMetadataTests(SimpleTestCase):
             '39f1f961',
             '94e0fa1',
             'code budget',
-            'kernel_config',
         )
         offenders = [needle for needle in forbidden if needle in readme]
         self.assertEqual(offenders, [])

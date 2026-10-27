@@ -7,7 +7,7 @@ objects. The shared grant now requires ``Permission.content_type`` to
 be the protected object's content type. The codename is not consulted.
 Same-model grants stay, including ``add_topic_to_category``.
 ``user.has_perm`` is the permission string. The permission row is
-checked on ``registry.has_permission``, ``.authorized()``, and
+checked on ``catalog.has_permission``, ``.authorized()``, and
 create-under-trust filtering.
 """
 
@@ -17,7 +17,7 @@ from django.core.management import call_command
 from django.test import TestCase
 
 from trusts.zero.models import Trust, TrustUserPermission
-from tests.apps import live_backend
+from tests.apps import content_row
 from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
 from tests.models import Category, Organization, TestGroupJunction
 from tests.runtests import NORMAL_SUITE
@@ -81,33 +81,28 @@ class ContentTypeMismatchZeroTest(TestCase):
         self.assertIn('tests.test_issue267', NORMAL_SUITE)
 
     def test_group_grant_keeps_same_model_and_denies_the_cross(self):
-        registry = live_backend().registry
         self.assertTrue(self.member.has_perm(self.read_code, self.category))
         self.assertTrue(self.member.has_perm(self.topic_code, self.category))
         self.assertTrue(
-            registry.has_permission(self.member, self.category, self.read),
+            Category.objects.filter(pk=self.category.pk).authorized(
+                self.member, self.read,
+            ).exists()
         )
         self.assertTrue(self.member.has_perm(self.group_code, self.protected))
         self.assertTrue(
-            registry.has_permission(
-                self.member, self.protected, self.change_group,
-            ),
+            self.member.has_perm(self.group_code, self.protected)
         )
 
         with self.assertNumQueries(1):
             self.assertFalse(self.member.has_perm(self.group_code, self.category))
         with self.assertNumQueries(1):
             self.assertFalse(
-                registry.has_permission(
-                    self.member, self.category, self.change_group,
-                ),
+                Category.objects.filter(pk=self.category.pk).authorized(
+                    self.member, self.change_group,
+                ).exists()
             )
         with self.assertNumQueries(1):
             self.assertFalse(self.member.has_perm(self.read_code, self.protected))
-        with self.assertNumQueries(1):
-            self.assertFalse(
-                registry.has_permission(self.member, self.protected, self.topic),
-            )
 
         self.assertEqual(
             self.member.get_all_permissions(self.category),
@@ -137,11 +132,10 @@ class ContentTypeMismatchZeroTest(TestCase):
         self.assertTrue(self.direct.has_perm(self.group_code, self.protected))
         self.assertFalse(self.direct.has_perm(self.group_code, self.category))
         self.assertFalse(self.direct.has_perm(self.read_code, self.protected))
-        self.assertIs(
-            live_backend().registry.has_permission(
-                self.direct, self.category, self.change_group,
-            ),
-            False,
+        self.assertFalse(
+            Category.objects.filter(pk=self.category.pk).authorized(
+                self.direct, self.change_group,
+            ).exists()
         )
         self.assertEqual(
             self.direct.get_all_permissions(self.category), {self.read_code},
@@ -205,8 +199,7 @@ class ContentTypeMismatchZeroTest(TestCase):
 
     def test_unregistered_model_is_zero_sql(self):
         unrelated = Organization.objects.create(name='z267-org', manager=self.member)
-        registry = live_backend().registry
-        self.assertFalse(registry.plan_for(Organization).records)
+        self.assertIsNone(content_row(Organization))
         with self.assertNumQueries(0):
             self.assertFalse(self.member.has_perm(self.read_code, unrelated))
         with self.assertNumQueries(0):

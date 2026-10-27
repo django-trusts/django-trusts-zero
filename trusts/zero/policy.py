@@ -11,17 +11,30 @@ instances.
 
 from django.db.models import Q
 
-from trusts import utils
-from trusts.conditions import (
-    PermissionConditionNotQueryable,
-    permission_has_condition,
-)
+from trusts.errors import PermissionConditionError
+from trusts.utils import parse_perm_code
 from trusts.zero import get_permission_model
 
 
+def _condition_suffix(perm):
+    """``:code`` on a permission string, or ``''``.
+
+    Dotted codes go through ``parse_perm_code``. A bare codename keeps
+    the text after the first colon.
+    """
+    if not isinstance(perm, str):
+        return ''
+    head, sep, tail = perm.partition(':')
+    if not sep:
+        return ''
+    if '.' not in head:
+        return tail
+    return parse_perm_code(perm)[3]
+
+
 def reject_queryable_condition(perm, api_name):
-    if permission_has_condition(perm):
-        raise PermissionConditionNotQueryable(
+    if _condition_suffix(perm):
+        raise PermissionConditionError(
             '%s does not support permission conditions (%r). '
             'Create-under-trust filters Trust rows, not the content '
             'model the condition is registered on. Use the unconditioned '
@@ -51,7 +64,7 @@ def resolve_content_permission(model, perm):
     perm = str(perm)
     if '.' in perm:
         try:
-            applabel, modelname, action, _cond = utils.parse_perm_code(perm)
+            applabel, modelname, action, _cond = parse_perm_code(perm)
             perm = '%s_%s' % (action, modelname)
             app_label = applabel
             model_name = modelname

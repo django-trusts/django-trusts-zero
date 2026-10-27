@@ -34,25 +34,21 @@ from trusts.zero.models import (
     Trust,
     TrustUserPermission,
 )
-from trusts.conditions import PermissionConditionNotQueryable
+from tests.apps import named_filter_ids
+from trusts.errors import PermissionConditionError
 from tests.legacy.helpers import (
     ContentModelMixin,
     create_test_users,
     enable_local_group_grant,
-    forget_condition,
     get_or_create_root_user,
     grant_content,
     reload_test_users,
     revoke_content,
 )
-from tests.apps import publish_permission_condition
 from tests.models import AutoAdminCategory, AutoAdminJunction, Category, ManualAdminCategory
 
 
 class Issue8FixtureMixin(ContentModelMixin):
-    def _forget_never_condition(self):
-        forget_condition(Category, 'never')
-
     def setUp(self):
         super(Issue8FixtureMixin, self).setUp()
         self.org = Trust(settlor=self.user, trust=Trust.objects.get_root(), title='Org A')
@@ -141,27 +137,21 @@ class PermittedQuerySetTest(Issue8FixtureMixin, TestCase):
         self.assertFalse(self.user.has_perm(self.get_perm_code(self.perm_change), self.content))
 
     def test_conditioned_perm_fails_closed(self):
-        """A :condition must not silently return every unconditioned grant.
-
-        Reproduces the #20 review: register an always-false builder,
-        grant the underlying read, then compare has_perm vs permitted.
-        """
-        publish_permission_condition(
-            Category, 'never', lambda u, p, o: o.name == '__never__',
-        )
-        self.addCleanup(self._forget_never_condition)
+        """An unknown condition does not return the unconditioned grant."""
         TrustUserPermission(
             trust=self.org, entity=self.user, permission=self.perm_read
         ).save()
         reload_test_users(self)
         unconditioned = self.get_perm_code(self.perm_read)
-        conditioned = '%s:never' % unconditioned
         self.assertTrue(self.user.has_perm(unconditioned, self.content))
-        self.assertFalse(self.user.has_perm(conditioned, self.content))
-        self.assertFalse(Category.objects.permitted(conditioned, self.user).exists())
-        with self.assertRaises(AttributeError):
-            Category.objects.permitted('read_category:own', self.user)
-        # Unconditioned path still lists the granted row only.
+        self.assertNotIn(
+            'trusts_zero_tests__Category__own', named_filter_ids(Category),
+        )
+        self.assertFalse(self.user.has_perm('%s:own' % unconditioned, self.content))
+        self.assertEqual(
+            list(Category.objects.permitted('read_category:own', self.user)),
+            [],
+        )
         self.assertEqual(
             set(Category.objects.permitted(unconditioned, self.user).values_list('pk', flat=True)),
             {self.content.pk},
@@ -235,21 +225,17 @@ class FilterByUserContentPermTest(Issue8FixtureMixin, TestCase):
         self.assertIn(self.org.pk, trusts.values_list('pk', flat=True))
 
     def test_conditioned_perm_fails_closed(self):
-        publish_permission_condition(
-            Category, 'never', lambda u, p, o: o.name == '__never__',
-        )
-        self.addCleanup(self._forget_never_condition)
         TrustUserPermission(
             trust=self.org, entity=self.user, permission=self.perm_add
         ).save()
         reload_test_users(self)
         unconditioned = self.get_perm_code(self.perm_add)
         conditioned = '%s:never' % unconditioned
-        with self.assertRaises(PermissionConditionNotQueryable):
+        with self.assertRaises(PermissionConditionError):
             Trust.objects.filter_by_user_content_perm(
                 self.user, Category, conditioned
             )
-        with self.assertRaises(PermissionConditionNotQueryable):
+        with self.assertRaises(PermissionConditionError):
             Trust.objects.filter_by_user_content_perm(
                 self.user, Category, 'add_category:own'
             )

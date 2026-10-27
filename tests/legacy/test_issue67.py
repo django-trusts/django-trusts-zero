@@ -1,51 +1,24 @@
-"""Copied from django-trusts@948d6666342377b9472debb57d4a1e26e81402d1 ``trusts/test_issue67.py`` for issue #37 Zero-first coverage.
+"""Category relation plan and ``permitted`` (issue #67).
 
-Final-state adaptations: Zero test app label, core registry APIs, no Content._conditions.
+Registry swapping and sentinel identity were removed with Core's catalog.
+Registration shape is an isolated recorder compiled to a catalog. Runtime
+checks use the live catalog.
 """
-
-"""Child H: first historical TUP→Trust←Category reader (issue #67).
-
-Migrates the trustee half of ``ContentQuerySet.permitted`` for the
-explicitly registered Category terminal. Backend ``has_perm`` stays on
-the old path. Isolated core tests keep constructing their own
-``TrustsRegistry()``. Trust-as-content is S1 (``test_issue70``).
-Ticket is S2 (``test_issue72``).
-"""
-
-import types
-from unittest.mock import patch
 
 from django.apps import apps
 from django.contrib.auth.models import AnonymousUser, Group, Permission, User
 from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
-from django.db import models
 from django.db.models.query import QuerySet
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import isolate_apps
 
-from tests.apps import TestsConfig, isolate_live_registry, isolated_owner, live_config, live_registry, override_apps_ready, publish_permission_condition
-import tests as tests_module
-from tests.models import Category, Ticket
-from trusts.core import (
-    Ref,
-    RelationPlan,
-    TrustsConfigurationError,
-    TrustsRegistry,
-)
-from trusts.zero.models import (
-    Content,
-    Trust,
-    TrustGroup,
-    TrustGroupPermission,
-    TrustUserPermission,
-)
-from trusts.zero.query import filter_authorized_scopes
-from tests.legacy.helpers import (
-    enable_local_group_grant,
-    forget_condition,
-    get_or_create_root_user,
-)
+from tests.apps import TEST_BACKEND, ZERO_BACKEND, trust_rows
+from tests.legacy.helpers import enable_local_group_grant, get_or_create_root_user
+from tests.models import Category
+from trusts.zero.apps import zero_config
+from trusts.zero.models import Trust, TrustGroup, TrustGroupPermission, TrustUserPermission
+from trusts.errors import TrustsConfigurationError
 
 
 def _pks(qs):
@@ -59,261 +32,41 @@ def _perm(model, codename):
     )
 
 
-def _new_contributor(apps_registry):
-    contributor = TestsConfig('tests', tests_module)
-    contributor.apps = apps_registry
-    return contributor
+class CategoryRegistrationShapeTest(SimpleTestCase):
+    def test_reenter_contributor_ready_keeps_the_policy(self):
+        from tests.backends import TestsBackend
 
+        before = trust_rows(Category, backend=TEST_BACKEND)
+        apps.get_app_config('trusts_zero_tests').ready()
+        self.assertEqual(trust_rows(Category, backend=TEST_BACKEND), before)
+        with self.assertRaises(TrustsConfigurationError):
+            TestsBackend().get_registry().add_named_filter(
+                Category, 'late', lambda u, p, o: False,
+            )
+        self.assertEqual(trust_rows(Category, backend=TEST_BACKEND), before)
 
-class TrustsRegistryOwnershipTest(SimpleTestCase):
-    def test_package_registry_is_created_in_init_not_replaced_by_ready(self):
-        import trusts
-
-        config = isolated_owner()
-        self.assertIsInstance(config.registry, TrustsRegistry)
-        self.assertEqual(config.registry.records, ())
-        first = config.registry
-        config.ready()
-        self.assertIs(config.registry, first)
-
-        live = live_config()
-        before = live.registry
-        live.ready()
-        self.assertIs(live.registry, before)
-
-    def test_reader_obtains_registry_via_app_config_not_package_root(self):
-        import trusts
-
-        live = live_config().registry
-        self.assertIsInstance(live, TrustsRegistry)
-        self.assertIsNone(getattr(trusts, 'registry', None))
-        self.assertIsNone(getattr(trusts, 'TrustsRegistry', None))
-        self.assertIsNone(getattr(trusts, 'RelationPlan', None))
-
-    def test_isolated_core_registries_stay_independent(self):
-        live = live_config().registry
-        isolated = TrustsRegistry()
-        self.assertIsNot(isolated, live)
-        self.assertEqual(isolated.records, ())
-        self.assertTrue(live.records)
-
-    def test_core_module_has_no_historical_import_or_global(self):
-        import trusts.core as core
-
-        forbidden = {
-            'Trust',
-            'Content',
-            'Junction',
-            'TrustUserPermission',
-            'TrustGroupPermission',
-            'Group',
-            'Role',
-            'Category',
-        }
-        self.assertFalse(forbidden.intersection(vars(core)))
-        imported = {
-            value.__name__
-            for value in vars(core).values()
-            if isinstance(value, types.ModuleType)
-        }
-        self.assertTrue(
-            all(
-                name == 'trusts.core' or not name.startswith('trusts.')
-                for name in imported
-            ),
-            imported,
-        )
-
-    def test_trusts_does_not_import_or_discover_tests_category(self):
-        import trusts.apps as trusts_apps
-        import trusts.core as core
-        import trusts.models as trusts_models
-
-        for module in (trusts_apps, core, trusts_models):
-            self.assertNotIn('Category', vars(module))
-            self.assertNotIn('Ticket', vars(module))
-
-
-class ContributorIdempotenceTest(SimpleTestCase):
-    def setUp(self):
-        self.live_trusts = live_config()
-        self.live_registry = self.live_trusts.registry
-        self.live_contributor = apps.get_app_config('trusts_zero_tests')
-
-    def tearDown(self):
-        self.live_trusts.registry = self.live_registry
-        self.live_contributor._trusts_tup_category_registry_id = self.live_registry
-        self.live_contributor._trusts_tup_ticket_registry_id = self.live_registry
-        self.live_contributor._trusts_tup_group_registry_id = self.live_registry
-
-    def test_reenter_same_contributor_ready_is_noop(self):
-        self.assertIs(
-            self.live_contributor._trusts_tup_category_registry_id,
-            self.live_registry,
-        )
-        self.assertIs(
-            self.live_contributor._trusts_tup_ticket_registry_id,
-            self.live_registry,
-        )
-        self.assertIs(
-            self.live_contributor._trusts_tup_group_registry_id,
-            self.live_registry,
-        )
-        before = self.live_registry.records
-        with patch.object(
-            self.live_registry, 'register', wraps=self.live_registry.register,
-        ) as register:
-            self.live_contributor.ready()
-        register.assert_not_called()
-        self.assertEqual(self.live_registry.records, before)
-
-    def test_different_root_category_registration_does_not_suppress_tup(self):
-        class OtherCategoryGrant(models.Model):
-            category = models.ForeignKey(Category, on_delete=models.CASCADE)
-            user = models.ForeignKey(User, on_delete=models.CASCADE)
-            permission = models.ForeignKey(Permission, on_delete=models.CASCADE)
-
-            class Meta:
-                app_label = 'trusts_zero_tests'
-
-        isolated = TrustsRegistry()
-        other = Ref(OtherCategoryGrant)
-        isolated.register(
-            content=other.category, user=other.user, permission=other.permission,
-        )
-        isolate_live_registry(self.live_trusts, isolated)
-        contributor = _new_contributor(apps)
-        with override_apps_ready(False):
-            contributor.ready()
-        self.assertIs(contributor._trusts_tup_category_registry_id, isolated)
-        self.assertIs(contributor._trusts_tup_ticket_registry_id, isolated)
-        self.assertIs(contributor._trusts_tup_group_registry_id, isolated)
-        self.assertEqual(len(isolated.records), 10)
-        roots = {record.root for record in isolated.records}
-        self.assertEqual(
-            roots,
-            {OtherCategoryGrant, TrustUserPermission, TrustGroup, TrustGroupPermission},
-        )
-        plan = isolated.plan_for(Category)
-        self.assertEqual(len(plan.records), 4)
-
-    def test_conflicting_contribution_reaches_register_and_fails_closed(self):
-        isolated = TrustsRegistry()
-        j = Ref(TrustUserPermission)
+    def test_live_declaration_uses_meta_reverse(self):
         rev = Category._meta.get_field('trust').remote_field.get_accessor_name()
-        isolated.register(
-            content=getattr(j.trust, rev),
-            user=j.permission,
-            permission=j.entity,
-        )
-        isolate_live_registry(self.live_trusts, isolated)
-        contributor = _new_contributor(apps)
-        with override_apps_ready(False):
-            with self.assertRaises(TrustsConfigurationError):
-                contributor.ready()
-        self.assertIsNone(
-            getattr(contributor, '_trusts_tup_category_registry_id', None)
-        )
-        self.assertEqual(len(isolated.records), 1)
-
-    def test_new_appconfig_registry_receives_declaration_again(self):
-        import trusts
-
-        new_trusts = isolated_owner()
-        self.assertEqual(new_trusts.registry.records, ())
-        new_apps = apps
-        original = self.live_trusts.registry
-        try:
-            isolate_live_registry(self.live_trusts, new_trusts.registry)
-            contributor = _new_contributor(new_apps)
-            with override_apps_ready(False):
-                contributor.ready()
-            self.assertIs(
-                contributor._trusts_tup_category_registry_id,
-                new_trusts.registry,
-            )
-            self.assertIs(
-                contributor._trusts_tup_ticket_registry_id,
-                new_trusts.registry,
-            )
-            self.assertIs(
-                contributor._trusts_tup_group_registry_id,
-                new_trusts.registry,
-            )
-            self.assertEqual(len(new_trusts.registry.records), 9)
-            terminals = {
-                record.content_model for record in new_trusts.registry.records
-            }
-            self.assertEqual(
-                terminals,
-                {
-                    Category._meta.concrete_model,
-                    Ticket._meta.concrete_model,
-                    Group._meta.concrete_model,
-                },
-            )
-            roots = {record.root for record in new_trusts.registry.records}
-            self.assertEqual(
-                roots, {TrustUserPermission, TrustGroup, TrustGroupPermission},
-            )
-            self.assertEqual(
-                len([
-                    record for record in new_trusts.registry.records
-                    if record.root is TrustUserPermission
-                ]),
-                3,
-            )
-        finally:
-            self.live_trusts.registry = original
-
-
-@isolate_apps(
-    'tests',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    attr_name='isolated_apps',
-)
-class IsolatedAppsDoesNotDonateToLiveRegistryTest(SimpleTestCase):
-    def test_isolate_apps_ready_does_not_touch_live_registry(self):
-        live = live_config().registry
-        tup_category = [
-            record for record in live.records
-            if record.root is TrustUserPermission
-            and record.content_model is Category._meta.concrete_model
-        ]
-        tup_ticket = [
-            record for record in live.records
-            if record.root is TrustUserPermission
-            and record.content_model is Ticket._meta.concrete_model
-        ]
-        self.assertEqual(len(tup_category), 1)
-        self.assertEqual(len(tup_ticket), 1)
-        self.assertFalse(self.isolated_apps.is_installed('trusts'))
-        contributor = TestsConfig('tests', tests_module)
-        contributor.apps = self.isolated_apps
-        contributor.ready()
-        self.assertIsNone(getattr(contributor, '_trusts_tup_category_registry_id', None))
-        self.assertIsNone(getattr(contributor, '_trusts_tup_ticket_registry_id', None))
-        self.assertIsNone(getattr(contributor, '_trusts_tup_group_registry_id', None))
+        record = trust_rows(Category, TrustUserPermission, TEST_BACKEND)[0]
+        self.assertNotEqual(rev, 'tests_category_content')
+        self.assertEqual(record['content']['path'], 'trust__%s' % rev)
+        self.assertEqual(record['user']['path'], 'entity')
+        self.assertEqual(record['permission']['path'], 'permission')
+        self.assertEqual(record['root'], 'trusts.TrustUserPermission')
+        self.assertEqual(record['content']['model'], Category._meta.label)
+        roots = {row['root'] for row in trust_rows(Category, backend=TEST_BACKEND)}
         self.assertEqual(
-            [
-                record for record in live.records
-                if record.root is TrustUserPermission
-                and record.content_model is Category._meta.concrete_model
-            ],
-            tup_category,
+            roots, {
+                'trusts.TrustUserPermission',
+                'trusts.TrustGroup',
+                'trusts.TrustGroupPermission',
+            },
         )
-        self.assertEqual(
-            [
-                record for record in live.records
-                if record.root is TrustUserPermission
-                and record.content_model is Ticket._meta.concrete_model
-            ],
-            tup_ticket,
-        )
+        self.assertEqual(len(trust_rows(Category, backend=TEST_BACKEND)), 3)
+        self.assertTrue(trust_rows(Trust))
 
 
-class CategoryPermittedRegistryTest(TestCase):
+class CategoryPermittedTest(TestCase):
     def setUp(self):
         super().setUp()
         call_command('create_trust_root')
@@ -349,13 +102,7 @@ class CategoryPermittedRegistryTest(TestCase):
         self.carol.groups.add(self.carol_group)
         self.change.group_set.add(self.carol_group)
         enable_local_group_grant(self.trust_a, self.carol_group, self.change)
-
         self._reload()
-
-        publish_permission_condition(
-            Category, 'named', lambda u, p, o: o.name == 'keep',
-        )
-        self.addCleanup(lambda: forget_condition(Category, 'named'))
 
     def _reload(self):
         self.alice = User.objects.get(pk=self.alice.pk)
@@ -367,17 +114,6 @@ class CategoryPermittedRegistryTest(TestCase):
             obj.pk for obj in Category.objects.all()
             if user.has_perm(perm, obj)
         }
-
-    def test_live_declaration_uses_meta_reverse_not_hardcoded_accessor(self):
-        registry = live_config().registry
-        rev = Category._meta.get_field('trust').remote_field.get_accessor_name()
-        self.assertNotEqual(rev, 'tests_category_content')
-        record = registry.plan_for(Category).records[0]
-        self.assertIs(record.root, TrustUserPermission)
-        self.assertIs(record.content_model, Category._meta.concrete_model)
-        self.assertEqual(record.content_field, 'trust__%s' % rev)
-        self.assertEqual(record.user_field, 'entity')
-        self.assertEqual(record.permission_field, 'permission')
 
     def test_alice_tup_grants_sibling_categories_on_trust_a_not_b(self):
         qs = Category.objects.permitted(self.change_code, self.alice)
@@ -433,11 +169,10 @@ class CategoryPermittedRegistryTest(TestCase):
             self.assertEqual(list(page), [self.cat_a1])
 
     def test_no_tup_rows_deny_without_changing_registration(self):
-        registry = live_config().registry
-        self.assertTrue(registry.plan_for(Category).records)
+        self.assertTrue(trust_rows(Category, backend=TEST_BACKEND))
         TrustUserPermission.objects.all().delete()
         self._reload()
-        self.assertTrue(registry.plan_for(Category).records)
+        self.assertTrue(trust_rows(Category, backend=TEST_BACKEND))
         self.assertFalse(self.alice.has_perm(self.change_code, self.cat_a1))
         self.assertFalse(
             Category.objects.permitted(self.change_code, self.alice).exists()
@@ -448,68 +183,20 @@ class CategoryPermittedRegistryTest(TestCase):
         )
 
     def test_named_condition_constrains_the_complete_grant(self):
-        conditioned = '%s:named' % self.change_code
+        conditioned = '%s:spy' % self.change_code
         self.assertTrue(self.alice.has_perm(conditioned, self.cat_a1))
         self.assertFalse(self.alice.has_perm(conditioned, self.cat_a2))
         self.assertTrue(self.carol.has_perm(conditioned, self.cat_a1))
         self.assertFalse(self.carol.has_perm(conditioned, self.cat_a2))
-        self.assertEqual(
-            _pks(Category.objects.permitted(conditioned, self.alice)),
-            {self.cat_a1.pk},
-        )
-        self.assertEqual(
-            _pks(Category.objects.permitted(conditioned, self.carol)),
-            {self.cat_a1.pk},
-        )
-        self.assertEqual(
-            _pks(Category.objects.permitted(conditioned, self.alice)),
-            self._direct_pks(conditioned, self.alice),
-        )
-
-    def test_registered_terminals_skip_filter_authorized_scopes(self):
-        registry = live_config().registry
-        self.assertTrue(registry.plan_for(Category).records)
-        self.assertTrue(registry.plan_for(Trust).records)
-        self.assertTrue(registry.plan_for(Ticket).records)
-        self.assertTrue(registry.plan_for(Group).records)
-
-        from tests.models import Organization
-
-        org = Organization.objects.create(name='Org', manager=self.alice)
-        ticket = Ticket.objects.create(
-            trust=self.trust_a, title='t', owner=self.alice,
-            organization=org, status='open',
-        )
-        TrustUserPermission(
-            trust=self.trust_a,
-            entity=self.alice,
-            permission=_perm(Ticket, 'change_ticket'),
-        ).save()
-        self._reload()
-
-        with patch('trusts.zero.query.filter_authorized_scopes', wraps=filter_authorized_scopes) as grant_q:
-            list(Category.objects.permitted(self.change_code, self.alice))
-            self.assertEqual(grant_q.call_count, 0)
-            list(Trust.objects.permitted('trusts.change_trust', self.alice))
-            self.assertEqual(grant_q.call_count, 0)
-            list(Ticket.objects.permitted('trusts_zero_tests.change_ticket', self.alice))
-            self.assertEqual(grant_q.call_count, 0)
-        self.assertIn(ticket.pk, _pks(
-            Ticket.objects.permitted('trusts_zero_tests.change_ticket', self.alice)
-        ))
-
-    def test_reader_uses_content_exists_not_filter_authorized(self):
-        registry = live_config().registry
-        plan = registry.plan_for(
-            Category.objects.all(), user=self.carol, permission=self.change,
-        )
-        with patch.object(registry, 'filter_authorized') as filtered:
-            with patch.object(
-                RelationPlan, 'content_exists', wraps=plan.content_exists,
-            ) as exists:
-                list(Category.objects.permitted(self.change_code, self.carol))
-        filtered.assert_not_called()
-        self.assertEqual(exists.call_count, 1)
+        alice_pks = _pks(Category.objects.permitted(conditioned, self.alice))
+        carol_pks = _pks(Category.objects.permitted(conditioned, self.carol))
+        self.assertEqual(alice_pks, {self.cat_a1.pk})
+        self.assertEqual(carol_pks, {self.cat_a1.pk})
+        direct = {
+            obj.pk for obj in Category.objects.all()
+            if self.alice.has_perm(conditioned, obj)
+        }
+        self.assertEqual(alice_pks, direct)
 
     def test_inactive_and_anonymous_remain_empty(self):
         self.alice.is_active = False
@@ -522,3 +209,15 @@ class CategoryPermittedRegistryTest(TestCase):
         self.assertFalse(
             Category.objects.permitted(self.change_code, AnonymousUser()).exists()
         )
+
+    def test_ready_again_keeps_the_policy(self):
+        from trusts.zero.backends import TrustModelBackend
+
+        before = trust_rows(Trust, backend=ZERO_BACKEND)
+        zero_config().ready()
+        self.assertEqual(trust_rows(Trust, backend=ZERO_BACKEND), before)
+        with self.assertRaises(TrustsConfigurationError):
+            TrustModelBackend().get_registry().add_named_filter(
+                Trust, 'late', lambda u, p, o: u == o.settlor,
+            )
+        self.assertEqual(trust_rows(Trust, backend=ZERO_BACKEND), before)
