@@ -35,7 +35,7 @@ from tests.models import (
     TestGroupJunction,
     Ticket,
 )
-from trusts.checks import (
+from trusts.inspect.checks import (
     CHECK_ID_MISSING_DECLARATION,
     CHECK_ID_OBSOLETE_CALLBACK_SETTING,
     check_missing_declarations,

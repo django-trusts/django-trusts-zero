@@ -13,7 +13,7 @@ from django.db import models
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import isolate_apps
 
-from trusts.checks import (
+from trusts.inspect.checks import (
     CHECK_ID_OBSOLETE_CALLBACK_SETTING,
     check_obsolete_legacy_callback_setting,
     check_permission_conditions,

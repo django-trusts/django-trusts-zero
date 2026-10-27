@@ -20,7 +20,7 @@ from django.core.checks import run_checks
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
-from trusts.checks import (
+from trusts.inspect.checks import (
     CHECK_ID_INVALID_EXPR,
     CHECK_ID_OBSOLETE_CALLBACK_SETTING,
     check_obsolete_legacy_callback_setting,
