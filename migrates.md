@@ -570,7 +570,7 @@ Migration-bot checklist:
 
 ## Public companion API (Core #338)
 
-django-trusts `8ce764fb8c73d12d161aa68e46bf95f4c9ee5168` is the
+django-trusts `471fe70f9c52a5fe0611e8cefaaa65be48b567cb` is the
 companion this Zero tree pairs with. Registration and queries use that
 public surface:
 
