@@ -16,6 +16,7 @@ from django.shortcuts import resolve_url
 from django.http import Http404
 
 from trusts.utils import parse_perm_code
+from trusts.zero import get_permission_model
 
 
 class P(object):
@@ -145,14 +146,28 @@ def _get_permissible_items(perm, request, fieldlookups):
     if fieldlookups is None:
         return None
 
-    applabel, modelname, action, cond = parse_perm_code(perm)
+    applabel, codename, cond = parse_perm_code(perm)
+    if cond:
+        raise ValueError(
+            'Permission-required field lookups do not support a :condition '
+            'suffix: %r' % perm
+        )
+    Permission = get_permission_model()
     try:
         content_type = django_apps.get_model('contenttypes', 'ContentType')
-        ctype = content_type.objects.get_by_natural_key(applabel, modelname)
-
-        return ctype.model_class().objects.filter(**fieldlookups)
-    except ObjectDoesNotExist:
-        raise ValueError('Permission code must be of the form "app_label.action_modelname". Actual: %s' % perm)
+        permission = Permission.objects.get(
+            codename=codename,
+            content_type__app_label=applabel.lower(),
+        )
+        model = permission.content_type.model_class()
+        if model is None:
+            raise ObjectDoesNotExist
+        return model.objects.filter(**fieldlookups)
+    except (Permission.DoesNotExist, ObjectDoesNotExist):
+        raise ValueError(
+            'Permission code must be one app_label.codename string that '
+            'matches an auth.Permission row. Actual: %s' % perm
+        )
 
 
 def _resolve_fieldlookups(request, kwargs, fieldlookups_kwargs=None, fieldlookups_getparams=None, fieldlookups_postparams=None, **fieldlookups):

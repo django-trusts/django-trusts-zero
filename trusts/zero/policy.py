@@ -29,7 +29,7 @@ def _condition_suffix(perm):
         return ''
     if '.' not in head:
         return tail
-    return parse_perm_code(perm)[3]
+    return parse_perm_code(perm)[2]
 
 
 def reject_queryable_condition(perm, api_name):
@@ -64,10 +64,10 @@ def resolve_content_permission(model, perm):
     perm = str(perm)
     if '.' in perm:
         try:
-            applabel, modelname, action, _cond = parse_perm_code(perm)
-            perm = '%s_%s' % (action, modelname)
+            applabel, codename, _cond = parse_perm_code(perm)
+            perm = codename
             app_label = applabel
-            model_name = modelname
+            model_name = model._meta.model_name
         except ValueError:
             app_label, perm = perm.split('.', 1)
     if ':' in perm:
