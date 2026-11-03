@@ -12,6 +12,7 @@ from trusts.decorators import filter_by_permitted_content
 from trusts.models import AuthorizedQuerySet, PermittedQuerySetMixin
 from trusts.zero import (
     ROOT_PK,
+    get_permission_model,
     supported_entity_contract,
     supported_permission_contract,
 )
@@ -34,7 +35,11 @@ def django_permission_filter(qs, perm, user):
     if not supported_entity_contract() or not supported_permission_contract():
         return qs.none()
     code = _condition_suffix(perm)
-    permission = resolve_content_permission(qs.model, perm)
+    Permission = get_permission_model()
+    try:
+        permission = resolve_content_permission(qs.model, perm)
+    except Permission.DoesNotExist:
+        return qs.none()
     return PermittedQuerySetMixin.permitted(
         qs, permission, user, conditions=((code,) if code else ()),
     )
@@ -58,7 +63,11 @@ def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kw
     if not isinstance(content, type):
         content = content.__class__
     content = content._meta.concrete_model
-    permission = resolve_content_permission(content, perm_name)
+    Permission = get_permission_model()
+    try:
+        permission = resolve_content_permission(content, perm_name)
+    except Permission.DoesNotExist:
+        return manager.none()
     qs = filter_by_permitted_content(
         manager.filter(**kwargs), user, permission, content=content,
     )

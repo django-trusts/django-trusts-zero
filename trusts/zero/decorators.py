@@ -7,15 +7,15 @@ from functools import wraps
 from urllib.parse import urlparse
 from operator import and_, or_
 
-from django.apps import apps as django_apps
 from django.conf import settings
 from django.contrib.auth import REDIRECT_FIELD_NAME
 from django.contrib.auth.views import redirect_to_login
-from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import resolve_url
 from django.http import Http404
 
 from trusts.utils import parse_perm_code
+from trusts.zero import get_permission_model
 
 
 class P(object):
@@ -142,17 +142,29 @@ def _collect_args(args, fieldlookups):
 
 
 def _get_permissible_items(perm, request, fieldlookups):
+    """Rows the permission's content model is checked against.
+
+    The model comes from the ``auth.Permission`` row that the exact
+    ``app_label.codename`` names. A ``:condition`` suffix is left for
+    ``has_perms``. A code with no row raises ``Permission.DoesNotExist``;
+    a codename shared by two models of one app raises
+    ``Permission.MultipleObjectsReturned``. ``_check`` denies both.
+    """
     if fieldlookups is None:
         return None
 
-    applabel, modelname, action, cond = parse_perm_code(perm)
-    try:
-        content_type = django_apps.get_model('contenttypes', 'ContentType')
-        ctype = content_type.objects.get_by_natural_key(applabel, modelname)
-
-        return ctype.model_class().objects.filter(**fieldlookups)
-    except ObjectDoesNotExist:
-        raise ValueError('Permission code must be of the form "app_label.action_modelname". Actual: %s' % perm)
+    applabel, codename, _cond = parse_perm_code(perm)
+    Permission = get_permission_model()
+    permission = Permission.objects.select_related('content_type').get(
+        codename=codename,
+        content_type__app_label=applabel.lower(),
+    )
+    model = permission.content_type.model_class()
+    if model is None:
+        raise Permission.DoesNotExist(
+            'No model for permission %s' % perm
+        )
+    return model.objects.filter(**fieldlookups)
 
 
 def _resolve_fieldlookups(request, kwargs, fieldlookups_kwargs=None, fieldlookups_getparams=None, fieldlookups_postparams=None, **fieldlookups):
@@ -183,10 +195,16 @@ def _check(perm, request, kwargs, raise_exception, **fieldlookups):
         perms = perm
 
     resolved_items = _resolve_fieldlookups(request, kwargs, **fieldlookups)
+    Permission = get_permission_model()
 
     items = None
     if fieldlookups is not None:
-        items = _get_permissible_items(perm, request, resolved_items)
+        try:
+            items = _get_permissible_items(perm, request, resolved_items)
+        except (Permission.DoesNotExist, Permission.MultipleObjectsReturned):
+            if raise_exception:
+                raise PermissionDenied
+            return False
         if items is None:
             if raise_exception:
                 raise Http404
@@ -207,6 +225,10 @@ def permission_required(perm, raise_exception=True, login_url=None, **fieldlooku
     enabled, redirecting to the log-in page if necessary.
     If the raise_exception parameter is given the PermissionDenied exception
     is raised.
+
+    With field lookups, the permission must be one ``app_label.codename``
+    that names exactly one ``auth.Permission`` row. A code with no row, or
+    a codename shared by two models of one app, is denied.
 
     Adapted from `django/contrib/auth/decorator.py`
     '''

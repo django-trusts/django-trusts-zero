@@ -29,7 +29,7 @@ def _condition_suffix(perm):
         return ''
     if '.' not in head:
         return tail
-    return parse_perm_code(perm)[3]
+    return parse_perm_code(perm)[2]
 
 
 def reject_queryable_condition(perm, api_name):
@@ -48,7 +48,8 @@ def resolve_content_permission(model, perm):
 
     Accepts a permission instance, a codename (``read_category``), a bare
     action (``read`` → ``read_<model>``), or a dotted code
-    (``app.read_category``).
+    (``app.read_category``). A dotted code keeps its codename exactly as
+    written; only undotted input expands a bare action.
 
     Queryset list APIs must reject or compile ``:condition`` suffixes
     before using this helper to resolve the grant. This helper may still
@@ -63,22 +64,13 @@ def resolve_content_permission(model, perm):
     model_name = model._meta.model_name
     perm = str(perm)
     if '.' in perm:
-        try:
-            applabel, modelname, action, _cond = parse_perm_code(perm)
-            perm = '%s_%s' % (action, modelname)
-            app_label = applabel
-            model_name = modelname
-        except ValueError:
-            app_label, perm = perm.split('.', 1)
-    if ':' in perm:
-        perm = perm.split(':', 1)[0]
-    if not perm.endswith('_' + model_name) and '_' not in perm:
-        perm = '%s_%s' % (perm, model_name)
+        app_label, perm, _cond = parse_perm_code(perm)
+    else:
+        perm = perm.partition(':')[0]
+        if '_' not in perm:
+            perm = '%s_%s' % (perm, model_name)
 
-    manager = Permission.objects
-    if hasattr(manager, 'get_by_natural_key'):
-        return manager.get_by_natural_key(perm, app_label.lower(), model_name)
-    return manager.get(
+    return Permission.objects.get(
         codename=perm,
         content_type__app_label=app_label.lower(),
         content_type__model=model_name,
