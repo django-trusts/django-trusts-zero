@@ -180,6 +180,13 @@ class DecoratorsTest(TestCase):
 
         create_test_users(self)
 
+        # A permission code names an auth.Permission row; that row's
+        # content type is the model the decorator checks.
+        Permission.objects.get_or_create(
+            codename='read_group',
+            content_type=ContentType.objects.get_for_model(Group),
+        )
+
         self.request = HttpRequest()
         setattr(self.request, 'user', self.user)
         self.request.META['SERVER_NAME'] = 'beedesk.com'

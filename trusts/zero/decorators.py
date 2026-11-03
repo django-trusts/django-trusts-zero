@@ -7,11 +7,10 @@ from functools import wraps
 from urllib.parse import urlparse
 from operator import and_, or_
 
-from django.apps import apps as django_apps
 from django.conf import settings
 from django.contrib.auth import REDIRECT_FIELD_NAME
 from django.contrib.auth.views import redirect_to_login
-from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import resolve_url
 from django.http import Http404
 
@@ -143,31 +142,27 @@ def _collect_args(args, fieldlookups):
 
 
 def _get_permissible_items(perm, request, fieldlookups):
+    """Rows the permission's content model is checked against.
+
+    The model comes from the ``auth.Permission`` row that the exact
+    ``app_label.codename`` names. A ``:condition`` suffix is left for
+    ``has_perms``. A code with no row raises ``Permission.DoesNotExist``.
+    """
     if fieldlookups is None:
         return None
 
-    applabel, codename, cond = parse_perm_code(perm)
-    if cond:
-        raise ValueError(
-            'Permission-required field lookups do not support a :condition '
-            'suffix: %r' % perm
-        )
+    applabel, codename, _cond = parse_perm_code(perm)
     Permission = get_permission_model()
-    try:
-        content_type = django_apps.get_model('contenttypes', 'ContentType')
-        permission = Permission.objects.get(
-            codename=codename,
-            content_type__app_label=applabel.lower(),
+    permission = Permission.objects.select_related('content_type').get(
+        codename=codename,
+        content_type__app_label=applabel.lower(),
+    )
+    model = permission.content_type.model_class()
+    if model is None:
+        raise Permission.DoesNotExist(
+            'No model for permission %s' % perm
         )
-        model = permission.content_type.model_class()
-        if model is None:
-            raise ObjectDoesNotExist
-        return model.objects.filter(**fieldlookups)
-    except (Permission.DoesNotExist, ObjectDoesNotExist):
-        raise ValueError(
-            'Permission code must be one app_label.codename string that '
-            'matches an auth.Permission row. Actual: %s' % perm
-        )
+    return model.objects.filter(**fieldlookups)
 
 
 def _resolve_fieldlookups(request, kwargs, fieldlookups_kwargs=None, fieldlookups_getparams=None, fieldlookups_postparams=None, **fieldlookups):
@@ -201,7 +196,12 @@ def _check(perm, request, kwargs, raise_exception, **fieldlookups):
 
     items = None
     if fieldlookups is not None:
-        items = _get_permissible_items(perm, request, resolved_items)
+        try:
+            items = _get_permissible_items(perm, request, resolved_items)
+        except get_permission_model().DoesNotExist:
+            if raise_exception:
+                raise PermissionDenied
+            return False
         if items is None:
             if raise_exception:
                 raise Http404

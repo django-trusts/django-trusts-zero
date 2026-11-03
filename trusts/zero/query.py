@@ -63,6 +63,7 @@ def filter_scope_rows(manager, user, content, perm_name, exclude_root=True, **kw
     if not isinstance(content, type):
         content = content.__class__
     content = content._meta.concrete_model
+    Permission = get_permission_model()
     try:
         permission = resolve_content_permission(content, perm_name)
     except Permission.DoesNotExist:

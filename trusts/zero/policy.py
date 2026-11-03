@@ -75,10 +75,7 @@ def resolve_content_permission(model, perm):
     if not perm.endswith('_' + model_name) and '_' not in perm:
         perm = '%s_%s' % (perm, model_name)
 
-    manager = Permission.objects
-    if hasattr(manager, 'get_by_natural_key'):
-        return manager.get_by_natural_key(perm, app_label.lower(), model_name)
-    return manager.get(
+    return Permission.objects.get(
         codename=perm,
         content_type__app_label=app_label.lower(),
         content_type__model=model_name,
