@@ -18,7 +18,7 @@ from django.test import SimpleTestCase, TestCase
 from trusts.zero.decorators import G, K, O, P, R, permission_required
 from trusts.zero.models import Trust, TrustUserPermission
 from tests.legacy.helpers import create_test_users, get_or_create_root_user
-from tests.models import Category
+from tests.models import Category, Ticket
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -338,3 +338,26 @@ class LegacyDecoratorRequestTests(TestCase):
                 'trusts_zero_tests.change_category',
                 fieldlookups_kwargs={'pk': 'pk'},
             )(_ok_view)(request, pk=category.pk)
+
+    def test_codename_shared_by_two_models_is_denied_not_picked(self):
+        for model in (Category, Ticket):
+            Permission.objects.create(
+                content_type=ContentType.objects.get_for_model(model),
+                codename='approve',
+                name='Can approve',
+            )
+        has_perms = Mock(return_value=True)
+        self.user.has_perms = has_perms
+        request = _request(self.user)
+        view = permission_required(
+            'trusts_zero_tests.approve',
+            fieldlookups_kwargs={'pk': 'pk'},
+            raise_exception=False,
+        )(_ok_view)
+        self.assertEqual(view(request, pk=1).status_code, 302)
+        with self.assertRaises(PermissionDenied):
+            permission_required(
+                'trusts_zero_tests.approve',
+                fieldlookups_kwargs={'pk': 'pk'},
+            )(_ok_view)(request, pk=1)
+        has_perms.assert_not_called()

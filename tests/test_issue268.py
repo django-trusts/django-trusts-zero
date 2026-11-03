@@ -25,3 +25,27 @@ class ExactCodenameResolutionZeroTest(TestCase):
         resolved = Category.objects.get_permission('trusts_zero_tests.read_category')
         self.assertEqual(resolved.pk, permission.pk)
         self.assertEqual(resolved.content_type, category_type)
+
+    def test_dotted_codename_without_underscore_stays_exact(self):
+        category_type = ContentType.objects.get_for_model(Category)
+        approve = Permission.objects.create(
+            content_type=category_type, codename='approve', name='Can approve',
+        )
+        Permission.objects.create(
+            content_type=category_type, codename='approve_category',
+            name='Can approve category',
+        )
+        resolved = Category.objects.get_permission('trusts_zero_tests.approve')
+        self.assertEqual(resolved.pk, approve.pk)
+
+    def test_dotted_codename_is_not_expanded_when_only_the_suffixed_row_exists(self):
+        Permission.objects.create(
+            content_type=ContentType.objects.get_for_model(Category),
+            codename='approve_category', name='Can approve category',
+        )
+        with self.assertRaises(Permission.DoesNotExist):
+            Category.objects.get_permission('trusts_zero_tests.approve')
+        self.assertEqual(
+            Category.objects.get_permission('approve').codename,
+            'approve_category',
+        )

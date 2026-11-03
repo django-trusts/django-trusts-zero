@@ -146,7 +146,9 @@ def _get_permissible_items(perm, request, fieldlookups):
 
     The model comes from the ``auth.Permission`` row that the exact
     ``app_label.codename`` names. A ``:condition`` suffix is left for
-    ``has_perms``. A code with no row raises ``Permission.DoesNotExist``.
+    ``has_perms``. A code with no row raises ``Permission.DoesNotExist``;
+    a codename shared by two models of one app raises
+    ``Permission.MultipleObjectsReturned``. ``_check`` denies both.
     """
     if fieldlookups is None:
         return None
@@ -193,12 +195,13 @@ def _check(perm, request, kwargs, raise_exception, **fieldlookups):
         perms = perm
 
     resolved_items = _resolve_fieldlookups(request, kwargs, **fieldlookups)
+    Permission = get_permission_model()
 
     items = None
     if fieldlookups is not None:
         try:
             items = _get_permissible_items(perm, request, resolved_items)
-        except get_permission_model().DoesNotExist:
+        except (Permission.DoesNotExist, Permission.MultipleObjectsReturned):
             if raise_exception:
                 raise PermissionDenied
             return False
@@ -222,6 +225,10 @@ def permission_required(perm, raise_exception=True, login_url=None, **fieldlooku
     enabled, redirecting to the log-in page if necessary.
     If the raise_exception parameter is given the PermissionDenied exception
     is raised.
+
+    With field lookups, the permission must be one ``app_label.codename``
+    that names exactly one ``auth.Permission`` row. A code with no row, or
+    a codename shared by two models of one app, is denied.
 
     Adapted from `django/contrib/auth/decorator.py`
     '''
