@@ -8,7 +8,7 @@ be the protected object's content type. The codename is not consulted.
 Same-model grants stay, including ``add_topic_to_category``.
 ``user.has_perm`` is the permission string. The permission row is
 checked on ``catalog.has_permission``, ``.authorized()``, and
-create-under-trust filtering.
+Trust-row ``filter_by_user_content_perm`` (Trust content only).
 """
 
 from django.contrib.auth.models import Group, Permission, User
@@ -146,7 +146,7 @@ class ContentTypeMismatchZeroTest(TestCase):
         )
         self.assertNotIn(self.topic_code, self.direct.get_all_permissions(self.category))
 
-    def test_listings_and_create_under_trust_follow_the_denial(self):
+    def test_listings_follow_the_denial(self):
         self.assertIn(
             self.category.pk,
             Category.objects.permitted('read', self.member).values_list(
@@ -176,26 +176,8 @@ class ContentTypeMismatchZeroTest(TestCase):
         ).lower()
         self.assertIn('django_content_type', denied_sql)
 
-        self.assertTrue(
-            Trust.objects.filter_by_user_content_perm(
-                self.member, Category, 'read', exclude_root=True,
-            ).filter(pk=self.org.pk).exists()
-        )
-        self.assertFalse(
-            Trust.objects.filter_by_user_content_perm(
-                self.member, Category, self.change_group, exclude_root=True,
-            ).filter(pk=self.org.pk).exists()
-        )
-        self.assertFalse(
-            Trust.objects.filter_by_user_content_perm(
-                self.direct, Group, self.read, exclude_root=True,
-            ).filter(pk=self.org.pk).exists()
-        )
-        self.assertTrue(
-            Trust.objects.filter_by_user_content_perm(
-                self.direct, Group, self.change_group, exclude_root=True,
-            ).filter(pk=self.org.pk).exists()
-        )
+        # ``filter_by_user_content_perm`` answers Trust rows only; non-Trust
+        # content returns empty, so listing denial above covers the old gate.
 
     def test_unregistered_model_is_zero_sql(self):
         unrelated = Organization.objects.create(name='z267-org', manager=self.member)
@@ -213,9 +195,4 @@ class ContentTypeMismatchZeroTest(TestCase):
         self.assertEqual(
             list(Category.objects.authorized(self.superuser, self.change_group)),
             [],
-        )
-        self.assertFalse(
-            Trust.objects.filter_by_user_content_perm(
-                self.superuser, Category, self.change_group, exclude_root=True,
-            ).filter(pk=self.org.pk).exists()
         )

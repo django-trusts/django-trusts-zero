@@ -132,7 +132,7 @@ class ZeroPublishMetadataTests(SimpleTestCase):
         self.assertIn('readme = "README.md"', text)
         self.assertNotIn('readme = "DEV.md"', text)
         self.assertIn('license = "BSD-2-Clause"', text)
-        companion = '471fe70f9c52a5fe0611e8cefaaa65be48b567cb'
+        companion = '155e626aa902376337cd693739d72a710d9ff2d8'
         stale_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
         stale_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
         stale_r5b = '91e1fb690e14a88626ff3c1c05b137da96c6b254'
@@ -143,7 +143,7 @@ class ZeroPublishMetadataTests(SimpleTestCase):
             'b59087d62d945089049dab676a502fb4a68327cd',
             'de8b20ef72e19048dd8642402271c5058e50e54d',
             'f5211c11047eb6810680f5d1b13bf34b2c376635',
-            'e9fd4cd4f77624f3d5351b505808c1d6fa8bcbc4',
+            '471fe70f9c52a5fe0611e8cefaaa65be48b567cb',
             'b6eebc9273bf30048d410305a53249bdb51679f0',
             '710b3ea26778ff069d1f5329adc9f2f481a1ea92',
             '12a81d2d679c8eaf98ea5f5e0fb20ab064ea9faa',

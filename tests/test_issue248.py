@@ -101,12 +101,7 @@ class ExplicitGroupAuthorizationTests(TestCase):
         self.assertFalse(
             Trust.objects.filter_by_user_content_perm(
                 self.user, Category, 'change', exclude_root=True,
-            ).filter(pk=self.org.pk).exists()
-        )
-        self.assertTrue(
-            Trust.objects.filter_by_user_content_perm(
-                self.user, Category, 'read', exclude_root=True,
-            ).filter(pk=self.org.pk).exists()
+            ).exists()
         )
 
     def test_role_ceiling_authorizes_without_group_enumeration(self):
