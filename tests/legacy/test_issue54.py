@@ -248,12 +248,6 @@ class FilterByPermittedContentLiveTest(_UsersMixin, TestCase):
                 Trust.objects.all(), self.carol, self.add, content=Category,
             ).exists()
         )
-        self.assertIn(
-            self.trust_a.pk,
-            _pks(Trust.objects.filter_by_user_content_perm(
-                self.carol, Category, 'add_category',
-            )),
-        )
 
     def test_content_terminal_and_unknown_scope_are_none(self):
         with self.assertNumQueries(0):
@@ -298,8 +292,17 @@ class FilterByPermittedContentLiveTest(_UsersMixin, TestCase):
             ).exists()
         )
 
-    def test_legacy_create_under_trust_path_is_unchanged(self):
+    def test_trust_row_filter_matches_direct_grants(self):
+        change_trust = _perm(Trust, 'change_trust')
+        TrustUserPermission(
+            trust=self.trust_a, entity=self.alice, permission=change_trust,
+        ).save()
         pks = _pks(Trust.objects.filter_by_user_content_perm(
-            self.alice, Category, 'add_category',
+            self.alice, Trust, 'change_trust',
         ))
         self.assertEqual(pks, {self.trust_a.pk})
+        self.assertFalse(
+            Trust.objects.filter_by_user_content_perm(
+                self.alice, Category, 'add_category',
+            ).exists()
+        )

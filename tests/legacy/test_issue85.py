@@ -265,13 +265,9 @@ class GroupAuthorizationTest(_UsersMixin, TestCase):
             )),
         )
 
-    def test_create_under_trust_gate_opens_for_declared_group(self):
-        pks = _pks(Trust.objects.filter_by_user_content_perm(
-            self.alice, Group, 'change_group',
-        ))
-        self.assertEqual(pks, {self.trust_a.pk})
+    def test_trust_row_filter_is_empty_for_non_trust_content(self):
         self.assertFalse(
             Trust.objects.filter_by_user_content_perm(
-                self.bob, Group, 'change_group',
+                self.alice, Group, 'change_group',
             ).exists()
         )

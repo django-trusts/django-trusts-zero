@@ -1,7 +1,7 @@
 """Zero #32: migrate donation to the final configured-backend methods.
 
 Paired against the exact django-trusts candidate
-``471fe70f9c52a5fe0611e8cefaaa65be48b567cb``.
+``155e626aa902376337cd693739d72a710d9ff2d8``.
 """
 
 from pathlib import Path
@@ -24,7 +24,7 @@ from trusts.errors import TrustsConfigurationError
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE_PIN = '471fe70f9c52a5fe0611e8cefaaa65be48b567cb'
+CORE_PIN = '155e626aa902376337cd693739d72a710d9ff2d8'
 STALE_269 = '71699ba35f960780fd9eb1a7fe027623584e8034'
 STALE_253 = 'e085898277682a4ee3de5d49985053cba9979cbe'
 STALE_R5B = '91e1fb690e14a88626ff3c1c05b137da96c6b254'

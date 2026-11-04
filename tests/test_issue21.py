@@ -45,7 +45,6 @@ class ZeroDocumentationSurfaceTest(SimpleTestCase):
             "trusts.zero.backends.TrustModelBackend",
             "from trusts.zero.models import",
             "granted",
-            "filter_authorized_scopes",
             "register_zero_content",
             "register_zero_content(registry, Receipt)",
             "trusts.zero.urls",

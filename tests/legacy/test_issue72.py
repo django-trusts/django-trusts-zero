@@ -239,9 +239,14 @@ class TicketPermittedTest(TestCase):
             _pks(Ticket.objects.permitted(self.add_code, self.alice)),
         )
 
-    def test_create_under_trust_filters_parent_rows(self):
+    def test_trust_row_filter_uses_stored_grants(self):
+        change_trust = _perm(Trust, 'change_trust')
+        TrustUserPermission(
+            trust=self.trust_a, entity=self.alice, permission=change_trust,
+        ).save()
+        self._reload()
         pks = _pks(Trust.objects.filter_by_user_content_perm(
-            self.alice, Ticket, 'change_ticket',
+            self.alice, Trust, 'change_trust',
         ))
         self.assertIn(self.trust_a.pk, pks)
         self.assertNotIn(self.trust_b.pk, pks)
